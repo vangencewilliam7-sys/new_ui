@@ -669,6 +669,7 @@ const ModulePage = ({ title, type }) => {
     if (title === 'Settings') return <SettingsDemo />;
     if (title === 'Announcements') return <AnnouncementsPage userRole={userRole} userId={userId} />;
     if (type === 'status') return <StatusDemo />;
+    if (type === 'project-documents') return <ProjectDocuments />;
     if (type === 'payroll') return <PayslipsPage userRole={userRole} userId={userId} addToast={addToast} />;
 
     // Helper to filter data by team
@@ -1071,7 +1072,7 @@ const ModulePage = ({ title, type }) => {
                 <KanbanDemo />
             ) : (
                 <>
-                    {type === 'workforce' && <ProjectDocuments />}
+                    {/* ProjectDocuments removed from workforce view */}
                     <DataTable
                         title={`${title} List`}
                         columns={config.columns}

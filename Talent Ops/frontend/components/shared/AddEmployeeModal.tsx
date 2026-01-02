@@ -41,6 +41,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
         allowances: '',
         joinDate: new Date().toISOString().split('T')[0],
     });
+    const [projectRole, setProjectRole] = useState('employee');
     const [error, setError] = useState('');
 
     useEffect(() => {
@@ -187,7 +188,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
                     const projectAssignments = selectedProjects.map(projectId => ({
                         project_id: projectId,
                         user_id: userId,
-                        role: formData.role
+                        role: projectRole
                     }));
 
                     const { error: projectMemberError } = await supabase
@@ -376,7 +377,6 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
                                 }}
                             >
                                 <option value="employee">Employee</option>
-                                <option value="team_lead">Team Lead</option>
                                 <option value="manager">Manager</option>
                                 <option value="executive">Executive</option>
                             </select>
@@ -412,6 +412,29 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
                                         {dept.department_name}
                                     </option>
                                 ))}
+                            </select>
+                        </div>
+
+                        {/* Project Role */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 500 }}>
+                                Project Role
+                            </label>
+                            <select
+                                value={projectRole}
+                                onChange={(e) => setProjectRole(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '8px',
+                                    border: '1px solid var(--border)',
+                                    backgroundColor: 'var(--background)',
+                                    color: 'var(--text-primary)',
+                                }}
+                            >
+                                <option value="employee">Employee</option>
+                                <option value="team_lead">Team Lead</option>
+                                <option value="manager">Manager</option>
                             </select>
                         </div>
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     LayoutDashboard,
     BarChart2,
@@ -18,18 +18,80 @@ import {
     Megaphone,
     MessageCircle,
     Building2,
-    FolderKanban
+    FolderKanban,
+    ChevronsUpDown,
+    Check
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useUser } from '../../context/UserContext';
+import { supabase } from '../../../../lib/supabaseClient';
 
 const Sidebar = ({ isCollapsed, toggleSidebar }) => {
     const navigate = useNavigate();
     const location = useLocation();
+    const { teamId, setTeamId, userId } = useUser();
+    const [projectName, setProjectName] = useState('Talent Ops');
+    const [userProjects, setUserProjects] = useState([]);
+    const [showProjectSelect, setShowProjectSelect] = useState(false);
 
     const [expandedMenus, setExpandedMenus] = useState({
         organization: true,
         project: true
     });
+
+    // Fetch User's Projects
+    useEffect(() => {
+        const fetchProjects = async () => {
+            if (!userId) return;
+            try {
+                // 1. Get Project IDs
+                const { data: members } = await supabase
+                    .from('project_members')
+                    .select('project_id')
+                    .eq('user_id', userId);
+
+                if (members && members.length > 0) {
+                    const ids = members.map(m => m.project_id);
+                    // 2. Get Project Details
+                    const { data: projectsData } = await supabase
+                        .from('projects')
+                        .select('id, name')
+                        .in('id', ids);
+
+                    if (projectsData) {
+                        setUserProjects(projectsData);
+                        // Update current project name logic
+                        const current = projectsData.find(p => p.id === teamId);
+                        if (current) setProjectName(current.name);
+                        else if (projectsData.length > 0 && !teamId) {
+                            // Auto-select first if none selected
+                            setTeamId(projectsData[0].id);
+                            setProjectName(projectsData[0].name);
+                        }
+                    }
+                } else {
+                    // Fallback to profile check if project_members is empty
+                    const { data: profile } = await supabase.from('profiles').select('team_id').eq('id', userId).single();
+                    if (profile && profile.team_id) {
+                        const { data: pData } = await supabase.from('projects').select('id, name').eq('id', profile.team_id).single();
+                        if (pData) {
+                            setUserProjects([pData]);
+                            setProjectName(pData.name);
+                            if (!teamId) setTeamId(pData.id);
+                        }
+                    }
+                }
+            } catch (e) { console.error('Error fetching projects', e); }
+        };
+        fetchProjects();
+    }, [userId, teamId, setTeamId]);
+
+    const handleProjectSwitch = (newProjectId, newProjectName) => {
+        setTeamId(newProjectId);
+        setProjectName(newProjectName);
+        setShowProjectSelect(false);
+        navigate('/teamlead-dashboard/dashboard');
+    };
 
     const toggleMenu = (label) => {
         if (isCollapsed) return;
@@ -104,8 +166,8 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
         );
     };
 
-    // Section header (collapsible)
-    const renderSectionHeader = (icon, label, sectionKey, emoji) => (
+    // Section header (collapsible) - Emojis Removed
+    const renderSectionHeader = (icon, label, sectionKey) => (
         <button
             onClick={() => toggleMenu(sectionKey)}
             style={{
@@ -128,7 +190,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {React.createElement(icon, { size: 14 })}
-                {!isCollapsed && <span>{emoji} {label}</span>}
+                {!isCollapsed && <span>{label}</span>}
             </div>
             {!isCollapsed && (
                 <ChevronDown
@@ -198,7 +260,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                 paddingRight: '4px'
             }}>
                 {/* Organization Section */}
-                {renderSectionHeader(Building2, 'Organization', 'organization', '🏢')}
+                {renderSectionHeader(Building2, 'Organization', 'organization')}
                 {expandedMenus.organization && !isCollapsed && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '8px' }}>
                         {orgMenuItems.map((item, idx) => renderMenuItem(item, idx, 'org'))}
@@ -210,8 +272,73 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                     </div>
                 )}
 
+                {/* CURRENT PROJECT SECTION - Functional */}
+                {!isCollapsed && (
+                    <div style={{ padding: '0 4px', marginTop: '16px', marginBottom: '8px' }}>
+                        <h3 style={{ fontSize: '0.65rem', fontWeight: 'bold', color: '#94a3b8', marginBottom: '8px', paddingLeft: '8px', letterSpacing: '0.05em' }}>CURRENT PROJECT</h3>
+                        <div
+                            onClick={() => setShowProjectSelect(!showProjectSelect)}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                                padding: '10px 12px',
+                                backgroundColor: 'rgba(255,255,255,0.05)',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '8px',
+                                cursor: 'pointer',
+                                marginBottom: '8px',
+                                position: 'relative'
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }}></div>
+                                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{projectName}</span>
+                            </div>
+                            <ChevronDown size={16} color="rgba(255,255,255,0.5)" />
+                        </div>
+
+                        {/* Dropdown Menu */}
+                        {showProjectSelect && userProjects.length > 0 && (
+                            <div style={{
+                                backgroundColor: '#272740',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                borderRadius: '8px',
+                                padding: '4px',
+                                marginBottom: '8px',
+                                overflow: 'hidden',
+                                animation: 'fadeIn 0.2s ease'
+                            }}>
+                                {userProjects.map(proj => (
+                                    <div
+                                        key={proj.id}
+                                        onClick={() => handleProjectSwitch(proj.id, proj.name)}
+                                        style={{
+                                            padding: '8px 12px',
+                                            fontSize: '0.85rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            backgroundColor: teamId === proj.id ? 'rgba(139, 92, 246, 0.2)' : 'transparent',
+                                            color: teamId === proj.id ? 'white' : 'rgba(255,255,255,0.7)',
+                                            borderRadius: '6px',
+                                            cursor: 'pointer'
+                                        }}
+                                        onMouseEnter={(e) => { if (teamId !== proj.id) e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)'; }}
+                                        onMouseLeave={(e) => { if (teamId !== proj.id) e.currentTarget.style.backgroundColor = 'transparent'; }}
+                                    >
+                                        <span style={{ fontWeight: teamId === proj.id ? '600' : '400' }}>{proj.name}</span>
+                                        {teamId === proj.id && <Check size={14} />}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
+
                 {/* Project Section */}
-                {renderSectionHeader(FolderKanban, 'Project', 'project', '📂')}
+                {renderSectionHeader(FolderKanban, projectName.toUpperCase() || 'PROJECT', 'project')}
+
                 {expandedMenus.project && !isCollapsed && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         {projectMenuItems.map((item, idx) => renderMenuItem(item, idx, 'proj'))}
@@ -250,6 +377,12 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                     {!isCollapsed && <span>Logout</span>}
                 </button>
             </div>
+            <style>{`
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(-5px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+            `}</style>
         </aside>
     );
 };

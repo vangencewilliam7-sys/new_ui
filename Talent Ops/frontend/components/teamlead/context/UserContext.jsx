@@ -79,7 +79,8 @@ export const UserProvider = ({ children }) => {
             teamId,
             userStatus, setUserStatus,
             userTask, setUserTask,
-            lastActive, setLastActive
+            lastActive, setLastActive,
+            setTeamId // Exposed for switching projects
         }}>
             {children}
         </UserContext.Provider>

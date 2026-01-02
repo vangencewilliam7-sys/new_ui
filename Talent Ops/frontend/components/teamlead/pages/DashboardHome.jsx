@@ -7,13 +7,14 @@ import {
 import { useToast } from '../context/ToastContext';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../../../lib/supabaseClient';
+import NotesTile from '../../shared/NotesTile';
 
 import AttendanceTracker from '../components/Dashboard/AttendanceTracker';
 
 
 const DashboardHome = () => {
     const { addToast } = useToast();
-    const { userName, currentTeam } = useUser();
+    const { userName, currentTeam, teamId } = useUser();
     const navigate = useNavigate();
 
     // Helper to format date as YYYY-MM-DD for comparison (Local Time)
@@ -105,7 +106,9 @@ const DashboardHome = () => {
                 }
 
                 // Get team members (employees with the same team_id)
-                if (profile.team_id) {
+                if (profile && teamId) profile.team_id = teamId; // Override with selected project
+
+                if (profile?.team_id) {
                     console.log('Fetching team members for team_id:', profile.team_id);
 
                     const { data: members, error: membersError } = await supabase
@@ -332,7 +335,7 @@ const DashboardHome = () => {
         };
 
         fetchTeamData();
-    }, [currentTeam]);
+    }, [currentTeam, teamId]);
 
     const filteredTeamMembers = currentTeam === 'All'
         ? teamMembers
@@ -418,13 +421,13 @@ const DashboardHome = () => {
                 {/* Left Column: Cards Grid */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
 
-                    {/* Attendance Tracker - Added Here */}
+                    {/* Attendance Tracker */}
                     <AttendanceTracker />
 
-                    {/* Top Row Cards */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                    {/* Cards Grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'start' }}>
 
-                        {/* Employees Card (Yellow) */}
+                        {/* Attendance Report Card (Yellow) */}
                         <div style={{ backgroundColor: '#fef08a', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '240px', position: 'relative', overflow: 'hidden' }}>
                             <div>
                                 <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#854d0e' }}>Attendance Report:</h3>
@@ -460,100 +463,8 @@ const DashboardHome = () => {
                             </div>
                         </div>
 
-                        {/* Task Status Card (Blue) - Moved Here */}
-                        <div
-                            onClick={() => navigate('/teamlead-dashboard/team-tasks')}
-                            style={{
-                                backgroundColor: '#bfdbfe', borderRadius: '24px', padding: '24px',
-                                display: 'flex', flexDirection: 'column', minHeight: '240px',
-                                position: 'relative', overflow: 'hidden', cursor: 'pointer',
-                                transition: 'transform 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
-                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                        >
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#1e3a8a', marginBottom: '24px' }}>Task Status:</h3>
-
-                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                <div>
-                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#fff' }}>{taskStats.inProgress}</span>
-                                    <p style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#1e3a8a', marginTop: '4px' }}>IN PROGRESS</p>
-                                </div>
-                                <div>
-                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#fff' }}>{taskStats.inReview}</span>
-                                    <p style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#1e3a8a', marginTop: '4px' }}>IN REVIEW</p>
-                                </div>
-                                <div>
-                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#fff' }}>{taskStats.completed}</span>
-                                    <p style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#1e3a8a', marginTop: '4px' }}>COMPLETED</p>
-                                </div>
-                            </div>
-
-                            {/* Decorative Triangle */}
-                            <div style={{ position: 'absolute', bottom: 0, right: 0, width: '0', height: '0', borderStyle: 'solid', borderWidth: '0 0 100px 100px', borderColor: 'transparent transparent rgba(255,255,255,0.3) transparent' }}></div>
-                        </div>
-                    </div>
-
-                    {/* Team Analytics Card (Green) - Moved to Bottom, Full Width */}
-                    <div style={{ backgroundColor: '#bbf7d0', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', minHeight: '200px' }}>
-                        <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#14532d', marginBottom: '16px' }}>Team Members Status:</h3>
-
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {loading ? (
-                                <div style={{ textAlign: 'center', padding: '40px', color: '#14532d' }}>
-                                    <div style={{ fontSize: '1rem', fontWeight: '600' }}>Loading team members...</div>
-                                </div>
-                            ) : filteredTeamMembers.length === 0 ? (
-                                <div style={{ textAlign: 'center', padding: '40px', color: '#14532d' }}>
-                                    <div style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '8px' }}>No team members found</div>
-                                    <div style={{ fontSize: '0.875rem', color: '#166534' }}>
-                                        {teamLeadProfile?.team_id
-                                            ? 'No team members are assigned to your team yet.'
-                                            : 'You are not assigned to a team. Please contact your administrator.'}
-                                    </div>
-                                </div>
-                            ) : (
-                                filteredTeamMembers.map((member) => (
-                                    <div
-                                        key={member.id}
-                                        onClick={() => navigate('/teamlead-dashboard/team-status')}
-                                        style={{
-                                            cursor: 'pointer',
-                                            display: 'flex',
-                                            justifyContent: 'space-between',
-                                            alignItems: 'center',
-                                            padding: '12px 16px',
-                                            backgroundColor: 'rgba(255,255,255,0.4)',
-                                            borderRadius: '12px',
-                                            transition: 'transform 0.2s'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.transform = 'translateX(4px)'}
-                                        onMouseLeave={(e) => e.currentTarget.style.transform = 'translateX(0)'}
-                                    >
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                            <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#14532d', fontSize: '0.8rem' }}>
-                                                {member.name.charAt(0)}
-                                            </div>
-                                            <div>
-                                                <p style={{ fontWeight: 'bold', color: '#14532d', fontSize: '0.9rem' }}>{member.name}</p>
-                                                <p style={{ fontSize: '0.75rem', color: '#166534' }}>{member.task}</p>
-                                            </div>
-                                        </div>
-                                        <span style={{
-                                            fontSize: '0.75rem',
-                                            fontWeight: 'bold',
-                                            color: member.status === 'Online' ? '#15803d' : member.status === 'On Leave' ? '#a16207' : '#6b7280',
-                                            backgroundColor: member.status === 'Online' ? '#dcfce7' : member.status === 'On Leave' ? '#fef3c7' : '#f3f4f6',
-                                            padding: '4px 8px',
-                                            borderRadius: '12px',
-                                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                                        }}>
-                                            {member.status}
-                                        </span>
-                                    </div>
-                                ))
-                            )}
-                        </div>
+                        {/* Notes Tile */}
+                        <NotesTile />
                     </div>
 
                 </div>

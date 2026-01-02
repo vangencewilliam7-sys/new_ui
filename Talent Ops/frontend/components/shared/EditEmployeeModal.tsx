@@ -44,6 +44,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
         effective_from: new Date().toISOString().split('T')[0],
         joinDate: '',
     });
+    const [projectRole, setProjectRole] = useState('employee');
     const [originalSalary, setOriginalSalary] = useState<any>(null);
     const [error, setError] = useState('');
 
@@ -278,7 +279,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
                 const newAssignments = projectsToAdd.map(projectId => ({
                     project_id: projectId,
                     user_id: employee.id,
-                    role: formData.role
+                    role: projectRole
                 }));
                 await supabase
                     .from('project_members')
@@ -289,7 +290,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
             if (selectedProjects.length > 0) {
                 await supabase
                     .from('project_members')
-                    .update({ role: formData.role })
+                    .update({ role: projectRole })
                     .eq('user_id', employee.id)
                     .in('project_id', selectedProjects);
             }
@@ -529,7 +530,6 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
                                 }}
                             >
                                 <option value="employee">Employee</option>
-                                <option value="team_lead">Team Lead</option>
                                 <option value="manager">Manager</option>
                                 <option value="executive">Executive</option>
                             </select>
@@ -559,6 +559,29 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
                                         {dept.department_name}
                                     </option>
                                 ))}
+                            </select>
+                        </div>
+
+                        {/* Project Role */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 500 }}>
+                                Project Role
+                            </label>
+                            <select
+                                value={projectRole}
+                                onChange={(e) => setProjectRole(e.target.value)}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '8px',
+                                    border: '1px solid var(--border)',
+                                    backgroundColor: 'var(--background)',
+                                    color: 'var(--text-primary)',
+                                }}
+                            >
+                                <option value="employee">Employee</option>
+                                <option value="team_lead">Team Lead</option>
+                                <option value="manager">Manager</option>
                             </select>
                         </div>
 

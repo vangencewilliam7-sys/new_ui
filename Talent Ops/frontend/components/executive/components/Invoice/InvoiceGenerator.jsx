@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Sparkles, CheckCircle, XCircle, Info, Download, Share, Folder, Link, Mail } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import emailjs from '@emailjs/browser';
@@ -867,9 +868,9 @@ const InvoiceGenerator = () => {
           <div className={`notification-box notification-${notification.type}`}>
             <div className="notification-content">
               <span className="notification-icon">
-                {notification.type === 'success' && '✅'}
-                {notification.type === 'error' && '❌'}
-                {notification.type === 'info' && 'ℹ️'}
+                {notification.type === 'success' && <CheckCircle size={20} />}
+                {notification.type === 'error' && <XCircle size={20} />}
+                {notification.type === 'info' && <Info size={20} />}
               </span>
               <p className="notification-message">{notification.message}</p>
             </div>
@@ -886,12 +887,14 @@ const InvoiceGenerator = () => {
       <header className="invoice-header">
         <h1>Invoice Generator</h1>
         <div className="actions">
-          <button className="btn secondary" onClick={generatePDF}>📥 Download PDF</button>
+          <button className="btn secondary" onClick={generatePDF}>
+            <Download size={16} style={{ marginRight: '8px' }} /> Download PDF
+          </button>
           <button className="btn secondary" onClick={exportPDFAndSave} disabled={loading}>
             {loading ? 'Exporting...' : 'Export PDF'}
           </button>
           <button className="btn share" onClick={openShareModal}>
-            📤 Share
+            <Share size={16} style={{ marginRight: '8px' }} /> Share
           </button>
         </div>
       </header>
@@ -915,7 +918,9 @@ const InvoiceGenerator = () => {
                 <div className="upload-placeholder">
                   <label htmlFor="logo-upload">
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: '32px', marginBottom: '8px' }}>📁</div>
+                      <div style={{ marginBottom: '8px', display: 'flex', justifyContent: 'center' }}>
+                        <Folder size={32} color="#a0aec0" />
+                      </div>
                       <div>Click to Upload Logo</div>
                       <div style={{ fontSize: '12px', color: '#718096', marginTop: '4px' }}>
                         PNG, JPG, GIF (Max 5MB)
@@ -1186,7 +1191,11 @@ const InvoiceGenerator = () => {
               minWidth: '250px'
             }}
           >
-            {loading ? 'Generating...' : '✨ Generate Invoice'}
+            {loading ? 'Generating...' : (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+                <Sparkles size={18} /> Generate Invoice
+              </span>
+            )}
           </button>
         </div>
 
@@ -1307,19 +1316,19 @@ const InvoiceGenerator = () => {
         <div className="modal-overlay" onClick={() => setShowShareModal(false)}>
           <div className="modal-content share-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>📤 Share Invoice</h2>
+              <h2><Share size={20} style={{ marginRight: '10px' }} /> Share Invoice</h2>
               <button className="modal-close" onClick={() => setShowShareModal(false)}>×</button>
             </div>
 
             <div className="share-options">
               <button className="share-option" onClick={copyInvoiceLink}>
-                <span className="share-icon">🔗</span>
+                <span className="share-icon"><Link size={20} /></span>
                 <span>Copy Link</span>
               </button>
             </div>
 
             <div className="email-form">
-              <h3>📧 Send via Email</h3>
+              <h3><Mail size={20} style={{ marginRight: '10px' }} /> Send via Email</h3>
 
               <div className="form-group">
                 <label>Recipient Email</label>
@@ -1352,7 +1361,7 @@ const InvoiceGenerator = () => {
               </div>
 
               <button className="btn primary send-email-btn" onClick={sendEmail}>
-                📧 Send Email
+                <Mail size={16} style={{ marginRight: '8px' }} /> Send Email
               </button>
             </div>
           </div>

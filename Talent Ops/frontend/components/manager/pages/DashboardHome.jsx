@@ -7,6 +7,7 @@ import {
 import { useToast } from '../context/ToastContext';
 import { useUser } from '../context/UserContext';
 import { supabase } from '../../../lib/supabaseClient';
+import NotesTile from '../../shared/NotesTile';
 
 import AttendanceTracker from '../components/Dashboard/AttendanceTracker';
 
@@ -467,6 +468,11 @@ const DashboardHome = () => {
                                 </div>
                             ))}
                         </div>
+                    </div>
+
+                    {/* Notes Tile */}
+                    <div style={{ marginTop: '32px' }}>
+                        <NotesTile />
                     </div>
 
                 </div>

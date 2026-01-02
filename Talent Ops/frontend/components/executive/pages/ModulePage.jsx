@@ -161,6 +161,7 @@ const ModulePage = ({ title, type }) => {
                         .select(`
                             user_id,
                             project_id,
+                            role,
                             projects:project_id (
                                 name
                             )
@@ -170,11 +171,22 @@ const ModulePage = ({ title, type }) => {
                         console.error('Error fetching team members:', teamMembersError);
                     }
 
-                    // Create a map of user_id -> project name
                     const projectMap = {};
                     if (teamMembersData) {
                         teamMembersData.forEach(member => {
-                            if (!projectMap[member.user_id]) projectMap[member.user_id] = []; if (member.projects?.name) projectMap[member.user_id].push(member.projects.name);
+                            if (!projectMap[member.user_id]) projectMap[member.user_id] = [];
+                            if (member.projects?.name) {
+                                // Format role for display
+                                let roleDisplay = member.role || 'Member';
+                                if (roleDisplay === 'team_lead') roleDisplay = 'Team Lead';
+                                else if (roleDisplay === 'employee') roleDisplay = 'Employee';
+                                else roleDisplay = roleDisplay.charAt(0).toUpperCase() + roleDisplay.slice(1);
+
+                                projectMap[member.user_id].push({
+                                    name: member.projects.name,
+                                    role: roleDisplay
+                                });
+                            }
                         });
                     }
 
@@ -247,20 +259,30 @@ const ModulePage = ({ title, type }) => {
                             const currentTask = (availability === 'Online' && attendance?.current_task) ? attendance.current_task :
                                 (availability === 'Online') ? 'Available' : '-';
 
-                            // Get project names from projectMap (array), fallback to teams.team_name, then 'Unassigned'
                             let teamName;
                             if (Array.isArray(projectMap[emp.id]) && projectMap[emp.id].length > 0) {
-                                // Multiple projects - render each on a new line
+                                // Multiple projects - render each on a new line with role
                                 teamName = (
-                                    <>
-                                        {projectMap[emp.id].map((projectName, index) => (
-                                            <div key={index}>{projectName}</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                        {projectMap[emp.id].map((proj, index) => (
+                                            <div key={index} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span>{proj.name}</span>
+                                                <span style={{
+                                                    fontSize: '0.7rem',
+                                                    color: '#94a3b8',
+                                                    background: 'rgba(255,255,255,0.05)',
+                                                    padding: '1px 6px',
+                                                    borderRadius: '4px',
+                                                    whiteSpace: 'nowrap'
+                                                }}>
+                                                    {proj.role}
+                                                </span>
+                                            </div>
                                         ))}
-                                    </>
+                                    </div>
                                 );
                             } else {
                                 teamName = 'Unassigned';
-
                             }
 
                             // Determine Department Display (Name matched by ID or the ID itself/legacy name)
@@ -282,7 +304,7 @@ const ModulePage = ({ title, type }) => {
                                 lastActive: lastActive, // Real clock time
                                 joinDate: emp.join_date ? new Date(emp.join_date).toLocaleDateString() : (emp.created_at ? new Date(emp.created_at).toLocaleDateString() : 'N/A'),
                                 performance: 'N/A',
-                                projects: 0,
+                                projects: projectMap[emp.id]?.length || 0,
                                 tasksCompleted: 0
                             };
                         });

@@ -165,23 +165,7 @@ const AnalyticsDemo = () => {
                 </div>
             </div>
 
-            {/* Recent Achievements / Feedback */}
-            <div style={{ backgroundColor: 'var(--surface)', borderRadius: '16px', boxShadow: 'var(--shadow-sm)', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                <div style={{ padding: 'var(--spacing-lg)', borderBottom: '1px solid var(--border)' }}>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>Recent Achievements</h3>
-                </div>
-                <div style={{ padding: 'var(--spacing-lg)', display: 'flex', flexDirection: 'column', gap: '16px', alignItems: 'center', color: 'var(--text-secondary)' }}>
-                    {myStats.performance === 100 ? (
-                        <div style={{ textAlign: 'center' }}>
-                            <Award size={48} color="#f59e0b" style={{ marginBottom: '8px' }} />
-                            <p style={{ fontWeight: 'bold', color: 'var(--text-primary)' }}>All Caught Up!</p>
-                            <p>You have completed all your assigned tasks. Great job!</p>
-                        </div>
-                    ) : (
-                        <p>Keep working hard to unlock achievements!</p>
-                    )}
-                </div>
-            </div>
+
 
         </div>
     );

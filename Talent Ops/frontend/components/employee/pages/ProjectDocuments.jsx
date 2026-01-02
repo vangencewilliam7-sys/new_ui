@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Plus, Trash2, Edit3, Save, X, Code, FileQuestion, ListTodo, Loader2, Download, Upload } from 'lucide-react';
+import { FileText, Plus, Trash2, Edit3, Save, X, Code, FileQuestion, ListTodo, Loader2, Download, Upload, Eye } from 'lucide-react';
 import { supabase } from '../../../lib/supabaseClient';
 import { useProject } from '../context/ProjectContext';
 import { useToast } from '../context/ToastContext';
 
-const ProjectDocuments = () => {
+const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
     const { currentProject, projectRole } = useProject();
-    const { addToast } = useToast();
+    const toastContext = useToast() || {};
+    const addToast = parentAddToast || toastContext.addToast || ((msg) => console.log('Toast:', msg));
     const [documents, setDocuments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showAddModal, setShowAddModal] = useState(false);
@@ -14,6 +15,7 @@ const ProjectDocuments = () => {
     const [newDoc, setNewDoc] = useState({ title: '', content: '', doc_type: 'requirements' });
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
+    const [viewingDoc, setViewingDoc] = useState(null);
 
     const isManager = projectRole === 'manager' || projectRole === 'team_lead';
 
@@ -25,17 +27,57 @@ const ProjectDocuments = () => {
     ];
 
     const fetchDocuments = async () => {
-        if (!currentProject?.id) return;
         setLoading(true);
         try {
-            const { data, error } = await supabase
-                .from('project_documents')
-                .select('*')
-                .eq('project_id', currentProject.id)
-                .order('created_at', { ascending: false });
+            let data, error;
+            let projectMap = {};
+
+            if (userRole === 'executive') {
+                // Fetch ALL documents for executives
+                const result = await supabase
+                    .from('project_documents')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+                data = result.data;
+                error = result.error;
+
+                // Fetch project names manually
+                if (data) {
+                    const projectIds = [...new Set(data.map(d => d.project_id).filter(Boolean))];
+                    if (projectIds.length > 0) {
+                        const { data: projectsData } = await supabase
+                            .from('projects')
+                            .select('id, name')
+                            .in('id', projectIds);
+
+                        if (projectsData) {
+                            projectsData.forEach(p => projectMap[p.id] = p.name);
+                        }
+                    }
+                }
+            } else {
+                if (!currentProject?.id) {
+                    setLoading(false);
+                    return;
+                }
+                const result = await supabase
+                    .from('project_documents')
+                    .select('*')
+                    .eq('project_id', currentProject.id)
+                    .order('created_at', { ascending: false });
+                data = result.data;
+                error = result.error;
+            }
 
             if (error) throw error;
-            setDocuments(data || []);
+
+            // Attach project names
+            const enhancedData = (data || []).map(doc => ({
+                ...doc,
+                project_name: (userRole === 'executive' ? projectMap[doc.project_id] : currentProject?.name) || 'Unknown Project'
+            }));
+
+            setDocuments(enhancedData);
         } catch (err) {
             console.error('Error fetching documents:', err);
             setDocuments([]);
@@ -46,7 +88,7 @@ const ProjectDocuments = () => {
 
     useEffect(() => {
         fetchDocuments();
-    }, [currentProject?.id]);
+    }, [currentProject?.id, userRole]);
 
     const handleFileChange = (e) => {
         if (e.target.files && e.target.files[0]) {
@@ -102,29 +144,6 @@ const ProjectDocuments = () => {
                 .single();
 
             if (error) throw error;
-
-            // ✨ Automatically index document for chatbot RAG
-            if (fileUrl && docData) {
-                try {
-                    const ingestResponse = await fetch('http://localhost:8000/api/ingest/document', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            document_id: docData.id,
-                            file_url: fileUrl,
-                            document_type: newDoc.doc_type || 'project_doc',
-                            department: currentProject.name || 'general',
-                            role_visibility: ['all'],
-                            title: newDoc.title
-                        })
-                    });
-                    if (ingestResponse.ok) {
-                        console.log('✅ Document indexed for chatbot');
-                    }
-                } catch (ingestErr) {
-                    console.warn('⚠️ RAG indexing failed:', ingestErr);
-                }
-            }
 
             addToast('Document added successfully', 'success');
             setShowAddModal(false);
@@ -271,6 +290,11 @@ const ProjectDocuments = () => {
                                             <h3 style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e293b' }}>{doc.title}</h3>
                                         )}
                                     </div>
+                                    {userRole === 'executive' && (
+                                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: 'auto', marginRight: '10px' }}>
+                                            {doc.project_name}
+                                        </div>
+                                    )}
                                     {isManager && (
                                         <div style={{ display: 'flex', gap: '4px' }}>
                                             {isEditing ? (
@@ -315,18 +339,17 @@ const ProjectDocuments = () => {
                                     </span>
 
                                     {doc.file_url && (
-                                        <a
-                                            href={doc.file_url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
+                                        <button
+                                            onClick={() => setViewingDoc(doc)}
                                             style={{
                                                 display: 'flex', alignItems: 'center', gap: '4px',
                                                 fontSize: '0.8rem', fontWeight: 600, color: '#3b82f6',
-                                                textDecoration: 'none'
+                                                textDecoration: 'none', background: 'none', border: 'none',
+                                                cursor: 'pointer'
                                             }}
                                         >
-                                            <Download size={14} /> Download
-                                        </a>
+                                            <Eye size={14} /> View
+                                        </button>
                                     )}
                                 </div>
                             </div>
@@ -411,6 +434,141 @@ const ProjectDocuments = () => {
                             <button onClick={handleAddDocument} disabled={uploading} style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: 'white', cursor: 'pointer', fontWeight: 600, opacity: uploading ? 0.7 : 1 }}>
                                 {uploading ? 'Uploading...' : 'Add Document'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Preview Modal */}
+            {viewingDoc && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', zIndex: 1100,
+                    padding: '20px'
+                }}>
+                    <div style={{
+                        backgroundColor: 'white', borderRadius: '12px',
+                        width: '100%', maxWidth: '900px', height: '85vh',
+                        display: 'flex', flexDirection: 'column',
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
+                    }}>
+                        {/* Preview Header */}
+                        <div style={{
+                            padding: '16px 24px', borderBottom: '1px solid #e2e8f0',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <div style={{
+                                    padding: '8px', borderRadius: '8px', backgroundColor: '#f1f5f9',
+                                    color: '#64748b'
+                                }}>
+                                    <FileText size={20} />
+                                </div>
+                                <div>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+                                        {viewingDoc.title}
+                                    </h3>
+                                    <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0 }}>
+                                        Previewing document
+                                    </p>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <a
+                                    href={viewingDoc.file_url}
+                                    download // Attribute to force download if possible, otherwise just link
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '8px',
+                                        padding: '8px 16px', borderRadius: '8px',
+                                        backgroundColor: '#0f172a', color: 'white',
+                                        textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600
+                                    }}
+                                >
+                                    <Download size={16} /> Download
+                                </a>
+                                <button
+                                    onClick={() => setViewingDoc(null)}
+                                    style={{
+                                        padding: '8px', borderRadius: '8px',
+                                        border: '1px solid #e2e8f0', backgroundColor: 'white',
+                                        color: '#64748b', cursor: 'pointer', display: 'flex'
+                                    }}
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Preview Content */}
+                        <div style={{ flex: 1, overflow: 'hidden', backgroundColor: '#f8fafc', display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '0' }}>
+                            {(() => {
+                                const ext = viewingDoc.file_url?.split('.').pop()?.split('?')[0]?.toLowerCase();
+                                if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) {
+                                    return (
+                                        <img
+                                            src={viewingDoc.file_url}
+                                            alt={viewingDoc.title}
+                                            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                        />
+                                    );
+                                }
+                                // Native Browser Support (PDF, Text, HTML)
+                                else if (['pdf', 'txt', 'html', 'htm', 'md', 'json'].includes(ext)) {
+                                    return (
+                                        <iframe
+                                            src={viewingDoc.file_url}
+                                            style={{ width: '100%', height: '100%', border: 'none', backgroundColor: 'white' }}
+                                            title="Document Preview"
+                                        />
+                                    );
+                                }
+                                // Office Documents (Google Docs Viewer)
+                                else if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'csv'].includes(ext)) {
+                                    const encodedUrl = encodeURIComponent(viewingDoc.file_url);
+                                    return (
+                                        <iframe
+                                            src={`https://docs.google.com/gview?url=${encodedUrl}&embedded=true`}
+                                            style={{ width: '100%', height: '100%', border: 'none' }}
+                                            title="Office Document Preview"
+                                        />
+                                    );
+                                } else {
+                                    return (
+                                        <div style={{ textAlign: 'center', padding: '40px' }}>
+                                            <div style={{
+                                                width: '80px', height: '80px', borderRadius: '50%',
+                                                backgroundColor: '#e2e8f0', color: '#64748b',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                margin: '0 auto 20px auto'
+                                            }}>
+                                                <FileText size={40} />
+                                            </div>
+                                            <h4 style={{ fontSize: '1.2rem', fontWeight: 600, color: '#1e293b', marginBottom: '8px' }}>
+                                                Preview not available
+                                            </h4>
+                                            <p style={{ color: '#64748b', marginBottom: '24px' }}>
+                                                This file type cannot be previewed directly.
+                                            </p>
+                                            <a
+                                                href={viewingDoc.file_url}
+                                                download
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{
+                                                    display: 'inline-flex', alignItems: 'center', gap: '8px',
+                                                    padding: '10px 20px', borderRadius: '8px',
+                                                    backgroundColor: '#3b82f6', color: 'white',
+                                                    textDecoration: 'none', fontWeight: 600
+                                                }}
+                                            >
+                                                <Download size={18} /> Download File
+                                            </a>
+                                        </div>
+                                    );
+                                }
+                            })()}
                         </div>
                     </div>
                 </div>

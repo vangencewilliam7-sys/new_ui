@@ -109,7 +109,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
     };
 
     // Section header (collapsible)
-    const renderSectionHeader = (icon, label, sectionKey, emoji) => (
+    const renderSectionHeader = (icon, label, sectionKey) => (
         <button
             onClick={() => toggleMenu(sectionKey)}
             style={{
@@ -132,7 +132,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {React.createElement(icon, { size: 14 })}
-                {!isCollapsed && <span>{emoji} {label}</span>}
+                {!isCollapsed && <span>{label}</span>}
             </div>
             {!isCollapsed && (
                 <ChevronDown
@@ -202,7 +202,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                 paddingRight: '4px'
             }}>
                 {/* Organization Section */}
-                {renderSectionHeader(Building2, 'Organization', 'organization', '🏢')}
+                {renderSectionHeader(Building2, 'Organization', 'organization')}
                 {expandedMenus.organization && !isCollapsed && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '8px' }}>
                         {orgMenuItems.map((item, idx) => renderMenuItem(item, idx, 'org'))}
@@ -215,7 +215,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                 )}
 
                 {/* Project Section */}
-                {renderSectionHeader(FolderKanban, 'Project', 'project', '📂')}
+                {renderSectionHeader(FolderKanban, 'Project', 'project')}
                 {expandedMenus.project && !isCollapsed && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         {projectMenuItems.map((item, idx) => renderMenuItem(item, idx, 'proj'))}

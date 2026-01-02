@@ -426,14 +426,13 @@ const Chatbot = () => {
                 </div>
             )}
 
-            {/* Toggle Button (FAB) */}
+            {/* Toggle Button (FAB) - Chat Disabled but Draggable */}
             <button
                 className="chatbot-fab"
                 onMouseDown={handleMouseDown}
                 onClick={(e) => {
-                    if (!isDragging) {
-                        setIsOpen(!isOpen);
-                    }
+                    // Prevent opening chat, but allow dragging
+                    e.preventDefault();
                 }}
                 style={{
                     width: '64px',
@@ -446,7 +445,7 @@ const Chatbot = () => {
                     justifyContent: 'center',
                     boxShadow: 'var(--shadow-lg)',
                     transition: isDragging ? 'none' : 'transform 0.2s ease, box-shadow 0.2s ease',
-                    cursor: isDragging ? 'grabbing' : 'grab',
+                    cursor: isDragging ? 'grabbing' : 'not-allowed',
                     border: 'none',
                     userSelect: 'none'
                 }}
@@ -462,8 +461,9 @@ const Chatbot = () => {
                         e.currentTarget.style.boxShadow = 'var(--shadow-lg)';
                     }
                 }}
+                title="AI Chatbot is currently unavailable"
             >
-                {isOpen ? <X size={28} /> : <MessageSquare size={28} />}
+                <MessageSquare size={28} />
             </button>
 
             <style>

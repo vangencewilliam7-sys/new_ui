@@ -9,7 +9,7 @@ import ModulePage from '../executive/pages/ModulePage';
 // @ts-ignore
 import MessagingHub from '../shared/MessagingHub';
 // @ts-ignore
-import { ToastProvider } from '../executive/context/ToastContext';
+import { ToastProvider, useToast } from '../executive/context/ToastContext';
 // @ts-ignore
 import { UserProvider } from '../executive/context/UserContext';
 
@@ -19,8 +19,16 @@ import { ATSDataProvider } from '../executive/context/ATSDataContext';
 import HiringPortal from '../executive/pages/HiringPortal/HiringPortal';
 // @ts-ignore
 import ProjectManagement from '../executive/pages/ProjectManagement';
+// @ts-ignore
+import ProjectDocuments from '../employee/pages/ProjectDocuments';
 import RoleGuard from '../shared/RoleGuard';
 import '../executive/index.css';
+
+// Wrapper to provide toast context from executive provider to employee component
+const DocumentsWithToast = () => {
+    const { addToast } = useToast();
+    return <ProjectDocuments userRole="executive" addToast={addToast} />;
+};
 
 export const ExecutiveDashboard = () => {
     return (
@@ -49,6 +57,7 @@ export const ExecutiveDashboard = () => {
                                 <Route path="announcements" element={<ModulePage title="Announcements" type="default" />} />
                                 <Route path="settings" element={<ModulePage title="Settings" type="default" />} />
                                 <Route path="project-analytics" element={<ModulePage title="Project Analytics" type="project-analytics" />} />
+                                <Route path="documents" element={<DocumentsWithToast />} />
                             </Routes>
                         </Layout>
                     </ATSDataProvider>

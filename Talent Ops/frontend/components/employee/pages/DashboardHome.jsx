@@ -7,6 +7,7 @@ import {
 import { useToast } from '../context/ToastContext';
 import { useUser } from '../context/UserContext';
 import AttendanceTracker from '../components/Dashboard/AttendanceTracker';
+import NotesTile from '../../shared/NotesTile';
 import { supabase } from '../../../lib/supabaseClient';
 
 const DashboardHome = () => {
@@ -302,7 +303,7 @@ const DashboardHome = () => {
                     <AttendanceTracker />
 
                     {/* Top Row Cards */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'start' }}>
 
                         {/* Attendance Report Card (Yellow) */}
                         <div style={{ backgroundColor: '#fef08a', borderRadius: '24px', padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '240px', position: 'relative', overflow: 'hidden' }}>
@@ -339,23 +340,8 @@ const DashboardHome = () => {
                                 <div style={{ width: '30px', height: '20px', backgroundColor: '#422006', borderRadius: '15px 15px 0 0', opacity: 0.8 }}></div>
                             </div>
                         </div>
-                        {/* Project Documents Card (Blue) */}
-                        <div
-                            onClick={() => navigate('/employee-dashboard/documents')}
-                            style={{
-                                backgroundColor: '#bfdbfe', borderRadius: '24px', padding: '24px',
-                                display: 'flex', flexDirection: 'column', minHeight: '240px',
-                                position: 'relative', overflow: 'hidden', cursor: 'pointer',
-                                transition: 'transform 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.02)'}
-                            onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                        >
-                            <h3 style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#1e3a8a', marginBottom: '24px' }}>📄 Project Documents</h3>
-                            <p style={{ color: '#3b82f6', fontSize: '0.9rem' }}>View project documentation, tech stack, and requirements shared by your manager.</p>
-                            {/* Decorative Triangle */}
-                            <div style={{ position: 'absolute', bottom: 0, right: 0, width: '0', height: '0', borderStyle: 'solid', borderWidth: '0 0 100px 100px', borderColor: 'transparent transparent rgba(255,255,255,0.3) transparent' }}></div>
-                        </div>
+                        {/* Notes Tile */}
+                        <NotesTile />
                     </div>
 
                 </div>

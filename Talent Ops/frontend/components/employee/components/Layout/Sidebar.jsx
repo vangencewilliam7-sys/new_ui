@@ -20,10 +20,7 @@ import {
     FolderKanban,
     Check,
     ClipboardCheck,
-    TrendingUp,
-    UserPlus,
-    CalendarCheck,
-    Shield
+    TrendingUp
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
@@ -63,32 +60,33 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
     // Role-based project menu configurations
     const projectMenusByRole = {
         consultant: [
-            { icon: FileText, label: 'Documents', path: '/employee-dashboard/documents' },
             { icon: Users, label: 'Project', path: '/employee-dashboard/employees' },
+            { icon: Users, label: 'Team Members', path: '/employee-dashboard/team-members' },
+            { icon: ListTodo, label: 'My Tasks', path: '/employee-dashboard/my-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/employee-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/employee-dashboard/project-hierarchy' },
         ],
         employee: [
-            { icon: ListTodo, label: 'My Tasks', path: '/employee-dashboard/tasks' },
-            { icon: FileText, label: 'Documents', path: '/employee-dashboard/documents' },
             { icon: Users, label: 'Project', path: '/employee-dashboard/employees' },
+            { icon: Users, label: 'Team Members', path: '/employee-dashboard/team-members' },
+            { icon: ListTodo, label: 'My Tasks', path: '/employee-dashboard/my-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/employee-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/employee-dashboard/project-hierarchy' },
         ],
         team_lead: [
-            { icon: ListTodo, label: 'All Tasks', path: '/employee-dashboard/tasks' },
             { icon: Users, label: 'My Project', path: '/employee-dashboard/employees' },
-            { icon: ClipboardCheck, label: 'Assign Tasks', path: '/employee-dashboard/assign-tasks' },
+            { icon: Users, label: 'Team Members', path: '/employee-dashboard/team-members' },
+            { icon: ClipboardCheck, label: 'My Tasks', path: '/employee-dashboard/my-tasks' },
+            { icon: ListTodo, label: 'Team Tasks', path: '/employee-dashboard/team-tasks' },
             { icon: TrendingUp, label: 'Performance', path: '/employee-dashboard/performance' },
             { icon: BarChart2, label: 'Analytics', path: '/employee-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/employee-dashboard/project-hierarchy' },
         ],
         manager: [
-            { icon: ListTodo, label: 'All Tasks', path: '/employee-dashboard/tasks' },
             { icon: Users, label: 'Project', path: '/employee-dashboard/employees' },
-            { icon: ClipboardCheck, label: 'Assign Tasks', path: '/employee-dashboard/assign-tasks' },
-            { icon: CalendarCheck, label: 'Approve Leaves', path: '/employee-dashboard/approve-leaves' },
-            { icon: UserPlus, label: 'Manage Members', path: '/employee-dashboard/manage-members' },
+            { icon: Users, label: 'Team Members', path: '/employee-dashboard/team-members' },
+            { icon: ClipboardCheck, label: 'My Tasks', path: '/employee-dashboard/my-tasks' },
+            { icon: ListTodo, label: 'Team Tasks', path: '/employee-dashboard/team-tasks' },
             { icon: TrendingUp, label: 'Performance', path: '/employee-dashboard/performance' },
             { icon: BarChart2, label: 'Analytics', path: '/employee-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/employee-dashboard/project-hierarchy' },
@@ -101,9 +99,9 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
     // Role badge colors
     const getRoleBadge = (role) => {
         switch (role) {
-            case 'manager': return { color: '#ef4444', label: 'Manager', emoji: '🔴' };
-            case 'team_lead': return { color: '#eab308', label: 'Team Lead', emoji: '🟡' };
-            default: return { color: '#22c55e', label: 'Consultant', emoji: '🟢' };
+            case 'manager': return { color: '#ef4444', label: 'Manager' };
+            case 'team_lead': return { color: '#eab308', label: 'Team Lead' };
+            default: return { color: '#22c55e', label: 'Consultant' };
         }
     };
 
@@ -122,7 +120,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                     gap: '10px',
                     padding: '10px 12px',
                     borderRadius: '8px',
-                    backgroundColor: isActive ? 'rgba(139, 92, 246, 0.3)' : 'transparent',
+                    backgroundColor: isActive ? '#7C3AED' : 'transparent',
                     color: isActive ? 'white' : 'rgba(255,255,255,0.7)',
                     transition: 'all 0.2s ease',
                     width: '100%',
@@ -150,7 +148,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
     };
 
     // Section header (collapsible)
-    const renderSectionHeader = (icon, label, sectionKey, emoji) => (
+    const renderSectionHeader = (icon, label, sectionKey) => (
         <button
             onClick={() => toggleMenu(sectionKey)}
             style={{
@@ -173,7 +171,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
         >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {React.createElement(icon, { size: 14 })}
-                {!isCollapsed && <span>{emoji} {label}</span>}
+                {!isCollapsed && <span>{label}</span>}
             </div>
             {!isCollapsed && (
                 <ChevronDown
@@ -202,6 +200,17 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
             zIndex: 1000,
             transition: 'width 0.3s ease'
         }}>
+            <style>
+                {`
+                    .no-scrollbar::-webkit-scrollbar {
+                        display: none;
+                    }
+                    .no-scrollbar {
+                        -ms-overflow-style: none;
+                        scrollbar-width: none;
+                    }
+                `}
+            </style>
             {/* Logo */}
             <div style={{
                 marginBottom: '20px',
@@ -241,9 +250,9 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                 overflowY: 'auto',
                 overflowX: 'hidden',
                 paddingRight: '4px'
-            }}>
+            }} className="no-scrollbar">
                 {/* Organization Section */}
-                {renderSectionHeader(Building2, 'Organization', 'organization', '🏢')}
+                {renderSectionHeader(Building2, 'Organization', 'organization')}
                 {expandedMenus.organization && !isCollapsed && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginBottom: '8px' }}>
                         {orgMenuItems.map((item, idx) => renderMenuItem(item, idx, 'org'))}
@@ -261,14 +270,17 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                         {/* Project Switcher Card */}
                         {!isCollapsed && (
                             <div style={{
-                                background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
-                                borderRadius: '12px',
-                                padding: '12px',
-                                marginBottom: '8px',
+                                marginBottom: '12px',
                                 position: 'relative'
                             }}>
-                                <div style={{ fontSize: '0.65rem', opacity: 0.8, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
-                                    📁 Current Project
+                                <div style={{
+                                    fontSize: '0.7rem',
+                                    color: '#94a3b8',
+                                    marginBottom: '8px',
+                                    fontWeight: 600,
+                                    paddingLeft: '4px'
+                                }}>
+                                    CURRENT PROJECT
                                 </div>
                                 <button
                                     onClick={() => setShowProjectPicker(!showProjectPicker)}
@@ -277,14 +289,23 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
-                                        background: 'rgba(0,0,0,0.2)',
-                                        border: 'none',
+                                        background: 'rgba(255,255,255,0.03)',
+                                        border: '1px solid rgba(255,255,255,0.1)',
                                         borderRadius: '8px',
                                         padding: '10px 12px',
                                         color: 'white',
                                         cursor: 'pointer',
                                         fontSize: '0.9rem',
-                                        fontWeight: 600
+                                        fontWeight: 500,
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                                        e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
                                     }}
                                 >
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -358,7 +379,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
                         )}
 
                         {/* Project Menu Items */}
-                        {renderSectionHeader(FolderKanban, currentProject?.name || 'Project', 'project', '📂')}
+                        {renderSectionHeader(FolderKanban, currentProject?.name || 'Project', 'project')}
                         {expandedMenus.project && !isCollapsed && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                                 {projectMenuItems.map((item, idx) => renderMenuItem(item, idx, 'proj'))}

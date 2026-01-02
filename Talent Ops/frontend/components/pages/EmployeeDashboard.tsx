@@ -16,6 +16,12 @@ import { ToastProvider } from '../employee/context/ToastContext';
 import { UserProvider } from '../employee/context/UserContext';
 // @ts-ignore
 import { ProjectProvider } from '../employee/context/ProjectContext';
+// @ts-ignore
+import MyTasksPage from '../employee/pages/MyTasksPage';
+// @ts-ignore
+import TeamTasksPage from '../employee/pages/TeamTasksPage';
+// @ts-ignore
+import TeamPerformance from '../employee/pages/TeamPerformance';
 import RoleGuard from '../shared/RoleGuard';
 import '../employee/index.css';
 
@@ -30,8 +36,12 @@ export const EmployeeDashboard = () => {
                                 <Route path="/" element={<Navigate to="dashboard" replace />} />
                                 <Route path="dashboard" element={<DashboardHome />} />
                                 <Route path="analytics" element={<ModulePage title="My Analytics" type="analytics" />} />
-                                <Route path="employees" element={<ModulePage title="Team Members" type="workforce" />} />
-                                <Route path="tasks" element={<ModulePage title="Your Tasks" type="tasks" />} />
+                                <Route path="employees" element={<ModulePage title="Project Documents" type="project-documents" />} />
+                                {/* Real Task Routes */}
+                                <Route path="my-tasks" element={<MyTasksPage />} />
+                                <Route path="team-tasks" element={<TeamTasksPage />} />
+                                <Route path="team-members" element={<ModulePage title="Team Members" type="workforce" />} />
+
                                 <Route path="leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
                                 <Route path="team-status" element={<ModulePage title="Your Status" type="status" />} />
                                 <Route path="payslips" element={<ModulePage title="Your Payslip" type="payroll" />} />
@@ -42,11 +52,10 @@ export const EmployeeDashboard = () => {
                                 <Route path="messages" element={<MessagingHub />} />
                                 <Route path="announcements" element={<ModulePage title="Announcements" type="default" />} />
                                 <Route path="settings" element={<ModulePage title="Settings" type="default" />} />
-                                {/* Role-specific routes for Team Lead and Manager */}
-                                <Route path="assign-tasks" element={<ModulePage title="Assign Tasks" type="tasks" />} />
+                                { /* Role-specific routes for Team Lead and Manager */}
                                 <Route path="approve-leaves" element={<ModulePage title="Approve Leaves" type="leaves" />} />
                                 <Route path="manage-members" element={<ModulePage title="Manage Members" type="workforce" />} />
-                                <Route path="performance" element={<ModulePage title="Team Performance" type="analytics" />} />
+                                <Route path="performance" element={<TeamPerformance />} />
                             </Routes>
                         </Layout>
                     </ToastProvider>

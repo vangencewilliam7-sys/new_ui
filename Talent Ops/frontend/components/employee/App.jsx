@@ -6,10 +6,11 @@ import ModulePage from './pages/ModulePage';
 import ProjectDocuments from './pages/ProjectDocuments';
 import OrgHierarchy from './pages/OrgHierarchy';
 import ProjectHierarchy from './pages/ProjectHierarchy';
-import TaskManagement from './pages/TaskManagement';
+import MyTasksPage from './pages/MyTasksPage';
+import TeamTasksPage from './pages/TeamTasksPage';
+import TeamPerformance from './pages/TeamPerformance';
 import NotificationsPage from '../shared/NotificationsPage';
 import MessagingHub from '../shared/MessagingHub';
-import AllTasksView from '../shared/AllTasksView';
 import { ToastProvider } from './context/ToastContext';
 import { UserProvider } from './context/UserContext';
 import { ProjectProvider } from './context/ProjectContext';
@@ -28,16 +29,16 @@ function App() {
                 <Route path="/employee-dashboard/documents" element={<ProjectDocuments />} />
                 <Route path="/employee-dashboard/org-hierarchy" element={<OrgHierarchy />} />
                 <Route path="/employee-dashboard/project-hierarchy" element={<ProjectHierarchy />} />
-                <Route path="/employee-dashboard/assign-tasks" element={<TaskManagement />} />
+                <Route path="/employee-dashboard/my-tasks" element={<MyTasksPage />} />
+                <Route path="/employee-dashboard/team-tasks" element={<TeamTasksPage />} />
                 <Route path="/employee-dashboard/analytics" element={<ModulePage title="My Analytics" type="analytics" />} />
                 <Route path="/employee-dashboard/employees" element={<ModulePage title="Team Members" type="workforce" />} />
-                <Route path="/employee-dashboard/tasks" element={<AllTasksView userRole="employee" />} />
                 <Route path="/employee-dashboard/leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
                 <Route path="/employee-dashboard/team-status" element={<ModulePage title="Your Status" type="status" />} />
                 <Route path="/employee-dashboard/payslips" element={<ModulePage title="Your Payslip" type="payroll" />} />
                 <Route path="/employee-dashboard/policies" element={<ModulePage title="Company Policies" type="policies" />} />
                 <Route path="/employee-dashboard/announcements" element={<ModulePage title="Announcements" type="announcements" />} />
-                <Route path="/employee-dashboard/performance" element={<ModulePage title="Performance" type="default" />} />
+                <Route path="/employee-dashboard/performance" element={<TeamPerformance />} />
                 <Route path="/employee-dashboard/approve-leaves" element={<ModulePage title="Approve Leaves" type="leaves" />} />
                 <Route path="/employee-dashboard/manage-members" element={<ModulePage title="Manage Members" type="workforce" />} />
                 <Route path="/employee-dashboard/messages" element={<MessagingHub />} />

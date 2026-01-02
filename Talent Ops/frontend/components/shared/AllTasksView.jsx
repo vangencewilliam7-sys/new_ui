@@ -1,18 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, Eye, Calendar, ChevronDown, X, Clock } from 'lucide-react';
+import { Search, Plus, Eye, Calendar, ChevronDown, X, Clock, ExternalLink, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
+import { useProject } from '../employee/context/ProjectContext';
 
-const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
+const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId, addToast }) => {
+    const { currentProject } = useProject();
     const [tasks, setTasks] = useState([]);
-    const [projects, setProjects] = useState([]);
-    const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [teamFilter, setTeamFilter] = useState('all');
     const [statusFilter, setStatusFilter] = useState('all');
     const [showAddTaskModal, setShowAddTaskModal] = useState(false);
     const [selectedTask, setSelectedTask] = useState(null);
     const [submitting, setSubmitting] = useState(false);
+    const [processingApproval, setProcessingApproval] = useState(false);
 
     // New Task Form State
     const [newTask, setNewTask] = useState({
@@ -27,20 +27,33 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
     });
 
     useEffect(() => {
-        fetchData();
-        if (userRole === 'manager') {
-            fetchEmployees();
+        if (currentProject?.id || userRole === 'executive') {
+            fetchData();
+            if (userRole === 'manager') {
+                fetchEmployees();
+            }
+        } else {
+            setLoading(false);
         }
-    }, [userId]);
+    }, [userId, currentProject?.id, userRole]);
 
     const fetchEmployees = async () => {
         try {
+            // Fetch only members of the current project
             const { data, error } = await supabase
-                .from('profiles')
-                .select('id, full_name')
-                .order('full_name');
+                .from('project_members')
+                .select('user_id, profiles!inner(id, full_name)')
+                .eq('project_id', currentProject.id);
+
             if (error) throw error;
-            setEmployees(data || []);
+
+            // Map to flat structure expected by the UI
+            const formattedEmployees = data?.map(item => ({
+                id: item.profiles.id,
+                full_name: item.profiles.full_name
+            })) || [];
+
+            setEmployees(formattedEmployees);
         } catch (error) {
             console.error('Error fetching employees:', error);
         }
@@ -65,64 +78,72 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
     const fetchData = async () => {
         setLoading(true);
         try {
-            // 1. Fetch projects
-            const { data: projectsData, error: projError } = await supabase
-                .from('projects')
-                .select('id, name');
+            let tasksData = [];
+            let taskError = null;
 
-            if (projError) {
-                console.error('Project fetch error:', projError);
-            }
-            setProjects(projectsData || []);
+            if (userRole === 'executive') {
+                // Fetch ALL tasks for executives without JOIN to avoid 400 errors
+                const { data, error } = await supabase
+                    .from('tasks')
+                    .select('*')
+                    .order('id', { ascending: false });
 
-            // 2. Fetch tasks - Simplified query without join
-            const { data: tasksData, error: taskError } = await supabase
-                .from('tasks')
-                .select('*')
-                .order('id', { ascending: false });
+                tasksData = data;
+                taskError = error;
+            } else {
+                if (!currentProject?.id) {
+                    setLoading(false);
+                    return;
+                }
 
-            if (taskError) {
-                console.error('Task fetch error details:', taskError);
-                throw taskError;
-            }
+                // 1. Fetch simplified tasks for the current project
+                const { data, error } = await supabase
+                    .from('tasks')
+                    .select('*')
+                    .eq('project_id', currentProject.id)
+                    .order('id', { ascending: false });
 
-            // 3. Fetch all profiles to map names
-            const { data: profilesData, error: profError } = await supabase
-                .from('profiles')
-                .select('id, full_name');
-
-            const profileMap = {};
-            if (profilesData) {
-                profilesData.forEach(p => profileMap[p.id] = p.full_name);
+                tasksData = data;
+                taskError = error;
             }
 
-            // 4. Fetch project_members to determine project association
-            const { data: projectMembersData, error: tmError } = await supabase
-                .from('project_members')
-                .select('user_id, project_id');
+            if (taskError) throw taskError;
 
-            const userProjectMap = {};
-            if (projectMembersData) {
-                projectMembersData.forEach(pm => {
-                    userProjectMap[pm.user_id] = pm.project_id;
-                });
+            // 2. Fetch profiles for name mapping
+            const assigneeIds = [...new Set(tasksData.map(t => t.assigned_to).filter(Boolean))];
+            let profileMap = {};
+            if (assigneeIds.length > 0) {
+                const { data: profilesData } = await supabase
+                    .from('profiles')
+                    .select('id, full_name')
+                    .in('id', assigneeIds);
+                if (profilesData) {
+                    profilesData.forEach(p => profileMap[p.id] = p.full_name);
+                }
             }
 
-            const projectMap = {};
-            if (projectsData) {
-                projectsData.forEach(p => {
-                    projectMap[p.id] = p.name;
-                });
+            // 3. For Executives: Fetch project names manually (since we didn't JOIN)
+            let projectMap = {};
+            if (userRole === 'executive') {
+                const projectIds = [...new Set(tasksData.map(t => t.project_id).filter(Boolean))];
+                if (projectIds.length > 0) {
+                    const { data: projectsData } = await supabase
+                        .from('projects')
+                        .select('id, name')
+                        .in('id', projectIds);
+
+                    if (projectsData) {
+                        projectsData.forEach(p => projectMap[p.id] = p.name);
+                    }
+                }
             }
 
-            // 5. Build enhanced tasks
+            // 4. Build enhanced tasks
             const enhancedTasks = (tasksData || []).map(task => {
-                const projectId = userProjectMap[task.assigned_to];
                 return {
                     ...task,
                     assignee_name: profileMap[task.assigned_to] || 'Unassigned',
-                    project_id: projectId,
-                    project_name: projectMap[projectId] || 'Unassigned'
+                    project_name: (userRole === 'executive' ? projectMap[task.project_id] : currentProject?.name) || 'Unknown Project'
                 };
             });
 
@@ -152,6 +173,7 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
                 description: newTask.description,
                 assigned_to: newTask.assignType === 'individual' ? newTask.assignedTo : null,
                 assigned_by: user.id,
+                project_id: currentProject?.id,
                 start_date: newTask.startDate,
                 due_date: newTask.endDate,
                 due_time: newTask.dueTime || null,
@@ -183,6 +205,89 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
         }
     };
 
+    const handleApproveTask = async () => {
+        if (!selectedTask) return;
+
+        // Validate that task is in pending_validation state
+        if (selectedTask.sub_state !== 'pending_validation') {
+            addToast?.('Task is not pending validation', 'error');
+            return;
+        }
+
+        if (processingApproval) return; // Prevent double-clicks
+
+        setProcessingApproval(true);
+        try {
+            const phases = ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment', 'closed'];
+            const currentIdx = phases.indexOf(selectedTask.lifecycle_state || 'requirement_refiner');
+            const nextPhase = phases[currentIdx + 1] || 'closed';
+
+            const updates = {
+                sub_state: 'in_progress', // Reset to in_progress for next phase
+                lifecycle_state: nextPhase,
+                updated_at: new Date().toISOString()
+            };
+
+            if (nextPhase === 'closed') {
+                updates.status = 'completed';
+                updates.sub_state = 'approved';
+            }
+
+            const { error } = await supabase
+                .from('tasks')
+                .update(updates)
+                .eq('id', selectedTask.id)
+                .eq('sub_state', 'pending_validation'); // Double-check in DB query
+
+            if (error) throw error;
+
+            addToast?.('Task approved and moved to next phase!', 'success');
+            setSelectedTask(null);
+            fetchData();
+        } catch (error) {
+            console.error('Error approving task:', error);
+            addToast?.('Failed to approve task', 'error');
+        } finally {
+            setProcessingApproval(false);
+        }
+    };
+
+    const handleRejectTask = async () => {
+        if (!selectedTask) return;
+
+        // Validate that task is in pending_validation state
+        if (selectedTask.sub_state !== 'pending_validation') {
+            addToast?.('Task is not pending validation', 'error');
+            return;
+        }
+
+        if (processingApproval) return; // Prevent double-clicks
+
+        setProcessingApproval(true);
+        try {
+            // Rejection just sends it back to in_progress in the SAME phase
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    sub_state: 'in_progress',
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', selectedTask.id)
+                .eq('sub_state', 'pending_validation'); // Double-check in DB query
+
+            if (error) throw error;
+
+            addToast?.('Task rejected and sent back for revision', 'info');
+            setSelectedTask(null);
+            fetchData();
+        } catch (error) {
+            console.error('Error rejecting task:', error);
+            addToast?.('Failed to reject task', 'error');
+        } finally {
+            setProcessingApproval(false);
+        }
+    };
+
     const getPriorityStyle = (priority) => {
         const styles = {
             high: { bg: '#fee2e2', text: '#991b1b', label: 'HIGH' },
@@ -202,12 +307,52 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
         return styles[status?.toLowerCase()] || styles.pending;
     };
 
+    // Lifecycle phases for progress visualization
+    const LIFECYCLE_PHASES = [
+        { key: 'requirement_refiner', label: 'Requirements', short: 'R' },
+        { key: 'design_guidance', label: 'Design', short: 'D' },
+        { key: 'build_guidance', label: 'Build', short: 'B' },
+        { key: 'acceptance_criteria', label: 'Acceptance', short: 'A' },
+        { key: 'deployment', label: 'Deployment', short: 'P' }
+    ];
+
+    const getPhaseIndex = (phase) => LIFECYCLE_PHASES.findIndex(p => p.key === phase);
+
+    const LifecycleProgress = ({ currentPhase, subState }) => {
+        const currentIndex = getPhaseIndex(currentPhase || 'requirement_refiner');
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {LIFECYCLE_PHASES.map((phase, idx) => (
+                    <React.Fragment key={phase.key}>
+                        <div style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.65rem',
+                            fontWeight: 600,
+                            backgroundColor: idx < currentIndex ? '#10b981' : idx === currentIndex ? (subState === 'pending_validation' ? '#f59e0b' : '#3b82f6') : '#e5e7eb',
+                            color: idx <= currentIndex ? 'white' : '#9ca3af',
+                            transition: 'all 0.3s'
+                        }} title={phase.label}>
+                            {idx < currentIndex ? '✓' : phase.short}
+                        </div>
+                        {idx < LIFECYCLE_PHASES.length - 1 && (
+                            <div style={{ width: '12px', height: '2px', backgroundColor: idx < currentIndex ? '#10b981' : '#e5e7eb' }} />
+                        )}
+                    </React.Fragment>
+                ))}
+            </div>
+        );
+    };
+
     const filteredTasks = tasks.filter(task => {
         const matchesSearch = task.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
             task.assignee_name?.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesTeam = teamFilter === 'all' || task.project_id === teamFilter;
         const matchesStatus = statusFilter === 'all' || task.status?.toLowerCase() === statusFilter.toLowerCase();
-        return matchesSearch && matchesTeam && matchesStatus;
+        return matchesSearch && matchesStatus;
     });
 
     if (loading) {
@@ -220,10 +365,12 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                     <h1 style={{ fontSize: '2rem', fontWeight: 'bold', color: '#0f172a', margin: 0 }}>
-                        All Tasks
+                        {userRole === 'manager' || userRole === 'team_lead' ? 'Team Tasks' : 'Your Tasks'}
                     </h1>
                     <p style={{ color: '#64748b', marginTop: '4px', fontSize: '0.95rem' }}>
-                        Manage and track all team tasks in one place
+                        {userRole === 'manager' || userRole === 'team_lead'
+                            ? 'Manage and track all team tasks in one place'
+                            : 'Track your tasks through the lifecycle'}
                     </p>
                 </div>
                 {userRole === 'manager' && (
@@ -288,37 +435,7 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
                     />
                 </div>
 
-                {/* Team Filter */}
-                <div style={{ position: 'relative' }}>
-                    <select
-                        value={teamFilter}
-                        onChange={(e) => setTeamFilter(e.target.value)}
-                        style={{
-                            padding: '10px 36px 10px 16px',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '8px',
-                            fontSize: '0.95rem',
-                            fontWeight: 500,
-                            backgroundColor: 'white',
-                            cursor: 'pointer',
-                            outline: 'none',
-                            appearance: 'none'
-                        }}
-                    >
-                        <option value="all">All Teams</option>
-                        {projects.map(project => (
-                            <option key={project.id} value={project.id}>{project.name}</option>
-                        ))}
-                    </select>
-                    <ChevronDown size={16} style={{
-                        position: 'absolute',
-                        right: '12px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        pointerEvents: 'none',
-                        color: '#64748b'
-                    }} />
-                </div>
+
 
                 {/* Status Filter */}
                 <div style={{ position: 'relative' }}>
@@ -361,175 +478,128 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
                 border: '1px solid #e2e8f0',
                 overflow: 'hidden'
             }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                        <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                            <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Task</th>
-                            <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assignee</th>
-                            <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Team</th>
-                            <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due Date</th>
-                            <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
-                            <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</th>
-                            <th style={{ padding: '16px', textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredTasks.length === 0 ? (
-                            <tr>
-                                <td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
-                                    No tasks found
-                                </td>
+                <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+                        <thead>
+                            <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Task</th>
+                                <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assignee</th>
+                                <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lifecycle</th>
+                                <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due Date</th>
+                                <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
+                                <th style={{ padding: '16px', textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Actions</th>
                             </tr>
-                        ) : (
-                            filteredTasks.map((task, index) => {
-                                const priorityStyle = getPriorityStyle(task.priority);
-                                const statusStyle = getStatusStyle(task.status);
-                                return (
-                                    <tr key={task.id} style={{
-                                        borderBottom: index < filteredTasks.length - 1 ? '1px solid #f1f5f9' : 'none',
-                                        transition: 'background-color 0.15s'
-                                    }}
-                                        onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                        onMouseLeave={e => e.currentTarget.style.backgroundColor = 'white'}
-                                    >
-                                        <td style={{ padding: '16px' }}>
-                                            <div style={{ fontWeight: 600, color: '#0f172a', marginBottom: '2px' }}>{task.title}</div>
-                                            {task.description && (
+                        </thead>
+                        <tbody>
+                            {filteredTasks.length === 0 ? (
+                                <tr>
+                                    <td colSpan={6} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
+                                        No tasks found
+                                    </td>
+                                </tr>
+                            ) : (
+                                filteredTasks.map((task, index) => {
+                                    const priorityStyle = getPriorityStyle(task.priority);
+                                    const statusStyle = getStatusStyle(task.status);
+                                    return (
+                                        <tr key={task.id} style={{
+                                            borderBottom: index < filteredTasks.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                            transition: 'background-color 0.15s'
+                                        }}
+                                            onMouseEnter={e => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                            onMouseLeave={e => e.currentTarget.style.backgroundColor = 'white'}
+                                        >
+                                            <td style={{ padding: '16px', verticalAlign: 'middle', maxWidth: '250px' }}>
                                                 <div style={{
-                                                    fontSize: '0.85rem',
-                                                    color: '#64748b',
+                                                    fontWeight: 600,
+                                                    color: '#0f172a',
+                                                    lineHeight: '1.4',
                                                     display: '-webkit-box',
                                                     WebkitLineClamp: 2,
                                                     WebkitBoxOrient: 'vertical',
                                                     overflow: 'hidden',
                                                     textOverflow: 'ellipsis'
-                                                }}>{task.description}</div>
-                                            )}
-                                        </td>
-                                        <td style={{ padding: '16px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <div style={{
-                                                    width: '32px',
-                                                    height: '32px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: '#0f172a',
-                                                    color: 'white',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    fontSize: '0.85rem',
-                                                    fontWeight: 600
-                                                }}>
-                                                    {task.assignee_name?.charAt(0) || 'U'}
+                                                }}>{task.title}</div>
+                                            </td>
+                                            <td style={{ padding: '16px', verticalAlign: 'middle' }}>
+                                                <span style={{ fontWeight: 500, color: '#0f172a', whiteSpace: 'nowrap' }}>{task.assignee_name}</span>
+                                            </td>
+                                            <td style={{ padding: '16px', verticalAlign: 'middle' }}>
+                                                <LifecycleProgress currentPhase={task.lifecycle_state} subState={task.sub_state} />
+                                            </td>
+                                            <td style={{ padding: '16px', verticalAlign: 'middle' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                                                    <Calendar size={14} />
+                                                    <span style={{ fontSize: '0.9rem' }}>
+                                                        {task.due_date ? new Date(task.due_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : 'No Date'}
+                                                    </span>
                                                 </div>
-                                                <span style={{ fontWeight: 500, color: '#0f172a' }}>{task.assignee_name}</span>
-                                            </div>
-                                        </td>
-                                        <td style={{ padding: '16px', color: '#64748b', fontWeight: 500 }}>{task.project_name}</td>
-                                        <td style={{ padding: '16px' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b' }}>
-                                                <Calendar size={14} />
-                                                <span style={{ fontSize: '0.9rem' }}>
-                                                    {task.due_date ? new Date(task.due_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : 'No Date'}
-                                                </span>
-                                            </div>
-                                        </td>
-                                        <td style={{ padding: '16px' }}>
-                                            <div style={{ position: 'relative', display: 'inline-block' }}>
-                                                <select
-                                                    value={task.priority || 'medium'}
-                                                    onChange={(e) => handleUpdateTask(task.id, 'priority', e.target.value.toLowerCase())}
+                                            </td>
+                                            <td style={{ padding: '16px', verticalAlign: 'middle' }}>
+                                                <div style={{ position: 'relative', display: 'inline-block' }}>
+                                                    <select
+                                                        value={task.priority || 'medium'}
+                                                        onChange={(e) => handleUpdateTask(task.id, 'priority', e.target.value.toLowerCase())}
+                                                        style={{
+                                                            padding: '6px 28px 6px 12px',
+                                                            backgroundColor: priorityStyle.bg,
+                                                            color: priorityStyle.text,
+                                                            border: 'none',
+                                                            borderRadius: '6px',
+                                                            fontSize: '0.75rem',
+                                                            fontWeight: 700,
+                                                            textTransform: 'uppercase',
+                                                            cursor: 'pointer',
+                                                            outline: 'none',
+                                                            appearance: 'none'
+                                                        }}
+                                                    >
+                                                        <option value="high">HIGH</option>
+                                                        <option value="medium">MEDIUM</option>
+                                                        <option value="low">LOW</option>
+                                                    </select>
+                                                    <ChevronDown size={12} style={{
+                                                        position: 'absolute',
+                                                        right: '8px',
+                                                        top: '50%',
+                                                        transform: 'translateY(-50%)',
+                                                        pointerEvents: 'none',
+                                                        color: priorityStyle.text
+                                                    }} />
+                                                </div>
+                                            </td>
+
+                                            <td style={{ padding: '16px', verticalAlign: 'middle', textAlign: 'center' }}>
+                                                <button
+                                                    onClick={() => setSelectedTask(task)}
                                                     style={{
-                                                        padding: '6px 28px 6px 12px',
-                                                        backgroundColor: priorityStyle.bg,
-                                                        color: priorityStyle.text,
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '6px',
+                                                        padding: '8px 16px',
+                                                        backgroundColor: '#f1f5f9',
+                                                        color: '#0f172a',
                                                         border: 'none',
                                                         borderRadius: '6px',
-                                                        fontSize: '0.75rem',
-                                                        fontWeight: 700,
-                                                        textTransform: 'uppercase',
+                                                        fontSize: '0.85rem',
+                                                        fontWeight: 600,
                                                         cursor: 'pointer',
-                                                        outline: 'none',
-                                                        appearance: 'none'
+                                                        whiteSpace: 'nowrap'
                                                     }}
+                                                    onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e2e8f0'}
+                                                    onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
                                                 >
-                                                    <option value="high">HIGH</option>
-                                                    <option value="medium">MEDIUM</option>
-                                                    <option value="low">LOW</option>
-                                                </select>
-                                                <ChevronDown size={12} style={{
-                                                    position: 'absolute',
-                                                    right: '8px',
-                                                    top: '50%',
-                                                    transform: 'translateY(-50%)',
-                                                    pointerEvents: 'none',
-                                                    color: priorityStyle.text
-                                                }} />
-                                            </div>
-                                        </td>
-                                        <td style={{ padding: '16px' }}>
-                                            <div style={{ position: 'relative', display: 'inline-block' }}>
-                                                <select
-                                                    value={task.status || 'pending'}
-                                                    onChange={(e) => handleUpdateTask(task.id, 'status', e.target.value.toLowerCase())}
-                                                    style={{
-                                                        padding: '6px 28px 6px 12px',
-                                                        backgroundColor: statusStyle.bg,
-                                                        color: statusStyle.text,
-                                                        border: 'none',
-                                                        borderRadius: '6px',
-                                                        fontSize: '0.75rem',
-                                                        fontWeight: 700,
-                                                        textTransform: 'capitalize',
-                                                        cursor: 'pointer',
-                                                        outline: 'none',
-                                                        appearance: 'none'
-                                                    }}
-                                                >
-                                                    <option value="pending">Pending</option>
-                                                    <option value="in progress">In Progress</option>
-                                                    <option value="completed">Completed</option>
-                                                    <option value="on hold">On Hold</option>
-                                                </select>
-                                                <ChevronDown size={12} style={{
-                                                    position: 'absolute',
-                                                    right: '8px',
-                                                    top: '50%',
-                                                    transform: 'translateY(-50%)',
-                                                    pointerEvents: 'none',
-                                                    color: statusStyle.text
-                                                }} />
-                                            </div>
-                                        </td>
-                                        <td style={{ padding: '16px', textAlign: 'center' }}>
-                                            <button
-                                                onClick={() => setSelectedTask(task)}
-                                                style={{
-                                                    display: 'inline-flex',
-                                                    alignItems: 'center',
-                                                    gap: '6px',
-                                                    padding: '8px 16px',
-                                                    backgroundColor: '#f1f5f9',
-                                                    color: '#0f172a',
-                                                    border: 'none',
-                                                    borderRadius: '6px',
-                                                    fontSize: '0.85rem',
-                                                    fontWeight: 600,
-                                                    cursor: 'pointer'
-                                                }}
-                                                onMouseEnter={e => e.currentTarget.style.backgroundColor = '#e2e8f0'}
-                                                onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f1f5f9'}
-                                            >
-                                                <Eye size={14} />
-                                                View
-                                            </button>
-                                        </td>
-                                    </tr>
-                                );
-                            })
-                        )}
-                    </tbody>
-                </table>
+                                                    <Eye size={14} />
+                                                    View
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                    </table>
+                </div>
             </div>
             {/* Add Task Modal */}
             {showAddTaskModal && (
@@ -645,7 +715,7 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
                                         <input
                                             type="radio"
                                             checked={newTask.assignType === 'team'}
-                                            onChange={() => setNewTask({ ...newTask, assignType: 'team' })}
+                                            onChange={() => setNewTask({ ...newTask, assignType: 'team', assignedTo: currentProject?.id })}
                                             style={{ cursor: 'pointer' }}
                                         />
                                         Entire Team
@@ -657,25 +727,23 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
                                         value={newTask.assignedTo}
                                         onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
                                         required={newTask.assignType === 'individual'}
+                                        disabled={newTask.assignType === 'team'}
                                         style={{
                                             width: '100%',
                                             padding: '10px 12px',
                                             border: '1px solid #e2e8f0',
                                             borderRadius: '8px',
                                             fontSize: '0.95rem',
-                                            backgroundColor: 'white',
+                                            backgroundColor: newTask.assignType === 'team' ? '#f1f5f9' : 'white',
                                             appearance: 'none',
-                                            outline: 'none'
+                                            outline: 'none',
+                                            color: newTask.assignType === 'team' ? '#64748b' : 'inherit'
                                         }}
                                     >
-                                        <option value="">{newTask.assignType === 'individual' ? 'Select Employee' : 'Select Team'}</option>
-                                        {newTask.assignType === 'individual' ? (
+                                        <option value="">{newTask.assignType === 'individual' ? 'Select Employee' : `Entire ${currentProject?.name} Team`}</option>
+                                        {newTask.assignType === 'individual' && (
                                             employees.map(emp => (
                                                 <option key={emp.id} value={emp.id}>{emp.full_name}</option>
-                                            ))
-                                        ) : (
-                                            projects.map(p => (
-                                                <option key={p.id} value={p.id}>{p.name}</option>
                                             ))
                                         )}
                                     </select>
@@ -880,6 +948,94 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
                                 </p>
                             </div>
 
+                            {/* Lifecycle Progress */}
+                            <div style={{
+                                padding: '20px',
+                                backgroundColor: '#f8fafc',
+                                borderRadius: '12px',
+                                border: '1px solid #e2e8f0'
+                            }}>
+                                <label style={{
+                                    display: 'block',
+                                    fontSize: '0.85rem',
+                                    fontWeight: 600,
+                                    color: '#64748b',
+                                    textTransform: 'uppercase',
+                                    marginBottom: '16px',
+                                    letterSpacing: '0.05em'
+                                }}>Task Lifecycle Progress</label>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                    {LIFECYCLE_PHASES.map((phase, idx) => {
+                                        const currentIndex = getPhaseIndex(selectedTask.lifecycle_state || 'requirement_refiner');
+                                        const isCompleted = idx < currentIndex;
+                                        const isCurrent = idx === currentIndex;
+                                        const isPending = idx > currentIndex;
+
+                                        return (
+                                            <React.Fragment key={phase.key}>
+                                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                                                    <div style={{
+                                                        width: '36px',
+                                                        height: '36px',
+                                                        borderRadius: '50%',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        fontSize: '0.75rem',
+                                                        fontWeight: 700,
+                                                        backgroundColor: isCompleted ? '#10b981' : isCurrent ? (selectedTask.sub_state === 'pending_validation' ? '#f59e0b' : '#3b82f6') : '#e5e7eb',
+                                                        color: isCompleted || isCurrent ? 'white' : '#9ca3af',
+                                                        transition: 'all 0.3s',
+                                                        boxShadow: isCurrent ? '0 4px 12px rgba(59, 130, 246, 0.3)' : 'none'
+                                                    }}>
+                                                        {isCompleted ? '✓' : phase.short}
+                                                    </div>
+                                                    <span style={{
+                                                        fontSize: '0.7rem',
+                                                        fontWeight: isCurrent ? 600 : 500,
+                                                        color: isCompleted || isCurrent ? '#0f172a' : '#94a3b8',
+                                                        textAlign: 'center',
+                                                        maxWidth: '70px'
+                                                    }}>
+                                                        {phase.label}
+                                                    </span>
+                                                </div>
+                                                {idx < LIFECYCLE_PHASES.length - 1 && (
+                                                    <div style={{
+                                                        width: '24px',
+                                                        height: '3px',
+                                                        backgroundColor: isCompleted ? '#10b981' : '#e5e7eb',
+                                                        borderRadius: '2px',
+                                                        marginBottom: '28px'
+                                                    }} />
+                                                )}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                </div>
+                                {selectedTask.sub_state === 'pending_validation' && (
+                                    <div style={{
+                                        marginTop: '12px',
+                                        padding: '12px',
+                                        backgroundColor: '#fef3c7',
+                                        borderRadius: '8px',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '8px'
+                                    }}>
+                                        <div style={{
+                                            width: '6px',
+                                            height: '6px',
+                                            borderRadius: '50%',
+                                            backgroundColor: '#f59e0b'
+                                        }} />
+                                        <span style={{ fontSize: '0.85rem', color: '#92400e', fontWeight: 500 }}>
+                                            Awaiting validation for current phase
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
+
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Assignee</label>
@@ -945,24 +1101,86 @@ const AllTasksView = ({ userRole = 'employee', userId, addToast }) => {
                                     </div>
                                 </div>
                             </div>
+
+                            {/* Proof Selection Section */}
+                            {selectedTask.proof_url && (
+                                <div style={{ padding: '16px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                        Submitted Proof
+                                    </label>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
+                                            <ExternalLink size={16} color="#3b82f6" />
+                                            <span style={{ fontSize: '0.9rem', color: '#3b82f6', textDecoration: 'underline', cursor: 'pointer', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                                onClick={() => window.open(selectedTask.proof_url, '_blank')}
+                                            >
+                                                View Submitted Document
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Modal Footer */}
-                        <div style={{ padding: '20px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end' }}>
+                        <div style={{ padding: '20px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                             <button
                                 onClick={() => setSelectedTask(null)}
                                 style={{
                                     padding: '10px 24px',
                                     borderRadius: '8px',
-                                    backgroundColor: '#0f172a',
-                                    color: 'white',
-                                    border: 'none',
+                                    backgroundColor: 'white',
+                                    color: '#64748b',
+                                    border: '1px solid #e2e8f0',
                                     fontWeight: 600,
                                     cursor: 'pointer'
                                 }}
                             >
                                 Close
                             </button>
+
+                            {(userRole === 'manager' || userRole === 'team_lead') && selectedTask.sub_state === 'pending_validation' && (
+                                <>
+                                    <button
+                                        onClick={handleRejectTask}
+                                        disabled={processingApproval}
+                                        style={{
+                                            padding: '10px 24px',
+                                            borderRadius: '8px',
+                                            backgroundColor: processingApproval ? '#fecaca' : '#fee2e2',
+                                            color: '#991b1b',
+                                            border: 'none',
+                                            fontWeight: 600,
+                                            cursor: processingApproval ? 'not-allowed' : 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            opacity: processingApproval ? 0.6 : 1
+                                        }}
+                                    >
+                                        <ThumbsDown size={16} /> {processingApproval ? 'Processing...' : 'Reject'}
+                                    </button>
+                                    <button
+                                        onClick={handleApproveTask}
+                                        disabled={processingApproval}
+                                        style={{
+                                            padding: '10px 24px',
+                                            borderRadius: '8px',
+                                            backgroundColor: processingApproval ? '#6ee7b7' : '#10b981',
+                                            color: 'white',
+                                            border: 'none',
+                                            fontWeight: 600,
+                                            cursor: processingApproval ? 'not-allowed' : 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            opacity: processingApproval ? 0.6 : 1
+                                        }}
+                                    >
+                                        <ThumbsUp size={16} /> {processingApproval ? 'Processing...' : 'Approve'}
+                                    </button>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>
