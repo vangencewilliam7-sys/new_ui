@@ -665,7 +665,7 @@ const ModulePage = ({ title, type }) => {
 
     // Render specific demos for certain types
     if (type === 'analytics') return <AnalyticsDemo />;
-    if (type === 'tasks') return <TaskLifecyclePage userRole={userRole} userId={userId} addToast={addToast} projectRole={projectRole} currentProjectId={currentProject?.id} />;
+    if (type === 'tasks') return <TaskLifecyclePage userRole={userRole} userId={userId} addToast={addToast} projectRole={projectRole} currentProjectId={currentProject?.id} teamId={teamId} />;
     if (title === 'Team Hierarchy' || title === 'Organizational Hierarchy') return <HierarchyDemo />;
     if (title === 'Project Hierarchy') return <ProjectHierarchyDemo />;
     if (title === 'Settings') return <SettingsDemo />;

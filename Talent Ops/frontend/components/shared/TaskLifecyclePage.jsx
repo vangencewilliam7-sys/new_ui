@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Search, Calendar, Clock, Eye, X, CheckCircle, XCircle, Send, History, ChevronRight, AlertCircle, Upload, FileText, Paperclip, Plus, Users } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 
+
 // Lifecycle phases in order
 const LIFECYCLE_PHASES = [
     { key: 'requirement_refiner', label: 'Requirements', short: 'REQ' },
@@ -15,7 +16,7 @@ const LIFECYCLE_PHASES = [
 const getPhaseIndex = (phase) => LIFECYCLE_PHASES.findIndex(p => p.key === phase);
 const getPhaseLabel = (phase) => LIFECYCLE_PHASES.find(p => p.key === phase)?.label || phase;
 
-const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRole = null, currentProjectId = null }) => {
+const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRole = null, currentProjectId = null, teamId = null }) => {
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
     const [filterStatus, setFilterStatus] = useState('All');
@@ -36,7 +37,12 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRol
     // Add Task states (for managers/team leads)
     const [showAddTaskModal, setShowAddTaskModal] = useState(false);
     const [teamMembers, setTeamMembers] = useState([]);
-    const [newTask, setNewTask] = useState({ title: '', description: '', assigned_to: '', due_date: '', priority: 'medium' });
+
+    const [newTask, setNewTask] = useState({ title: '', description: '', assigned_to: '', due_date: '', priority: 'medium', allocated_hours: '' });
+
+    // Justification State for Employee
+    const [actualHours, setActualHours] = useState('');
+    const [employeeJustification, setEmployeeJustification] = useState('');
 
     // Check if user can add tasks - only for org managers or project managers
     const isManager = userRole === 'manager' || projectRole === 'manager';
@@ -84,18 +90,23 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRol
     const handleAddTask = async () => {
         if (!newTask.title.trim()) { addToast?.('Please enter a task title', 'error'); return; }
         if (!newTask.assigned_to) { addToast?.('Please select a team member', 'error'); return; }
+        if (!newTask.allocated_hours || Number(newTask.allocated_hours) <= 0) { addToast?.('Allocated Hours is mandatory', 'error'); return; }
+
         try {
             const { data: { user } } = await supabase.auth.getUser();
             const { error } = await supabase.from('tasks').insert({
                 title: newTask.title, description: newTask.description, assigned_to: newTask.assigned_to,
                 due_date: newTask.due_date || null, priority: newTask.priority, created_by: user.id,
                 project_id: currentProjectId,
-                status: 'pending', lifecycle_state: 'requirement_refiner', sub_state: 'in_progress'
+                team_id: teamId, // Ensure task is linked to the creator's team for visibility in ManagerTasks
+                status: 'pending', lifecycle_state: 'requirement_refiner', sub_state: 'in_progress',
+                allocated_hours: parseFloat(newTask.allocated_hours)
             });
             if (error) throw error;
             addToast?.('Task created successfully!', 'success');
             setShowAddTaskModal(false);
-            setNewTask({ title: '', description: '', assigned_to: '', due_date: '', priority: 'medium' });
+
+            setNewTask({ title: '', description: '', assigned_to: '', due_date: '', priority: 'medium', allocated_hours: '' });
             fetchTasks();
         } catch (err) { addToast?.('Failed to create task: ' + err.message, 'error'); }
     };
@@ -144,6 +155,7 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRol
         setTaskForProof(task);
         setProofFile(null);
         setUploadProgress(0);
+
         setShowProofModal(true);
     };
 
@@ -164,6 +176,18 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRol
             return;
         }
 
+
+        if (!actualHours || Number(actualHours) <= 0) {
+            addToast?.('Please enter actual hours spent', 'error');
+            return;
+        }
+
+        const isOverage = Number(actualHours) > (taskForProof.allocated_hours || 0);
+        if (isOverage && !employeeJustification.trim()) {
+            addToast?.('Justification is required for time overage', 'error');
+            return;
+        }
+
         setUploading(true);
         setUploadProgress(10);
 
@@ -175,7 +199,22 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRol
             const fileName = `${taskForProof.id}_${Date.now()}.${fileExt}`;
             const filePath = `${user.id}/${fileName}`;
 
-            setUploadProgress(30);
+
+
+            setUploadProgress(20);
+
+            // Update Task with Actual Hours & Justification
+            const { error: updateError } = await supabase
+                .from('tasks')
+                .update({
+                    actual_hours: parseFloat(actualHours),
+                    employee_justification: isOverage ? employeeJustification : null
+                })
+                .eq('id', taskForProof.id);
+
+            if (updateError) throw updateError;
+
+            setUploadProgress(40);
 
             const { data: uploadData, error: uploadError } = await supabase.storage
                 .from('task-proofs')
@@ -415,6 +454,49 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRol
                             </div>
                         </div>
 
+                        <div style={{ marginBottom: '24px' }}>
+                            <div style={{ display: 'flex', gap: '16px' }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>
+                                        Allocated Hours
+                                    </label>
+                                    <div style={{ padding: '12px', backgroundColor: '#f3f4f6', borderRadius: '10px', fontSize: '0.9rem', color: '#6b7280' }}>
+                                        {taskForProof.allocated_hours || 0} hrs
+                                    </div>
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem' }}>
+                                        Actual Hours *
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.5"
+                                        value={actualHours}
+                                        onChange={(e) => setActualHours(e.target.value)}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid var(--border)', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                                        placeholder="0.0"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Justification Field (Only show if overage) */}
+                            {Number(actualHours) > (taskForProof.allocated_hours || 0) && (
+                                <div style={{ marginTop: '16px', animation: 'fadeIn 0.3s' }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem', color: '#b45309' }}>
+                                        Time Overage Justification *
+                                    </label>
+                                    <textarea
+                                        value={employeeJustification}
+                                        onChange={(e) => setEmployeeJustification(e.target.value)}
+                                        placeholder="Please explain why the task took longer than allocated..."
+                                        rows={3}
+                                        style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #fcd34d', backgroundColor: '#fffbeb', fontSize: '0.9rem', boxSizing: 'border-box' }}
+                                    />
+                                </div>
+                            )}
+                        </div>
+
                         {uploading && (
                             <div style={{ marginBottom: '24px' }}>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem' }}>
@@ -535,6 +617,19 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, addToast, projectRol
                                 value={newTask.title}
                                 onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
                                 placeholder="Enter task title"
+                                style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '0.95rem', boxSizing: 'border-box' }}
+                            />
+                        </div>
+
+                        <div style={{ marginBottom: '16px' }}>
+                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px', color: '#374151' }}>Allocated Hours *</label>
+                            <input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                value={newTask.allocated_hours}
+                                onChange={(e) => setNewTask({ ...newTask, allocated_hours: e.target.value })}
+                                placeholder="e.g. 8.0"
                                 style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '0.95rem', boxSizing: 'border-box' }}
                             />
                         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Plus, Eye, Calendar, ChevronDown, X, Clock, ExternalLink, ThumbsUp, ThumbsDown, AlertTriangle, CheckCircle2, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
+import { supabaseRequest } from '../../lib/supabaseRequest';
 import { useProject } from '../employee/context/ProjectContext';
 
 const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId, addToast }) => {
@@ -19,6 +20,17 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     const [showIssueModal, setShowIssueModal] = useState(false);
     const [taskWithIssue, setTaskWithIssue] = useState(null);
     const [resolvingIssue, setResolvingIssue] = useState(false);
+    const [allocatedHoursError, setAllocatedHoursError] = useState('');
+
+    const handleAllocatedHoursChange = (e) => {
+        const value = e.target.value;
+        if (value && (!/^\d+(\.\d+)?$/.test(value) || Number(value) <= 0)) {
+            setAllocatedHoursError('Please enter a valid positive number');
+        } else {
+            setAllocatedHoursError('');
+        }
+        setNewTask({ ...newTask, allocatedHours: value });
+    };
 
     // New Task Form State
     const [newTask, setNewTask] = useState({
@@ -29,7 +41,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
         startDate: new Date().toISOString().split('T')[0],
         endDate: new Date().toISOString().split('T')[0],
         dueTime: '',
-        priority: 'Medium'
+        priority: 'Medium',
+        allocatedHours: ''
     });
 
     useEffect(() => {
@@ -49,21 +62,16 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
             if (userRole === 'executive') {
                 // Fetch ALL employees for executives
-                const { data, error } = await supabase
-                    .from('profiles')
-                    .select('id, full_name')
-                    .neq('id', userId); // Exclude self? Maybe not required but good practice
-
-                if (error) throw error;
-                formattedEmployees = data || [];
+                formattedEmployees = await supabaseRequest(
+                    supabase.from('profiles').select('id, full_name').neq('id', userId),
+                    addToast
+                ) || [];
             } else if (currentProject?.id) {
                 // Fetch only members of the current project
-                const { data, error } = await supabase
-                    .from('project_members')
-                    .select('user_id, profiles!inner(id, full_name)')
-                    .eq('project_id', currentProject.id);
-
-                if (error) throw error;
+                const data = await supabaseRequest(
+                    supabase.from('project_members').select('user_id, profiles!inner(id, full_name)').eq('project_id', currentProject.id),
+                    addToast
+                );
 
                 // Map to flat structure expected by the UI
                 formattedEmployees = data?.map(item => ({
@@ -102,13 +110,10 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
             if (userRole === 'executive') {
                 // Fetch ALL tasks for executives without JOIN to avoid 400 errors
-                const { data, error } = await supabase
-                    .from('tasks')
-                    .select('*')
-                    .order('id', { ascending: false });
-
-                tasksData = data;
-                taskError = error;
+                tasksData = await supabaseRequest(
+                    supabase.from('tasks').select('*').order('id', { ascending: false }),
+                    addToast
+                );
             } else {
                 if (!currentProject?.id) {
                     setLoading(false);
@@ -116,26 +121,20 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 }
 
                 // 1. Fetch simplified tasks for the current project
-                const { data, error } = await supabase
-                    .from('tasks')
-                    .select('*')
-                    .eq('project_id', currentProject.id)
-                    .order('id', { ascending: false });
-
-                tasksData = data;
-                taskError = error;
+                tasksData = await supabaseRequest(
+                    supabase.from('tasks').select('*').eq('project_id', currentProject.id).order('id', { ascending: false }),
+                    addToast
+                );
             }
-
-            if (taskError) throw taskError;
 
             // 2. Fetch profiles for name mapping
             const assigneeIds = [...new Set(tasksData.map(t => t.assigned_to).filter(Boolean))];
             let profileMap = {};
             if (assigneeIds.length > 0) {
-                const { data: profilesData } = await supabase
-                    .from('profiles')
-                    .select('id, full_name')
-                    .in('id', assigneeIds);
+                const profilesData = await supabaseRequest(
+                    supabase.from('profiles').select('id, full_name').in('id', assigneeIds),
+                    addToast
+                );
                 if (profilesData) {
                     profilesData.forEach(p => profileMap[p.id] = p.full_name);
                 }
@@ -146,10 +145,10 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
             if (userRole === 'executive') {
                 const projectIds = [...new Set(tasksData.map(t => t.project_id).filter(Boolean))];
                 if (projectIds.length > 0) {
-                    const { data: projectsData } = await supabase
-                        .from('projects')
-                        .select('id, name')
-                        .in('id', projectIds);
+                    const projectsData = await supabaseRequest(
+                        supabase.from('projects').select('id, name').in('id', projectIds),
+                        addToast
+                    );
 
                     if (projectsData) {
                         projectsData.forEach(p => projectMap[p.id] = p.name);
@@ -181,6 +180,14 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
             addToast?.('Please enter a task title', 'error');
             return;
         }
+        if (allocatedHoursError) {
+            addToast?.(allocatedHoursError, 'error');
+            return;
+        }
+        if (!newTask.allocatedHours || Number(newTask.allocatedHours) <= 0) {
+            addToast?.('Please enter allocated hours (e.g., 8, 20, 40)', 'error');
+            return;
+        }
 
         setSubmitting(true);
         try {
@@ -197,11 +204,11 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 due_date: newTask.endDate,
                 due_time: newTask.dueTime || null,
                 priority: newTask.priority.toLowerCase(),
-                status: 'pending'
+                status: 'pending',
+                allocated_hours: parseFloat(newTask.allocatedHours)
             };
 
-            const { error } = await supabase.from('tasks').insert([taskToInsert]);
-            if (error) throw error;
+            await supabaseRequest(supabase.from('tasks').insert([taskToInsert]), addToast);
 
             // Send Notification (Only for Team tasks if not covered by triggers)
             try {
@@ -232,7 +239,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 startDate: new Date().toISOString().split('T')[0],
                 endDate: new Date().toISOString().split('T')[0],
                 dueTime: '',
-                priority: 'Medium'
+                priority: 'Medium',
+                allocatedHours: ''
             });
             fetchData();
         } catch (error) {
@@ -241,6 +249,30 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
         } finally {
             setSubmitting(false);
         }
+    };
+
+    const downloadCSV = () => {
+        if (!tasks.length) return;
+        const headers = ['ID', 'Title', 'Assignee', 'Project', 'Status', 'Priority', 'Allocated Hours', 'Due Date'];
+        const csvContent = [
+            headers.join(','),
+            ...tasks.map(t => [
+                t.id,
+                `"${t.title.replace(/"/g, '""')}"`,
+                `"${t.assignee_name}"`,
+                `"${t.project_name}"`,
+                t.status,
+                t.priority,
+                t.allocated_hours || 0,
+                t.due_date
+            ].join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `tasks_export_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
     };
 
     const handleApproveTask = async () => {
@@ -499,6 +531,25 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                             : 'Track your tasks through the lifecycle'}
                     </p>
                 </div>
+                <button
+                    onClick={downloadCSV}
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        padding: '12px 24px',
+                        backgroundColor: 'white',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '8px',
+                        color: '#475569',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        fontSize: '0.95rem',
+                        marginRight: '12px'
+                    }}
+                >
+                    <ExternalLink size={18} /> Export CSV
+                </button>
                 {(userRole === 'manager' || userRole === 'executive') && (
                     <button
                         onClick={() => setShowAddTaskModal(true)}
@@ -612,6 +663,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                 <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assignee</th>
                                 <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lifecycle</th>
                                 <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due Date</th>
+                                <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Est. Hours</th>
                                 <th style={{ padding: '16px', textAlign: 'left', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</th>
                                 <th style={{ padding: '16px', textAlign: 'center', fontWeight: 600, fontSize: '0.75rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', minWidth: '160px' }}>Actions</th>
                             </tr>
@@ -619,7 +671,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                         <tbody>
                             {filteredTasks.length === 0 ? (
                                 <tr>
-                                    <td colSpan={6} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
+                                    <td colSpan={7} style={{ padding: '48px', textAlign: 'center', color: '#94a3b8' }}>
                                         No tasks found
                                     </td>
                                 </tr>
@@ -660,6 +712,14 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                     <Calendar size={14} />
                                                     <span style={{ fontSize: '0.9rem' }}>
                                                         {task.due_date ? new Date(task.due_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }) : 'No Date'}
+                                                    </span>
+                                                </div>
+                                            </td>
+                                            <td style={{ padding: '16px', verticalAlign: 'middle' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#64748b', whiteSpace: 'nowrap' }}>
+                                                    <Clock size={14} />
+                                                    <span style={{ fontSize: '0.9rem', fontWeight: 500 }}>
+                                                        {task.allocated_hours ? `${task.allocated_hours} hrs` : '-'}
                                                     </span>
                                                 </div>
                                             </td>
@@ -998,6 +1058,42 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                     <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
                                 </div>
                             </div>
+
+                            {/* Allocated Hours - Restricted to Managers/Leads */}
+                            {(userRole === 'manager' || userRole === 'team_lead' || userRole === 'executive') && (
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
+                                        Allocated Hours <span style={{ color: '#ef4444' }}>*</span>
+                                    </label>
+                                    <div style={{ position: 'relative' }}>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            placeholder="e.g., 8, 20, 40"
+                                            value={newTask.allocatedHours}
+                                            onChange={handleAllocatedHoursChange}
+                                            required
+                                            style={{
+                                                width: '100%',
+                                                padding: '10px 12px',
+                                                border: allocatedHoursError ? '1px solid #ef4444' : '1px solid #e2e8f0',
+                                                borderRadius: '8px',
+                                                fontSize: '0.95rem',
+                                                outline: 'none'
+                                            }}
+                                        />
+                                        <Clock size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
+                                    </div>
+                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>
+                                        Estimated time to complete this task (in hours)
+                                    </p>
+                                    {allocatedHoursError && (
+                                        <p style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px' }}>
+                                            {allocatedHoursError}
+                                        </p>
+                                    )}
+                                </div>
+                            )}
 
                             {/* Modal Footer */}
                             <div style={{

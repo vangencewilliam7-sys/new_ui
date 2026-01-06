@@ -6,10 +6,7 @@ dist/
 dist-ssr/
 build/
 
-# Environment variables
-.env
-.env.local
-.env.*.local
+
 
 # Logs
 logs/

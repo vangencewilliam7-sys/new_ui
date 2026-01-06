@@ -6,10 +6,7 @@ __pycache__/
 *.pyc
 *.pyo
 
-# Environment files (NEVER commit these!)
-.env
-.env.local
-.env.*.local
+
 
 # IDE
 .idea/

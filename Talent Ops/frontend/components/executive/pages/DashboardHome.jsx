@@ -350,8 +350,8 @@ const DashboardHome = () => {
 
                             <div style={{ display: 'flex', gap: '32px', marginTop: '16px' }}>
                                 <div>
-                                    <span style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#fff', textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>{employeeStats.active}</span>
-                                    <p style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#fff' }}>Active</p>
+                                    <span style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#000', textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>{employeeStats.active}</span>
+                                    <p style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#000' }}>Active</p>
                                 </div>
                                 <div style={{ paddingTop: '12px' }}>
                                     <span style={{ fontSize: '1.25rem', fontWeight: 'bold', color: '#854d0e' }}>{employeeStats.absent}</span>
@@ -391,15 +391,15 @@ const DashboardHome = () => {
 
                             <div className="flex flex-wrap gap-4 justify-between">
                                 <div>
-                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#fff' }}>{taskStats.pending}</span>
+                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#000' }}>{taskStats.pending}</span>
                                     <p style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#1e3a8a', marginTop: '4px' }}>PENDING</p>
                                 </div>
                                 <div>
-                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#fff' }}>{taskStats.inProgress}</span>
+                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#000' }}>{taskStats.inProgress}</span>
                                     <p style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#1e3a8a', marginTop: '4px' }}>IN PROGRESS</p>
                                 </div>
                                 <div>
-                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#fff' }}>{taskStats.completed}</span>
+                                    <span style={{ fontSize: '2rem', fontWeight: 'bold', color: '#000' }}>{taskStats.completed}</span>
                                     <p style={{ fontSize: '0.7rem', fontWeight: 'bold', color: '#1e3a8a', marginTop: '4px' }}>COMPLETED</p>
                                 </div>
                             </div>

@@ -99,6 +99,15 @@ const ManagerTasks = () => {
                 reviewed_at: new Date()
             });
 
+            // 1.5. Check for Overage and Save Justification
+            if (selectedTask.actual_hours > selectedTask.allocated_hours) {
+                if (!managerJustification.trim()) {
+                    addToast('Justification required for time overage', 'error');
+                    return;
+                }
+                await supabase.from('tasks').update({ manager_justification: managerJustification }).eq('id', selectedTask.id);
+            }
+
             // 2. Update Task Status
             await handleUpdateTask(selectedTask.id, 'status', 'completed');
 
@@ -207,8 +216,13 @@ const ManagerTasks = () => {
         weight_rule: 'standard',
         auto_approval_allowed: false,
         delay_penalty_percent: 0,
-        business_impact_type: 'efficiency'
+        business_impact_type: 'efficiency',
+        allocated_hours: 0 // New Mandatory Field
     });
+
+    // Justification State
+    const [showJustificationModal, setShowJustificationModal] = useState(false);
+    const [managerJustification, setManagerJustification] = useState('');
 
     // Fetch Data
     useEffect(() => {
@@ -242,29 +256,16 @@ const ManagerTasks = () => {
     const fetchTasks = async () => {
         if (!teamId) return;
         try {
-            // First, get all team member IDs
-            const { data: teamMembers, error: membersError } = await supabase
-                .from('profiles')
-                .select('id')
-                .eq('team_id', teamId);
-
-            if (membersError) throw membersError;
-
-            if (!teamMembers || teamMembers.length === 0) {
-                setTasks([]);
-                return;
-            }
-
-            const memberIds = teamMembers.map(m => m.id);
-
-            // Fetch all tasks assigned to these team members, ordered by latest first
+            // Fetch all tasks for this team (Strict Branch Access)
             const { data: tasksData, error: tasksError } = await supabase
                 .from('tasks')
                 .select('*')
-                .in('assigned_to', memberIds)
-                .order('id', { ascending: false }); // Show latest tasks first
+                .eq('team_id', teamId)
+                .order('id', { ascending: false });
 
             if (tasksError) throw tasksError;
+
+
 
             // Fetch profiles for names
             const { data: profiles, error: profilesError } = await supabase
@@ -320,6 +321,14 @@ const ManagerTasks = () => {
             addToast('Please enter a task title', 'error');
             return;
         }
+        if (newTask.assign_type === 'individual' && !newTask.assigned_to) {
+            addToast('Please select an assignee', 'error');
+            return;
+        }
+        if (!newTask.allocated_hours || newTask.allocated_hours <= 0) {
+            addToast('Allocated Hours is mandatory and must be greater than 0', 'error');
+            return;
+        }
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -343,7 +352,8 @@ const ManagerTasks = () => {
                     due_date: newTask.due_date,
                     due_time: newTask.due_time || null,
                     priority: newTask.priority.toLowerCase(),
-                    status: statusDb
+                    status: statusDb,
+                    allocated_hours: parseFloat(newTask.allocated_hours)
                 }));
             } else {
                 tasksToInsert = [{
@@ -355,7 +365,8 @@ const ManagerTasks = () => {
                     start_date: newTask.start_date,
                     due_date: newTask.due_date,
                     priority: newTask.priority.toLowerCase(),
-                    status: statusDb
+                    status: statusDb,
+                    allocated_hours: parseFloat(newTask.allocated_hours)
                 }];
             }
 
@@ -522,8 +533,9 @@ const ManagerTasks = () => {
                             <tr style={{ backgroundColor: 'var(--background)', borderBottom: '1px solid var(--border)' }}>
                                 <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', width: '30%' }}>TASK</th>
                                 <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', width: '20%' }}>ASSIGNEE</th>
-                                <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', width: '18%' }}>DUE DATE</th>
-                                <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', width: '16%' }}>PRIORITY</th>
+                                <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', width: '15%' }}>TIME (Act/All)</th>
+                                <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', width: '15%' }}>DUE DATE</th>
+                                <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', width: '10%' }}>PRIORITY</th>
                                 <th style={{ padding: '16px', textAlign: 'center', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', minWidth: '160px' }}>ACTIONS</th>
                             </tr>
                         </thead>
@@ -568,6 +580,18 @@ const ManagerTasks = () => {
                                                     {task.assignee_name.charAt(0)}
                                                 </div>
                                                 <span style={{ fontSize: '0.9rem' }}>{task.assignee_name}</span>
+                                            </div>
+                                        </td>
+                                        <td style={{ padding: '16px' }}>
+                                            <div style={{
+                                                fontSize: '0.9rem',
+                                                fontWeight: 600,
+                                                color: (task.actual_hours > task.allocated_hours) ? '#ef4444' : '#1e293b'
+                                            }}>
+                                                {task.actual_hours || 0} / {task.allocated_hours || 0} hrs
+                                                {(task.actual_hours > task.allocated_hours) && (
+                                                    <span style={{ display: 'block', fontSize: '0.7rem', color: '#ef4444' }}>Overage!</span>
+                                                )}
                                             </div>
                                         </td>
                                         <td style={{ padding: '16px', fontSize: '0.9rem' }}>
@@ -743,6 +767,18 @@ const ManagerTasks = () => {
                                     placeholder="Enter task description"
                                     rows="3"
                                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', outline: 'none', fontSize: '0.9rem', resize: 'vertical' }}
+                                />
+                            </div>
+                            <div>
+                                <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 500 }}>Allocated Hours *</label>
+                                <input
+                                    type="number"
+                                    min="0.5"
+                                    step="0.5"
+                                    value={newTask.allocated_hours}
+                                    onChange={(e) => setNewTask({ ...newTask, allocated_hours: e.target.value })}
+                                    placeholder="e.g. 8.0"
+                                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border)', outline: 'none', fontSize: '0.9rem' }}
                                 />
                             </div>
                             <div>
@@ -1138,7 +1174,13 @@ const ManagerTasks = () => {
                                                             <XCircle size={18} /> Reject & Return
                                                         </button>
                                                         <button
-                                                            onClick={handleApproveTask}
+                                                            onClick={() => {
+                                                                if (selectedTask.actual_hours > selectedTask.allocated_hours) {
+                                                                    setShowJustificationModal(true);
+                                                                } else {
+                                                                    handleApproveTask();
+                                                                }
+                                                            }}
                                                             style={{
                                                                 flex: 1, padding: '12px', borderRadius: '8px', border: 'none',
                                                                 background: 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)',
@@ -1236,6 +1278,39 @@ const ManagerTasks = () => {
                                 <CheckCircle2 size={16} />
                                 {resolvingIssue ? 'Resolving...' : 'Mark as Resolved'}
                             </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Justification Modal for Approval */}
+            {showJustificationModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100
+                }}>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', width: '400px', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+                        <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '16px', color: '#b45309' }}>⏱️ Overage Justification Required</h3>
+                        <p style={{ color: '#4b5563', marginBottom: '16px', fontSize: '0.9rem' }}>
+                            This task has exceeded its allocated time ({selectedTask?.actual_hours} / {selectedTask?.allocated_hours} hrs).
+                            Please provide a justification for this overage to proceed with approval.
+                        </p>
+
+                        {selectedTask?.employee_justification && (
+                            <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#f3f4f6', borderRadius: '8px' }}>
+                                <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#6b7280' }}>EMPLOYEE REASON:</div>
+                                <div style={{ fontStyle: 'italic', color: '#1f2937' }}>"{selectedTask.employee_justification}"</div>
+                            </div>
+                        )}
+
+                        <textarea
+                            value={managerJustification}
+                            onChange={(e) => setManagerJustification(e.target.value)}
+                            placeholder="Enter manager justification..."
+                            style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', marginBottom: '16px', minHeight: '80px' }}
+                        />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                            <button onClick={() => setShowJustificationModal(false)} style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #e5e7eb', background: 'white' }}>Cancel</button>
+                            <button onClick={handleApproveTask} style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: '#b45309', color: 'white', fontWeight: 600 }}>Confirm & Approve</button>
                         </div>
                     </div>
                 </div>

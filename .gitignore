@@ -6,14 +6,7 @@
 # ======================
 # Environment Variables
 # ======================
-# CRITICAL: Never commit sensitive data
-.env
-.env.*
-.env.local
-.env.*.local
-*.env
-**/.env
-**/.env.*
+
 
 # ======================
 # Documentation with Sensitive Info

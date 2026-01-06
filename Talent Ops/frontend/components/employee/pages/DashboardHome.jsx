@@ -314,8 +314,8 @@ const DashboardHome = () => {
 
                             <div className="flex flex-wrap gap-6 mt-4">
                                 <div>
-                                    <span style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#fff', textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>{attendanceStats.present}</span>
-                                    <p style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#fff' }}>Present</p>
+                                    <span style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#000', textShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>{attendanceStats.present}</span>
+                                    <p style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#000' }}>Present</p>
                                     <p style={{ fontSize: '0.8rem', color: '#854d0e' }}>Days</p>
                                 </div>
                                 <div style={{ paddingTop: '12px' }}>
