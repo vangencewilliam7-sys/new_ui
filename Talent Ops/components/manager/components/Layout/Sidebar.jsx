@@ -3,6 +3,7 @@ import {
     LayoutDashboard,
     BarChart2,
     Users,
+    User,
     ListTodo,
     CalendarOff,
     Receipt,
@@ -56,6 +57,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
     // Organization-level menu items
     const orgMenuItems = [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/manager-dashboard/dashboard' },
+        { icon: ListTodo, label: 'All Tasks', path: '/manager-dashboard/global-tasks' },
         { icon: UserCheck, label: 'Employee Status', path: '/manager-dashboard/employee-status' },
         { icon: CalendarOff, label: 'Leave Requests', path: '/manager-dashboard/leaves' },
         { icon: CalendarOff, label: 'My Leaves', path: '/manager-dashboard/my-leaves' },
@@ -70,29 +72,31 @@ const Sidebar = ({ isCollapsed, toggleSidebar }) => {
     // Role-based project menu configurations
     const projectMenusByRole = {
         consultant: [
-            { icon: Users, label: 'Project', path: '/manager-dashboard/employees' },
-            { icon: ListTodo, label: 'My Tasks', path: '/manager-dashboard/tasks' },
+            { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
+            { icon: FileText, label: 'Project Documents', path: '/manager-dashboard/documents' },
+            { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/manager-dashboard/project-hierarchy' },
-            { icon: FileText, label: 'Documents', path: '/manager-dashboard/documents' },
         ],
         employee: [
-            { icon: Users, label: 'Project', path: '/manager-dashboard/employees' },
-            { icon: ListTodo, label: 'My Tasks', path: '/manager-dashboard/tasks' },
+            { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
+            { icon: FileText, label: 'Project Documents', path: '/manager-dashboard/documents' },
+            { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/manager-dashboard/project-hierarchy' },
-            { icon: FileText, label: 'Documents', path: '/manager-dashboard/documents' },
         ],
         team_lead: [
-            { icon: Users, label: 'My Project', path: '/manager-dashboard/employees' },
-            { icon: ListTodo, label: 'Team Tasks', path: '/manager-dashboard/tasks' },
+            { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
+            { icon: ListTodo, label: 'All Project Tasks', path: '/manager-dashboard/tasks' },
+            { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/manager-dashboard/project-hierarchy' },
             { icon: FileText, label: 'Documents', path: '/manager-dashboard/documents' },
         ],
         manager: [
-            { icon: Users, label: 'Project', path: '/manager-dashboard/employees' },
-            { icon: ListTodo, label: 'Tasks', path: '/manager-dashboard/tasks' },
+            { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
+            { icon: ListTodo, label: 'All Project Tasks', path: '/manager-dashboard/tasks' },
+            { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Project Hierarchy', path: '/manager-dashboard/project-hierarchy' },
             { icon: FileText, label: 'Documents', path: '/manager-dashboard/documents' },

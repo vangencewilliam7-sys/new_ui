@@ -71,11 +71,34 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
 
             if (error) throw error;
 
-            // Attach project names
-            const enhancedData = (data || []).map(doc => ({
-                ...doc,
-                project_name: (userRole === 'executive' ? projectMap[doc.project_id] : currentProject?.name) || 'Unknown Project'
-            }));
+            // Fetch uploader profiles
+            let uploaderIds = [];
+            if (data) {
+                uploaderIds = [...new Set(data.map(d => d.created_by).filter(Boolean))];
+            }
+
+            let profileMap = {};
+            if (uploaderIds.length > 0) {
+                const { data: profiles } = await supabase
+                    .from('profiles')
+                    .select('id, full_name, role')
+                    .in('id', uploaderIds);
+
+                if (profiles) {
+                    profiles.forEach(p => profileMap[p.id] = p);
+                }
+            }
+
+            // Attach project names and uploader info
+            const enhancedData = (data || []).map(doc => {
+                const uploader = profileMap[doc.created_by];
+                return {
+                    ...doc,
+                    project_name: (userRole === 'executive' ? projectMap[doc.project_id] : currentProject?.name) || 'Unknown Project',
+                    uploader_name: uploader?.full_name || 'Unknown',
+                    uploader_role: uploader?.role || 'Member'
+                };
+            });
 
             setDocuments(enhancedData);
         } catch (err) {
@@ -363,8 +386,9 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
 
                                 {/* Actions */}
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid #f1f5f9' }}>
-                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
-                                        {new Date(doc.created_at).toLocaleDateString()}
+                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                        <span>{new Date(doc.created_at).toLocaleDateString()}</span>
+                                        <span style={{ fontSize: '0.7rem' }}>by {doc.uploader_name} ({doc.uploader_role})</span>
                                     </span>
 
                                     {doc.file_url && (

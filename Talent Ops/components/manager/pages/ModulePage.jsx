@@ -758,8 +758,10 @@ const ModulePage = ({ title, type }) => {
     };
 
     // Render specific demos for certain types
-    if (type === 'analytics') return <AnalyticsDemo currentProject={currentProject} projectRole={projectRole} />;
-    if (type === 'tasks') return <AllTasksView userRole={userRole} projectRole={projectRole} userId={userId} addToast={addToast} />;
+    if (type === 'analytics') return <AnalyticsDemo currentProject={currentProject} projectRole={projectRole} userId={userId} />;
+    if (type === 'tasks') return <AllTasksView key="team-tasks" userRole={userRole} projectRole={projectRole} userId={userId} addToast={addToast} viewMode="team_tasks" />;
+    if (type === 'global-tasks') return <AllTasksView key="global-tasks" userRole={userRole} projectRole={projectRole} userId={userId} addToast={addToast} viewMode="global_tasks" />;
+    if (type === 'personal-tasks') return <AllTasksView key="personal-tasks" userRole={userRole} projectRole={projectRole} userId={userId} addToast={addToast} viewMode="my_tasks" />;
     if (title === 'Team Hierarchy' || title === 'Organizational Hierarchy') return <HierarchyDemo />;
     if (title === 'Project Hierarchy') return <ProjectHierarchyDemo />;
     if (title === 'Settings') return <SettingsDemo />;

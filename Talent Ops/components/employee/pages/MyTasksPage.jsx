@@ -294,11 +294,34 @@ const MyTasksPage = () => {
     const getPhaseIndex = (phase) => LIFECYCLE_PHASES.findIndex(p => p.key === phase);
 
     const LifecycleProgress = ({ currentPhase, subState, validations }) => {
-        const currentIndex = getPhaseIndex(currentPhase || 'requirement_refiner');
+        let parsedValidations = validations;
+        if (typeof validations === 'string') {
+            try {
+                parsedValidations = JSON.parse(validations);
+            } catch (e) {
+                console.error("Error parsing validations JSON", e);
+            }
+        }
+
+        const activePhases = parsedValidations?.active_phases || LIFECYCLE_PHASES.map(p => p.key);
+        // Exclude 'closed' from the active phases for display generally, or handle it? 
+        // Original logic was LIFECYCLE_PHASES.slice(0, -1). 
+        // If activePhases includes 'closed', we should probably filter it out if we don't want to show it as a circle?
+        // But usually activePhases are just the 5 Steps.
+        // Let's filter LIFECYCLE_PHASES based on p.key being in activePhases.
+
+        const filteredPhases = LIFECYCLE_PHASES.filter(p => activePhases.includes(p.key) && p.key !== 'closed');
+        // Note: The original code sliced off 'closed'. We should maintain that behavior.
+
+        const currentPhaseObj = LIFECYCLE_PHASES.find(p => p.key === currentPhase); // find in FULL list to get index logic?
+        // No, we need index in the FILTERED list.
+
+        const currentIndex = filteredPhases.findIndex(p => p.key === (currentPhase || filteredPhases[0]?.key));
+
         return (
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                {LIFECYCLE_PHASES.slice(0, -1).map((phase, idx) => {
-                    const validation = validations?.[phase.key];
+                {filteredPhases.map((phase, idx) => {
+                    const validation = parsedValidations?.[phase.key];
                     const status = validation?.status;
                     let color = '#e5e7eb'; // Default Grey
 
@@ -325,7 +348,7 @@ const MyTasksPage = () => {
                             }} title={`${phase.label} ${status ? `(${status})` : ''}`}>
                                 {color === '#10b981' ? '✓' : phase.short.charAt(0)}
                             </div>
-                            {idx < LIFECYCLE_PHASES.length - 2 && (
+                            {idx < filteredPhases.length - 1 && (
                                 <div style={{ width: '12px', height: '2px', backgroundColor: idx < currentIndex ? '#10b981' : '#e5e7eb' }} />
                             )}
                         </React.Fragment>

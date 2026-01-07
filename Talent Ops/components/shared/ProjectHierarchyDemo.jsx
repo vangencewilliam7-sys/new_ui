@@ -89,7 +89,6 @@ const ProjectHierarchyDemo = ({ isEditingEnabled = false }) => {
                         const getProjectRole = (p) => p.role ? p.role.toLowerCase().trim() : '';
 
                         const projectManagers = projectTeamMembers.filter(p => getProjectRole(p) === 'manager');
-                        const assignedManager = projectManagers.length > 0 ? projectManagers[0] : null;
 
                         const leads = projectTeamMembers.filter(p => getProjectRole(p) === 'team_lead');
                         const staff = projectTeamMembers.filter(p => getProjectRole(p) === 'employee');
@@ -97,7 +96,7 @@ const ProjectHierarchyDemo = ({ isEditingEnabled = false }) => {
                         projectsMap.push({
                             id: project.id,
                             name: project.name || 'Unnamed Project',
-                            manager: assignedManager,
+                            managers: projectManagers, // Store all managers
                             leads: leads,
                             staff: staff
                         });
@@ -490,32 +489,94 @@ const ProjectHierarchyDemo = ({ isEditingEnabled = false }) => {
                     )}
                 </div>
 
-                {/* Level 1: Project Manager */}
+                {/* Level 1: Project Managers */}
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', zIndex: 2 }}>
-                    <div style={{ position: 'relative' }}>
-                        {selectedProject.manager ? (
-                            <NodeCard
-                                title={selectedProject.manager.full_name}
-                                subtitle="Project Manager"
-                                color="#2563eb"
-                                onClick={() => setSelectedEmployee(selectedProject.manager)}
-                                showActions={isEditingEnabled}
-                                member={selectedProject.manager}
-                            />
-                        ) : (
-                            <div style={{ padding: '10px', border: '1px dashed #cbd5e1', borderRadius: '8px', color: '#94a3b8' }}>No Manager Assigned</div>
-                        )}
-                        {/* Down Line */}
-                        <div style={{
-                            position: 'absolute',
-                            bottom: `-${halfGap}px`,
-                            left: '50%',
-                            width: '2px',
-                            height: `${halfGap}px`,
-                            backgroundColor: '#cbd5e1',
-                            transform: 'translateX(-1px)'
-                        }}></div>
-                    </div>
+                    {selectedProject.managers && selectedProject.managers.length > 0 ? (
+                        <>
+                            {/* Horizontal Bar for multiple managers */}
+                            {selectedProject.managers.length > 1 && (
+                                <div style={{
+                                    position: 'absolute',
+                                    bottom: `-${halfGap}px`,
+                                    left: '50%',
+                                    transform: 'translateX(-50%)',
+                                    width: `${(selectedProject.managers.length - 1) * (cardWidth + gap)}px`,
+                                    height: '2px',
+                                    backgroundColor: '#cbd5e1'
+                                }} />
+                            )}
+
+                            <div style={{ display: 'flex', gap: `${gap}px`, position: 'relative' }}>
+                                {selectedProject.managers.map((mgr) => (
+                                    <div key={mgr.id} style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                        <NodeCard
+                                            title={mgr.full_name}
+                                            subtitle="Project Manager"
+                                            color="#2563eb"
+                                            onClick={() => setSelectedEmployee(mgr)}
+                                            showActions={isEditingEnabled}
+                                            member={mgr}
+                                        />
+                                        {/* Down Line to Bus */}
+                                        <div style={{
+                                            position: 'absolute',
+                                            bottom: `-${halfGap}px`,
+                                            left: '50%',
+                                            width: '2px',
+                                            height: `${halfGap}px`,
+                                            backgroundColor: '#cbd5e1',
+                                            transform: 'translateX(-1px)'
+                                        }}></div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Single Line from Bus Center Down to next level (Leads) */}
+                            <div style={{
+                                position: 'absolute',
+                                bottom: `-${gapSize}px`, // Extend fully to next level top
+                                left: '50%',
+                                width: '2px',
+                                height: `${halfGap}px`, // Only need half gap from the bar downwards? 
+                                // Actually, visual gap is gapSize (60). 
+                                // Managers use bottom 30px to reach Bus. 
+                                // We need 30px more to reach Leads top.
+                                // BUT Leads Top Bar is at line 529: `top: -halfGap`.
+                                // So connection is continuous.
+                                // Bottom Bus is at -30px.
+                                // We need a line from -30px to -60px (which is relative to what?)
+                                // Wait, the parent container has `gap: 60px`.
+                                // So visual distance is 60px.
+                                // Code above draws line at bottom -30px.
+                                // Leads draws line at top -30px.
+                                // They meet perfectly in the DOM flow.
+                                backgroundColor: 'transparent' // No extra line needed if visual gap handles it? 
+                                // Wait. Managers Bar is at -30px relative to Manager Card bottom.
+                                // Leads Bar is at -30px relative to Leads Card top.
+                                // Total distance between Cards is 60px.
+                                // So Bar-to-Bar distance is 0px. They touch/overlap.
+                                // So we effectively have ONE line?
+                                // No, we have Two horizontal bars touching? That looks weird.
+                                // Ideally:
+                                // Manager Bar ... Down Line ... Leads Bar.
+                                // If they touch, it's just a cross.
+                            }} ></div>
+                        </>
+                    ) : (
+                        <div style={{ padding: '10px', border: '1px dashed #cbd5e1', borderRadius: '8px', color: '#94a3b8', marginBottom: `${halfGap}px` }}>
+                            No Manager Assigned
+                            {/* Placeholder Down Line */}
+                            <div style={{
+                                position: 'absolute',
+                                bottom: `-${halfGap}px`,
+                                left: '50%',
+                                width: '2px',
+                                height: `${halfGap}px`,
+                                backgroundColor: '#cbd5e1',
+                                transform: 'translateX(-1px)'
+                            }}></div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Level 2: Project Leads */}
@@ -692,21 +753,59 @@ const ProjectHierarchyDemo = ({ isEditingEnabled = false }) => {
                                 {/* Down Line from Project */}
                                 <div style={{ width: '2px', height: '40px', backgroundColor: '#cbd5e1' }}></div>
 
-                                {/* Manager */}
+                                {/* Manager(s) */}
                                 <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                    {project.manager ? (
-                                        <NodeCard
-                                            title={project.manager.full_name}
-                                            subtitle="Project Manager"
-                                            color="#2563eb"
-                                            onClick={() => setSelectedEmployee(project.manager)}
-                                        />
-                                    ) : (
-                                        <div style={{ padding: '10px', border: '1px dashed #cbd5e1', borderRadius: '8px', color: '#94a3b8' }}>No Manager</div>
-                                    )}
+                                    {project.managers && project.managers.length > 0 ? (
+                                        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                            {/* Top Horizontal Bar (Split from Project) */}
+                                            {project.managers.length > 1 && (
+                                                <div style={{ position: 'absolute', top: '-20px', left: '50%', transform: 'translateX(-50%)', width: `${(project.managers.length - 1) * 240}px`, height: '2px', backgroundColor: '#cbd5e1' }}></div>
+                                            )}
 
-                                    {/* Connector to Leads */}
-                                    {project.leads.length > 0 && <div style={{ width: '2px', height: '40px', backgroundColor: '#cbd5e1' }}></div>}
+                                            <div style={{ display: 'flex', gap: '40px', paddingTop: '0px' }}>
+                                                {project.managers.map(mgr => (
+                                                    <div key={mgr.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative' }}>
+                                                        {/* Up Line to Top Bar */}
+                                                        <div style={{ position: 'absolute', top: '-20px', left: '50%', height: '20px', width: '2px', backgroundColor: '#cbd5e1', transform: 'translateX(-50%)' }}></div>
+
+                                                        <NodeCard
+                                                            title={mgr.full_name}
+                                                            subtitle="Project Manager"
+                                                            color="#2563eb"
+                                                            onClick={() => setSelectedEmployee(mgr)}
+                                                        />
+
+                                                        {/* Down Line to Bottom Bar (if Leads exist) */}
+                                                        {project.leads.length > 0 && <div style={{ width: '2px', height: '20px', backgroundColor: '#cbd5e1' }}></div>}
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {/* Bottom Horizontal Bar (Recombine for Leads) */}
+                                            {project.managers.length > 1 && project.leads.length > 0 && (
+                                                <div style={{ position: 'absolute', bottom: '20px', left: '50%', transform: 'translateX(-50%)', width: `${(project.managers.length - 1) * 240}px`, height: '2px', backgroundColor: '#cbd5e1' }}></div>
+                                            )}
+
+                                            {/* Final connection line to Leads is handled by Leads block or Project container? */}
+                                            {/* Current Project container has: Project -> Line(40) -> Manager -> [HERE] -> Leads */}
+                                            {/* The previous logic had: Manager -> Line(40) -> Leads (Lines 709) */}
+                                            {/* My logic above adds 20px down line for each manager. */}
+                                            {/* If we have Bottom Bar at 'bottom: 20px*? No. */}
+                                            {/* Unlike ProjectDetailTree where we use absolute positioning, here we are in Flex stack. */}
+                                            {/* We need a single vertical line from the Bottom Bar Center to the Leads? */}
+                                            {/* If multiple managers, we have Bottom Bar. */}
+                                            {/* We need a line from that Bar Downwards. */}
+                                            {project.leads.length > 0 && (
+                                                <div style={{ width: '2px', height: '20px', backgroundColor: '#cbd5e1' }}></div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                                            <div style={{ padding: '10px', border: '1px dashed #cbd5e1', borderRadius: '8px', color: '#94a3b8' }}>No Manager</div>
+                                            {/* Connector to Leads */}
+                                            {project.leads.length > 0 && <div style={{ width: '2px', height: '40px', backgroundColor: '#cbd5e1' }}></div>}
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Team Leads */}

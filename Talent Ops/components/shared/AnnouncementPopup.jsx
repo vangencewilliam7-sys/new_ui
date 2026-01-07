@@ -13,6 +13,23 @@ const AnnouncementPopup = ({ isOpen, onClose, userId }) => {
         }
     }, [isOpen, userId]);
 
+    // Effect to check if broadcast has been seen today
+    useEffect(() => {
+        if (isOpen && items.length > 0) {
+            const currentItem = items[currentIndex];
+            const isBroadcastItem = currentItem?.location === 'Broadcast';
+
+            if (isBroadcastItem) {
+                const lastSeen = localStorage.getItem('last_broadcast_seen');
+                const today = new Date().toISOString().split('T')[0];
+
+                if (lastSeen === today) {
+                    onClose(); // Auto-close if already seen today
+                }
+            }
+        }
+    }, [isOpen, items, currentIndex, onClose]);
+
     const fetchItems = async () => {
         setLoading(true);
         try {
@@ -57,13 +74,24 @@ const AnnouncementPopup = ({ isOpen, onClose, userId }) => {
     }
 
     const current = items[currentIndex];
-    const isBroadcast = current.location === 'Broadcast';
+    const isBroadcast = current?.location === 'Broadcast';
+
+    // Effect to check if broadcast has been seen today
+
+
+    const handleClose = () => {
+        if (isBroadcast) {
+            const today = new Date().toISOString().split('T')[0];
+            localStorage.setItem('last_broadcast_seen', today);
+        }
+        onClose();
+    };
 
     const nextItem = () => {
         if (currentIndex < items.length - 1) {
             setCurrentIndex(prev => prev + 1);
         } else {
-            onClose();
+            handleClose();
         }
     };
 
@@ -112,7 +140,7 @@ const AnnouncementPopup = ({ isOpen, onClose, userId }) => {
                             </span>
                         </div>
                     </div>
-                    <button onClick={onClose} style={styles.closeButton}>
+                    <button onClick={handleClose} style={styles.closeButton}>
                         <X size={20} />
                     </button>
                 </div>

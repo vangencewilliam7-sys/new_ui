@@ -30,8 +30,10 @@ export const ManagerDashboard = () => {
                                 <Route path="/" element={<Navigate to="dashboard" replace />} />
                                 <Route path="dashboard" element={<DashboardHome />} />
                                 <Route path="analytics" element={<ModulePage title="Analytics" type="analytics" />} />
-                                <Route path="employees" element={<ModulePage title="Employees" type="workforce" />} />
-                                <Route path="tasks" element={<ModulePage title="Task Manager" type="tasks" />} />
+                                <Route path="employees" element={<ModulePage title="Team Members" type="workforce" />} />
+                                <Route path="tasks" element={<ModulePage title="All Project Tasks" type="tasks" />} />
+                                <Route path="global-tasks" element={<ModulePage title="All Organization Tasks" type="global-tasks" />} />
+                                <Route path="personal-tasks" element={<ModulePage title="My Tasks" type="personal-tasks" />} />
                                 <Route path="leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
                                 <Route path="my-leaves" element={<MyLeavesPage />} />
                                 <Route path="employee-status" element={<ModulePage title="Employee Status" type="status" />} />
