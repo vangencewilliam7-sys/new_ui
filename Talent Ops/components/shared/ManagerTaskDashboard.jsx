@@ -81,10 +81,24 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
 
             // Fallback: Direct query for pending validation tasks
             console.log('RPC returned empty or errored, using fallback query');
+
+            // 1. Get org_id from profile
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('org_id')
+                .eq('id', user.id)
+                .single();
+
+            if (!profile?.org_id) {
+                console.error('No org_id found for user');
+                return;
+            }
+
             const { data: tasksData, error: tasksError } = await supabase
                 .from('tasks')
                 .select('*')
-                .eq('sub_state', 'pending_validation');
+                .eq('sub_state', 'pending_validation')
+                .eq('org_id', profile.org_id); // STRICT FILTER BY ORG_ID
 
             if (tasksError) throw tasksError;
 

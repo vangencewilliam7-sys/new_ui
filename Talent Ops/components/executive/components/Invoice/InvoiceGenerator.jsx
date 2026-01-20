@@ -12,7 +12,7 @@ import {
 } from '../../services/invoiceService';
 import './InvoiceGenerator.css';
 
-const InvoiceGenerator = () => {
+const InvoiceGenerator = ({ orgId }) => {
   // State for clients
   const [clients, setClients] = useState([]);
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -77,13 +77,13 @@ const InvoiceGenerator = () => {
 
   const loadInitialData = async () => {
     // Load next invoice number
-    const { data: invoiceNumber } = await getNextInvoiceNumber();
+    const { data: invoiceNumber } = await getNextInvoiceNumber(orgId);
     if (invoiceNumber) {
       setInvoiceData(prev => ({ ...prev, invoiceNumber }));
     }
 
     // Load clients
-    const { data: clientsData } = await getClients();
+    const { data: clientsData } = await getClients(orgId);
     if (clientsData) {
       setClients(clientsData);
     }
@@ -273,6 +273,7 @@ const InvoiceGenerator = () => {
 
       // Prepare invoice data for database
       const dbInvoiceData = {
+        org_id: orgId,
         invoice_number: invoiceData.invoiceNumber,
         client_id: invoiceData.clientDetails.id,
         invoice_date: invoiceData.invoiceDate,
@@ -341,6 +342,7 @@ const InvoiceGenerator = () => {
 
       // Prepare invoice data for database
       const dbInvoiceData = {
+        org_id: orgId,
         invoice_number: invoiceData.invoiceNumber,
         client_id: invoiceData.clientDetails.id,
         invoice_date: invoiceData.invoiceDate,

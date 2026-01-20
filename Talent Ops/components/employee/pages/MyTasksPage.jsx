@@ -57,15 +57,13 @@ const MyTasksPage = () => {
                 return;
             }
 
-            // Fetch ALL tasks assigned to the current user, regardless of project
-            // This ensures orphan tasks (assigned by Executive without project) are visible
+            // Fetch tasks assigned to the current user AND belonging to the current project
             const { data, error } = await supabase
                 .from('tasks')
                 .select('*, projects(name)')
                 .eq('assigned_to', user.id)
+                .eq('project_id', currentProject.id) // Filter by current project
                 .order('id', { ascending: false });
-
-            // Removed .eq('project_id', currentProject.id) to show all assigned tasks
 
             if (error) throw error;
             console.log('Fetched Tasks:', data);

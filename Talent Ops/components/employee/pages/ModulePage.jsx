@@ -61,7 +61,8 @@ const ModulePage = ({ title, type }) => {
                 .from('leaves')
                 .select('*')
                 .eq('employee_id', user.id)
-                .eq('org_id', orgId);
+                .eq('org_id', orgId)
+                .order('created_at', { ascending: false });
 
             if (error) {
                 console.error('Error fetching leaves:', error);
@@ -99,14 +100,15 @@ const ModulePage = ({ title, type }) => {
                             ? start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })
                             : `${start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}`,
                         status: status,
-                        created_at: leave.created_at // For 12-hour delete window check
+                        appliedOn: leave.created_at ? new Date(leave.created_at).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'N/A',
+                        created_at: leave.created_at // For sorting
                     };
                 });
-                // Sort by status (Pending first) then by ID
+                // Sort by status (Pending first) then by created_at descending
                 mappedLeaves.sort((a, b) => {
                     if (a.status === 'Pending' && b.status !== 'Pending') return -1;
                     if (a.status !== 'Pending' && b.status === 'Pending') return 1;
-                    return b.id - a.id; // Then by ID descending
+                    return new Date(b.created_at) - new Date(a.created_at);
                 });
                 setLeaveRequests(mappedLeaves);
             }
@@ -119,13 +121,18 @@ const ModulePage = ({ title, type }) => {
 
             const { data, error } = await supabase
                 .from('profiles')
-                .select('leaves_remaining')
+                .select('leaves_remaining, monthly_leave_quota, leaves_taken_this_month')
                 .eq('id', user.id)
                 .eq('org_id', orgId)
                 .single();
 
             if (data) {
-                setRemainingLeaves(data.leaves_remaining || 0);
+                // Calculate dynamically to ensure consistency
+                const quota = data.monthly_leave_quota || 0;
+                const taken = data.leaves_taken_this_month || 0;
+                // If quota is present, trust the calculation. Otherwise fallback to stored remaining.
+                const calculatedRemaining = quota > 0 ? (quota - taken) : (data.leaves_remaining || 0);
+                setRemainingLeaves(calculatedRemaining);
             }
         };
 
@@ -142,21 +149,25 @@ const ModulePage = ({ title, type }) => {
 
         const fetchTeamMembers = async () => {
             try {
-                // 1. Fetch project members IDs first
-                const { data: memberIds, error: memberError } = await supabase
+                // 1. Fetch project members IDs AND Roles
+                const { data: projectMembersData, error: memberError } = await supabase
                     .from('project_members')
-                    .select('user_id')
+                    .select('user_id, role')
                     .eq('project_id', currentProject.id)
                     .eq('org_id', orgId);
 
                 if (memberError) throw memberError;
 
-                if (!memberIds || memberIds.length === 0) {
+                if (!projectMembersData || projectMembersData.length === 0) {
                     setTeamMembers([]);
                     return;
                 }
 
-                const userIds = memberIds.map(m => m.user_id);
+                const userIds = projectMembersData.map(m => m.user_id);
+                const projectRoleMap = {};
+                projectMembersData.forEach(pm => {
+                    projectRoleMap[pm.user_id] = pm.role;
+                });
 
                 // 2. Fetch profiles for these users
                 const { data: profiles, error: profileError } = await supabase
@@ -216,11 +227,16 @@ const ModulePage = ({ title, type }) => {
                         status = 'On Leave';
                     }
 
+                    const projectRole = projectRoleMap[member.id];
+                    const isProjectManager = projectRole === 'manager';
+
                     return {
                         id: member.id,
                         name: member.full_name || 'Unknown',
                         email: member.email || 'N/A',
                         role: member.role || 'N/A',
+                        projectRole: projectRole,
+                        isProjectManager: isProjectManager,
                         dept: teamName,
                         department: member.department, // Keep original department ID for internal logic
                         departmentName: deptMap[member.department] || 'Unassigned',
@@ -251,6 +267,10 @@ const ModulePage = ({ title, type }) => {
             })
             .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance' }, () => {
                 setRefreshTrigger(prev => prev + 1); // For team status updates
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'project_members' }, () => {
+                console.log('Project members updated, refreshing...');
+                setRefreshTrigger(prev => prev + 1);
             })
             .subscribe();
 
@@ -653,7 +673,7 @@ const ModulePage = ({ title, type }) => {
 
             if (insertError) throw insertError;
 
-            if (error) throw error;
+            // if (error) throw error; // Removed undefined variable reference
 
             // Calculate duration for update
             const start = new Date(leaveFormData.startDate);
@@ -674,18 +694,26 @@ const ModulePage = ({ title, type }) => {
                 if (userError) throw userError;
 
                 // 3. Update 'leaves_taken_this_month' in profiles
+                // Note: 'leaves_remaining' is a GENERATED COLUMN in the DB, so we cannot update it manually.
+                // It will auto-calculate based on quota - taken.
                 const newTaken = (userData.leaves_taken_this_month || 0) + diffDays;
+
+                // Calculate newRemaining locally for UI update
+                const quota = userData.monthly_leave_quota || 0;
+                const newRemaining = Math.max(0, quota - newTaken);
 
                 const { error: updateError } = await supabase
                     .from('profiles')
-                    .update({ leaves_taken_this_month: newTaken })
+                    .update({
+                        leaves_taken_this_month: newTaken
+                    })
                     .eq('id', userId)
                     .eq('org_id', orgId);
 
                 if (updateError) throw updateError;
 
                 // Update local state for remaining leaves instantly
-                setRemainingLeaves((userData.monthly_leave_quota || 0) - newTaken);
+                setRemainingLeaves(newRemaining);
             }
 
             // --- NOTIFICATION LOGIC START ---
@@ -786,14 +814,16 @@ const ModulePage = ({ title, type }) => {
                         dates: start.toDateString() === end.toDateString()
                             ? start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })
                             : `${start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}`,
-                        status: status
+                        status: status,
+                        appliedOn: new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+                        created_at: new Date().toISOString()
                     };
                 });
-                // Sort by status (Pending first) then by ID
+                // Sort by status (Pending first) then by created_at
                 mappedLeaves.sort((a, b) => {
                     if (a.status === 'Pending' && b.status !== 'Pending') return -1;
                     if (a.status !== 'Pending' && b.status === 'Pending') return 1;
-                    return b.id - a.id;
+                    return new Date(b.created_at) - new Date(a.created_at);
                 });
                 setLeaveRequests(mappedLeaves);
             }
@@ -835,7 +865,22 @@ const ModulePage = ({ title, type }) => {
                                 {row.name.charAt(0)}
                             </div>
                             <div>
-                                <p style={{ fontWeight: 500 }}>{row.name}</p>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <p style={{ fontWeight: 500 }}>{row.name}</p>
+                                    {row.isProjectManager && (
+                                        <span style={{
+                                            fontSize: '0.65rem',
+                                            fontWeight: '700',
+                                            color: '#fff',
+                                            backgroundColor: '#8b5cf6',
+                                            padding: '2px 8px',
+                                            borderRadius: '12px',
+                                            boxShadow: '0 2px 4px rgba(139,92,246,0.2)'
+                                        }}>
+                                            Project Manager
+                                        </span>
+                                    )}
+                                </div>
                                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{row.email}</p>
                             </div>
                         </div>
@@ -1001,6 +1046,7 @@ const ModulePage = ({ title, type }) => {
                         </span>
                     )
                 },
+                { header: 'Applied On', accessor: 'appliedOn' },
                 {
                     header: 'Actions', accessor: 'actions', render: (row) => (
                         <div style={{ display: 'flex', gap: '8px' }}>

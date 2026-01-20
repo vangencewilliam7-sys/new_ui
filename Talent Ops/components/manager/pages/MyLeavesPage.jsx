@@ -9,6 +9,7 @@ const MyLeavesPage = () => {
 
     const [leaveRequests, setLeaveRequests] = useState([]);
     const [remainingLeaves, setRemainingLeaves] = useState(0);
+    const [orgId, setOrgId] = useState(null);
     const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
     const [leaveFormData, setLeaveFormData] = useState({
         leaveType: 'Casual Leave',
@@ -78,12 +79,13 @@ const MyLeavesPage = () => {
 
             const { data, error } = await supabase
                 .from('profiles')
-                .select('leaves_remaining')
+                .select('leaves_remaining, org_id')
                 .eq('id', user.id)
                 .single();
 
             if (data) {
                 setRemainingLeaves(data.leaves_remaining || 0);
+                setOrgId(data.org_id);
             }
         };
 
@@ -121,6 +123,7 @@ const MyLeavesPage = () => {
                 .from('leaves')
                 .insert([{
                     employee_id: user.id,
+                    org_id: orgId,
                     from_date: leaveFormData.startDate,
                     to_date: leaveFormData.endDate,
                     reason: `${leaveFormData.leaveType}: ${leaveFormData.reason}`,

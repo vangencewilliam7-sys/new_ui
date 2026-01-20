@@ -16,10 +16,12 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [viewingDoc, setViewingDoc] = useState(null);
+    const [selectedFilter, setSelectedFilter] = useState('all');
 
     const isManager = projectRole === 'manager' || projectRole === 'team_lead';
 
     const docTypes = [
+        { value: 'all', label: 'All Documents', icon: FileText, color: '#64748b' },
         { value: 'requirements', label: 'Requirements', icon: FileQuestion, color: '#8b5cf6' },
         { value: 'tech_stack', label: 'Tech Stack', icon: Code, color: '#3b82f6' },
         { value: 'project_tasks', label: 'Project Tasks', icon: ListTodo, color: '#10b981' },
@@ -136,8 +138,6 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
 
             let fileUrl = null;
 
-
-
             if (file) {
                 const fileExt = file.name.split('.').pop();
                 const fileName = `${currentProject.id}/${Math.random().toString(36).substring(7)}.${fileExt}`;
@@ -240,7 +240,11 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
         }
     };
 
-    const getDocTypeInfo = (type) => docTypes.find(d => d.value === type) || docTypes[3];
+    const getDocTypeInfo = (type) => docTypes.find(d => d.value === type) || docTypes[4]; // Default to 'other' if not found
+
+    const filteredDocuments = selectedFilter === 'all'
+        ? documents
+        : documents.filter(doc => doc.doc_type === selectedFilter);
 
     if (loading) {
         return (
@@ -322,21 +326,33 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                 {/* Document Type Filters */}
                 <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
                     {docTypes.map(type => {
-                        const count = documents.filter(d => d.doc_type === type.value).length;
+                        const count = type.value === 'all'
+                            ? documents.length
+                            : documents.filter(d => d.doc_type === type.value).length;
+
+                        const isActive = selectedFilter === type.value;
+
                         return (
-                            <div key={type.value} style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '8px 14px',
-                                borderRadius: '20px',
-                                backgroundColor: `${type.color}10`,
-                                border: `1px solid ${type.color}30`,
-                                color: type.color,
-                                fontSize: '0.8rem',
-                                fontWeight: 600,
-                                transition: 'all 0.2s ease'
-                            }}>
+                            <div
+                                key={type.value}
+                                onClick={() => setSelectedFilter(type.value)}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '8px 14px',
+                                    borderRadius: '20px',
+                                    backgroundColor: isActive ? type.color : `${type.color}10`,
+                                    border: isActive ? `1px solid ${type.color}` : `1px solid ${type.color}30`,
+                                    color: isActive ? 'white' : type.color,
+                                    fontSize: '0.8rem',
+                                    fontWeight: 600,
+                                    transition: 'all 0.2s ease',
+                                    cursor: 'pointer',
+                                    boxShadow: isActive ? `0 4px 12px ${type.color}40` : 'none',
+                                    transform: isActive ? 'translateY(-1px)' : 'none'
+                                }}
+                            >
                                 <type.icon size={14} />
                                 {type.label} <span style={{ opacity: 0.7, marginLeft: '2px' }}>({count})</span>
                             </div>
@@ -345,7 +361,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                 </div>
 
                 {/* Documents Grid */}
-                {documents.length === 0 ? (
+                {filteredDocuments.length === 0 ? (
                     <div style={{
                         textAlign: 'center',
                         padding: '60px 20px',
@@ -368,12 +384,14 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                         }}>
                             <FileText size={28} style={{ color: '#94a3b8' }} />
                         </div>
-                        <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>No documents shared yet</p>
+                        <p style={{ fontSize: '0.95rem', fontWeight: 500 }}>
+                            {selectedFilter === 'all' ? 'No documents shared yet' : `No ${selectedFilter.replace('_', ' ') || 'matching'} documents`}
+                        </p>
                         <p style={{ fontSize: '0.85rem', marginTop: '4px' }}>Add documents to share with your team</p>
                     </div>
                 ) : (
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '18px' }}>
-                        {documents.map(doc => {
+                        {filteredDocuments.map(doc => {
                             const typeInfo = getDocTypeInfo(doc.doc_type);
                             const isEditing = editingDoc?.id === doc.id;
 
@@ -516,7 +534,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                 style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '0.9rem' }}
                             >
                                 {docTypes.map(type => (
-                                    <option key={type.value} value={type.value}>{type.label}</option>
+                                    type.value !== 'all' && <option key={type.value} value={type.value}>{type.label}</option>
                                 ))}
                             </select>
                         </div>

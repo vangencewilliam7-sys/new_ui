@@ -337,12 +337,15 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 );
             }
 
-            // 2. Fetch profiles for name mapping
+            // 2. Fetch profiles for name mapping (Assignees AND Assigner)
             const assigneeIds = [...new Set(tasksData.map(t => t.assigned_to).filter(Boolean))];
+            const assignerIds = [...new Set(tasksData.map(t => t.assigned_by).filter(Boolean))];
+            const allProfileIds = [...new Set([...assigneeIds, ...assignerIds])];
+
             let profileMap = {};
-            if (assigneeIds.length > 0) {
+            if (allProfileIds.length > 0) {
                 const profilesData = await supabaseRequest(
-                    supabase.from('profiles').select('id, full_name, avatar_url').in('id', assigneeIds).eq('org_id', orgId),
+                    supabase.from('profiles').select('id, full_name, avatar_url').in('id', allProfileIds).eq('org_id', orgId),
                     addToast
                 );
                 if (profilesData) {
@@ -374,6 +377,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     ...task,
                     assignee_name: profileMap[task.assigned_to]?.name || 'Unassigned',
                     assignee_avatar: profileMap[task.assigned_to]?.avatar,
+                    assigned_by_name: task.assigned_by_name || profileMap[task.assigned_by]?.name || 'Unknown', // Use DB column first, callback to profile fetch
                     project_name: (userRole === 'executive' ? projectMap[task.project_id] : currentProject?.name) || 'Unknown Project'
                 };
             });
@@ -407,6 +411,14 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Not authenticated');
 
+            const { data: senderProfile } = await supabase
+                .from('profiles')
+                .select('full_name')
+                .eq('id', user.id)
+                .eq('org_id', orgId)
+                .single();
+            const senderName = senderProfile?.full_name || (userRole === 'manager' ? 'Management' : (userRole === 'team_lead' ? 'Team Lead' : 'Task Manager'));
+
             if (newTask.assignType === 'multi') {
                 if (newTask.selectedAssignees.length === 0) {
                     addToast?.('Please select at least one employee', 'error');
@@ -414,19 +426,12 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     return;
                 }
 
-                const { data: senderProfile } = await supabase
-                    .from('profiles')
-                    .select('full_name')
-                    .eq('id', user.id)
-                    .eq('org_id', orgId)
-                    .single();
-                const senderName = senderProfile?.full_name || (userRole === 'manager' ? 'Management' : (userRole === 'team_lead' ? 'Team Lead' : 'Task Manager'));
-
                 const tasksToInsert = newTask.selectedAssignees.map(empId => ({
                     title: newTask.title,
                     description: newTask.description,
                     assigned_to: empId,
                     assigned_by: user.id,
+                    assigned_by_name: senderName,
                     project_id: effectiveProjectId,
                     start_date: newTask.startDate,
                     due_date: newTask.endDate,
@@ -462,6 +467,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     description: newTask.description,
                     assigned_to: newTask.assignType === 'individual' ? newTask.assignedTo : null,
                     assigned_by: user.id,
+                    assigned_by_name: senderName,
                     project_id: effectiveProjectId,
                     start_date: newTask.startDate,
                     due_date: newTask.endDate,
@@ -479,15 +485,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
                 // Send Notifications
                 try {
-                    const { data: senderProfile } = await supabase
-                        .from('profiles')
-                        .select('full_name')
-                        .eq('id', user.id)
-                        .eq('org_id', orgId)
-                        .single();
-
-                    const senderName = senderProfile?.full_name || (userRole === 'manager' ? 'Management' : (userRole === 'team_lead' ? 'Team Lead' : 'Task Manager'));
-
+                    // senderName is already fetched above
                     if (newTask.assignType === 'individual' && newTask.assignedTo) {
                         // Individual task - notify the assigned person
                         await supabase.from('notifications').insert({
@@ -684,6 +682,131 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
         } catch (error) {
             console.error('Error rejecting task:', error);
             addToast?.('Failed to reject task', 'error');
+        } finally {
+            setProcessingApproval(false);
+        }
+    };
+
+    const handleApprovePhase = async (phaseKey) => {
+        if (!selectedTask) return;
+        if (processingApproval) return;
+
+        setProcessingApproval(true);
+        try {
+            const currentValidations = selectedTask.phase_validations || {};
+            const phaseData = currentValidations[phaseKey];
+
+            if (!phaseData) throw new Error('Phase data not found');
+
+            const updatedValidations = {
+                ...currentValidations,
+                [phaseKey]: {
+                    ...phaseData,
+                    status: 'approved',
+                    approved_at: new Date().toISOString()
+                }
+            };
+
+            // Calculate new sub_state
+            // If there are NO other pending validations, we can set sub_state to 'in_progress'
+            const hasOtherPending = Object.entries(updatedValidations).some(([key, val]) => key !== phaseKey && val.status === 'pending');
+            const newSubState = hasOtherPending ? 'pending_validation' : 'in_progress';
+
+            const updates = {
+                phase_validations: updatedValidations,
+                sub_state: newSubState,
+                updated_at: new Date().toISOString()
+            };
+
+            const { error } = await supabase
+                .from('tasks')
+                .update(updates)
+                .eq('id', selectedTask.id)
+                .eq('org_id', orgId);
+
+            if (error) throw error;
+
+            addToast?.('Phase approved successfully', 'success');
+
+            // Check for completion
+            const phasesToCheck = updatedValidations.active_phases || LIFECYCLE_PHASES.map(p => p.key);
+            const lastPhaseKey = phasesToCheck[phasesToCheck.length - 1];
+            const isLastPhaseApproved = updatedValidations[lastPhaseKey]?.status === 'approved';
+
+            const finalStatus = isLastPhaseApproved ? 'completed' : selectedTask.status;
+
+            if (isLastPhaseApproved && selectedTask.status !== 'completed') {
+                await supabase.from('tasks').update({ status: 'completed' }).eq('id', selectedTask.id).eq('org_id', orgId);
+            }
+
+            // Update local state
+            const updatedTask = {
+                ...selectedTask,
+                phase_validations: updatedValidations,
+                sub_state: newSubState,
+                status: finalStatus
+            };
+            setSelectedTask(updatedTask);
+
+            // Update tasks list
+            setTasks(prev => prev.map(t => t.id === selectedTask.id ? updatedTask : t));
+
+        } catch (error) {
+            console.error('Error approving phase:', error);
+            addToast?.('Failed to approve phase: ' + error.message, 'error');
+        } finally {
+            setProcessingApproval(false);
+        }
+    };
+
+    const handleRejectPhase = async (phaseKey) => {
+        if (!selectedTask) return;
+        if (processingApproval) return;
+
+        setProcessingApproval(true);
+        try {
+            const currentValidations = selectedTask.phase_validations || {};
+            const phaseData = currentValidations[phaseKey];
+
+            if (!phaseData) throw new Error('Phase data not found');
+
+            const updatedValidations = {
+                ...currentValidations,
+                [phaseKey]: {
+                    ...phaseData,
+                    status: 'rejected',
+                    rejected_at: new Date().toISOString()
+                }
+            };
+
+            const updates = {
+                phase_validations: updatedValidations,
+                sub_state: 'in_progress', // Reset to in_progress on rejection so they can try again
+                updated_at: new Date().toISOString()
+            };
+
+            const { error } = await supabase
+                .from('tasks')
+                .update(updates)
+                .eq('id', selectedTask.id)
+                .eq('org_id', orgId);
+
+            if (error) throw error;
+
+            addToast?.('Phase rejected', 'info');
+
+            // Update local state
+            const updatedTask = {
+                ...selectedTask,
+                phase_validations: updatedValidations,
+                sub_state: 'in_progress'
+            };
+            setSelectedTask(updatedTask);
+            setTasks(prev => prev.map(t => t.id === selectedTask.id ? updatedTask : t));
+
+        } catch (error) {
+            console.error('Error rejecting phase:', error);
+            addToast?.('Failed to reject phase: ' + error.message, 'error');
         } finally {
             setProcessingApproval(false);
         }
@@ -2296,6 +2419,32 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                     </div>
                                 </div>
 
+                                {/* Assigned By Section */}
+                                <div style={{ padding: '0 24px 20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Assigned By</label>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <div style={{
+                                                width: '24px',
+                                                height: '24px',
+                                                borderRadius: '50%',
+                                                backgroundColor: '#f1f5f9',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                fontSize: '0.75rem',
+                                                fontWeight: 600,
+                                                color: '#64748b'
+                                            }}>
+                                                {selectedTask.assigned_by_name ? selectedTask.assigned_by_name.charAt(0) : '?'}
+                                            </div>
+                                            <span style={{ fontSize: '0.9rem', color: '#334155', fontWeight: 500 }}>
+                                                {selectedTask.assigned_by_name || 'Unknown'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 {/* Validations History */}
                                 {(() => {
                                     const validations = selectedTask.phase_validations || {};
@@ -2315,6 +2464,9 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                 {Object.entries(validations).map(([phaseKey, data]) => {
                                                     if (!data.proof_url && !data.proof_text) return null;
                                                     const phaseLabel = LIFECYCLE_PHASES.find(p => p.key === phaseKey)?.label || phaseKey;
+                                                    const isPending = data.status === 'pending';
+                                                    const canReview = (userRole === 'manager' || userRole === 'team_lead');
+
                                                     return (
                                                         <div key={phaseKey} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
                                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2357,6 +2509,56 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                 <div style={{ fontSize: '0.85rem', color: '#475569', backgroundColor: '#f1f5f9', padding: '8px', borderRadius: '4px', marginTop: '4px' }}>
                                                                     <span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: '2px' }}>NOTE:</span>
                                                                     {data.proof_text}
+                                                                </div>
+                                                            )}
+
+                                                            {/* Individual Action Buttons */}
+                                                            {isPending && canReview && (
+                                                                <div style={{ display: 'flex', gap: '8px', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
+                                                                    <button
+                                                                        onClick={() => handleRejectPhase(phaseKey)}
+                                                                        disabled={processingApproval}
+                                                                        style={{
+                                                                            flex: 1,
+                                                                            padding: '6px',
+                                                                            borderRadius: '6px',
+                                                                            backgroundColor: '#fee2e2',
+                                                                            color: '#991b1b',
+                                                                            border: 'none',
+                                                                            fontWeight: 600,
+                                                                            cursor: 'pointer',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            gap: '4px',
+                                                                            fontSize: '0.8rem',
+                                                                            opacity: processingApproval ? 0.6 : 1
+                                                                        }}
+                                                                    >
+                                                                        <ThumbsDown size={12} /> Reject
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleApprovePhase(phaseKey)}
+                                                                        disabled={processingApproval}
+                                                                        style={{
+                                                                            flex: 1,
+                                                                            padding: '6px',
+                                                                            borderRadius: '6px',
+                                                                            backgroundColor: '#d1fae5',
+                                                                            color: '#065f46',
+                                                                            border: 'none',
+                                                                            fontWeight: 600,
+                                                                            cursor: 'pointer',
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            gap: '4px',
+                                                                            fontSize: '0.8rem',
+                                                                            opacity: processingApproval ? 0.6 : 1
+                                                                        }}
+                                                                    >
+                                                                        <ThumbsUp size={12} /> Approve
+                                                                    </button>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -2421,49 +2623,6 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                 >
                                     Close
                                 </button>
-
-                                {(userRole === 'manager' || userRole === 'team_lead') && (selectedTask.sub_state === 'pending_validation' || (selectedTask.phase_validations && Object.values(selectedTask.phase_validations).some(v => v.status === 'pending'))) && (
-                                    <>
-                                        <button
-                                            onClick={handleRejectTask}
-                                            disabled={processingApproval}
-                                            style={{
-                                                padding: '10px 24px',
-                                                borderRadius: '8px',
-                                                backgroundColor: processingApproval ? '#fecaca' : '#fee2e2',
-                                                color: '#991b1b',
-                                                border: 'none',
-                                                fontWeight: 600,
-                                                cursor: processingApproval ? 'not-allowed' : 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '6px',
-                                                opacity: processingApproval ? 0.6 : 1
-                                            }}
-                                        >
-                                            <ThumbsDown size={16} /> {processingApproval ? 'Processing...' : 'Reject'}
-                                        </button>
-                                        <button
-                                            onClick={handleApproveTask}
-                                            disabled={processingApproval}
-                                            style={{
-                                                padding: '10px 24px',
-                                                borderRadius: '8px',
-                                                backgroundColor: processingApproval ? '#6ee7b7' : '#10b981',
-                                                color: 'white',
-                                                border: 'none',
-                                                fontWeight: 600,
-                                                cursor: processingApproval ? 'not-allowed' : 'pointer',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '6px',
-                                                opacity: processingApproval ? 0.6 : 1
-                                            }}
-                                        >
-                                            <ThumbsUp size={16} /> {processingApproval ? 'Processing...' : 'Approve'}
-                                        </button>
-                                    </>
-                                )}
                             </div>
                         </div>
                     </div >

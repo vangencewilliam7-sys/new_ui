@@ -1011,7 +1011,7 @@ const ModulePage = ({ title, type }) => {
     if (title === 'Announcements') return <AnnouncementsPage userRole={userRole} userId={userId} orgId={orgId} />;
     if (type === 'payroll') return <PayslipsPage userRole={userRole} userId={userId} addToast={addToast} orgId={orgId} />;
     if (type === 'payroll-generation') return <PayrollPage userRole={userRole} userId={userId} addToast={addToast} orgId={orgId} />;
-    if (type === 'invoice') return <InvoiceGenerator />;
+    if (type === 'invoice') return <InvoiceGenerator orgId={orgId} />;
     if (type === 'project-analytics') return <ProjectAnalytics userRole="executive" dashboardPrefix="/executive-dashboard" orgId={orgId} />;
 
     // Mock Data Configurations

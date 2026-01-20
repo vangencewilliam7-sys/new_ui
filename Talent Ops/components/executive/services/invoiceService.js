@@ -3,13 +3,18 @@ import { supabase } from '../../../lib/supabaseClient';
 // ==================== CLIENT OPERATIONS ====================
 
 // Get all clients
-export const getClients = async () => {
+export const getClients = async (orgId) => {
     try {
-        const { data, error } = await supabase
+        let query = supabase
             .from('clients')
             .select('*')
             .order('name');
 
+        if (orgId) {
+            query = query.eq('org_id', orgId);
+        }
+
+        const { data, error } = await query;
         if (error) throw error;
         return { data, error: null };
     } catch (error) {
@@ -72,7 +77,7 @@ export const deleteClient = async (clientId) => {
 // ==================== INVOICE OPERATIONS ====================
 
 // Get next invoice number
-export const getNextInvoiceNumber = async () => {
+export const getNextInvoiceNumber = async (orgId) => {
     try {
         // Month names array
         const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -84,12 +89,18 @@ export const getNextInvoiceNumber = async () => {
         const prefix = `INV-${month}${year}`;
 
         // Get invoices from current month/year
-        const { data, error } = await supabase
+        let query = supabase
             .from('invoices')
             .select('invoice_number')
             .like('invoice_number', `${prefix}%`)
             .order('created_at', { ascending: false })
             .limit(1);
+
+        if (orgId) {
+            query = query.eq('org_id', orgId);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
 
@@ -123,6 +134,7 @@ export const createInvoice = async (invoiceData) => {
     try {
         // Prepare invoice data
         const invoice = {
+            org_id: invoiceData.org_id,
             invoice_number: invoiceData.invoice_number,
             client_id: invoiceData.client_id || null,
             invoice_date: invoiceData.invoice_date,
@@ -171,9 +183,9 @@ export const createInvoice = async (invoiceData) => {
 };
 
 // Get all invoices
-export const getInvoices = async () => {
+export const getInvoices = async (orgId) => {
     try {
-        const { data, error } = await supabase
+        let query = supabase
             .from('invoices')
             .select(`
         *,
@@ -184,6 +196,12 @@ export const getInvoices = async () => {
         )
       `)
             .order('created_at', { ascending: false });
+
+        if (orgId) {
+            query = query.eq('org_id', orgId);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
         return { data, error: null };

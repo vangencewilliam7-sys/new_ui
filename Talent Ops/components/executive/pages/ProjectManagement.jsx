@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Users, FolderOpen, UserPlus, X, Trash2, Search, Building2, ChevronDown, Check, CheckCircle, XCircle } from 'lucide-react';
 import { supabase } from '../../../lib/supabaseClient';
+import { useUser } from '../context/UserContext';
 
 const ProjectManagement = ({ addToast = () => { } }) => {
+    const { orgId } = useUser();
     const [projects, setProjects] = useState([]);
     const [allUsers, setAllUsers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -15,13 +17,20 @@ const ProjectManagement = ({ addToast = () => { } }) => {
     const [selectedRole, setSelectedRole] = useState('consultant');
 
     useEffect(() => {
-        fetchProjects();
-        fetchAllUsers();
-    }, []);
+        if (orgId) {
+            fetchProjects();
+            fetchAllUsers();
+        }
+    }, [orgId]);
 
     const fetchProjects = async () => {
+        if (!orgId) return;
         try {
-            const { data, error } = await supabase.from('projects').select('*').order('created_at', { ascending: false });
+            const { data, error } = await supabase
+                .from('projects')
+                .select('*')
+                .eq('org_id', orgId)
+                .order('created_at', { ascending: false });
             if (error) throw error;
             setProjects(data || []);
             if (data?.length > 0 && !selectedProject) {
@@ -36,8 +45,13 @@ const ProjectManagement = ({ addToast = () => { } }) => {
     };
 
     const fetchAllUsers = async () => {
+        if (!orgId) return;
         try {
-            const { data, error } = await supabase.from('profiles').select('id, full_name, email, role').order('full_name');
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('id, full_name, email, role')
+                .eq('org_id', orgId)
+                .order('full_name');
             if (error) throw error;
             setAllUsers(data || []);
         } catch (error) {
@@ -59,9 +73,16 @@ const ProjectManagement = ({ addToast = () => { } }) => {
     };
 
     const createProject = async () => {
-        if (!newProjectName.trim()) return;
+        if (!newProjectName.trim() || !orgId) return;
         try {
-            const { data, error } = await supabase.from('projects').insert({ name: newProjectName.trim() }).select().single();
+            const { data, error } = await supabase
+                .from('projects')
+                .insert({
+                    name: newProjectName.trim(),
+                    org_id: orgId
+                })
+                .select()
+                .single();
             if (error) throw error;
             setProjects([data, ...projects]);
             setNewProjectName('');
@@ -81,7 +102,8 @@ const ProjectManagement = ({ addToast = () => { } }) => {
         const insertData = {
             project_id: selectedProject.id,
             user_id: userId,
-            role: dbRole
+            role: dbRole,
+            org_id: orgId
         };
         console.log('🔍 Adding member with data:', insertData);
 
@@ -100,7 +122,8 @@ const ProjectManagement = ({ addToast = () => { } }) => {
             const teamMemberData = {
                 team_id: selectedProject.id,
                 profile_id: userId,
-                role_in_project: dbRole
+                role_in_project: dbRole,
+                org_id: orgId
             };
 
             const { error: teamError } = await supabase.from('team_members').insert(teamMemberData);

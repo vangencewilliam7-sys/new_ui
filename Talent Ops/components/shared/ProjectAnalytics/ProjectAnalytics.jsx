@@ -18,7 +18,7 @@ import {
 // ================================
 // PROJECT ANALYTICS - Main Component
 // ================================
-const ProjectAnalytics = ({ userRole = 'manager', dashboardPrefix = '/manager-dashboard' }) => {
+const ProjectAnalytics = ({ userRole = 'manager', dashboardPrefix = '/manager-dashboard', orgId }) => {
     const [projects, setProjects] = useState([]);
     const [selectedProject, setSelectedProject] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -40,8 +40,10 @@ const ProjectAnalytics = ({ userRole = 'manager', dashboardPrefix = '/manager-da
     const isExecutive = userRole.toLowerCase() === 'executive';
 
     useEffect(() => {
-        fetchProjects();
-    }, []);
+        if (orgId) {
+            fetchProjects();
+        }
+    }, [orgId]);
 
     const fetchProjects = async () => {
         try {
@@ -62,6 +64,7 @@ const ProjectAnalytics = ({ userRole = 'manager', dashboardPrefix = '/manager-da
                     total_cost,
                     owner_id
                 `)
+                .eq('org_id', orgId)
                 .order('name');
 
             // If error (likely missing columns), fallback to basic query
@@ -70,6 +73,7 @@ const ProjectAnalytics = ({ userRole = 'manager', dashboardPrefix = '/manager-da
                 const basicResult = await supabase
                     .from('projects')
                     .select('id, name')
+                    .eq('org_id', orgId)
                     .order('name');
 
                 data = basicResult.data;
