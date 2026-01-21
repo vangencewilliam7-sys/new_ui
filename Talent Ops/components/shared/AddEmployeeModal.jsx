@@ -2,34 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { X, Eye, EyeOff } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 
-interface AddEmployeeModalProps {
-    isOpen: boolean;
-    onClose: () => void;
-    onSuccess: () => void;
-    orgId: string;
-}
-
-interface Team {
-    id: string;
-    name: string;
-}
-
-interface Project {
-    id: string;
-    name: string;
-}
-
-interface Department {
-    id: string;
-    department_name: string;
-}
-
-export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onClose, onSuccess, orgId }) => {
+export const AddEmployeeModal = ({ isOpen, onClose, onSuccess, orgId }) => {
     console.log('🔵 AddEmployeeModal rendered, isOpen:', isOpen);
     const [loading, setLoading] = useState(false);
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [departments, setDepartments] = useState<Department[]>([]);
-    const [selectedProjects, setSelectedProjects] = useState<string[]>([]); // Array of project IDs
+    const [projects, setProjects] = useState([]);
+    const [departments, setDepartments] = useState([]);
+    const [selectedProjects, setSelectedProjects] = useState([]); // Array of project IDs
     const [formData, setFormData] = useState({
         full_name: '',
         email: '',
@@ -87,7 +65,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         setError('');
         setLoading(true);
@@ -173,7 +151,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
                 if (userId) {
                     // Update profile with department, job_title and join date
                     if (formData.department_id || formData.joinDate || formData.job_title) {
-                        const updateData: any = {};
+                        const updateData = {};
                         if (formData.department_id) updateData.department = formData.department_id;
                         if (formData.joinDate) updateData.join_date = formData.joinDate;
                         if (formData.job_title) updateData.job_title = formData.job_title;
@@ -238,7 +216,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
 
             onSuccess();
             onClose();
-        } catch (err: any) {
+        } catch (err) {
             setError(err.message || 'An error occurred while adding the employee');
             console.error('Error adding employee:', err);
         } finally {
@@ -490,6 +468,7 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
                                     color: 'var(--text-primary)',
                                 }}
                             >
+                                <option value="">Select Department</option>
                                 <option value="">Select Department</option>
                                 {departments.map((dept) => (
                                     <option key={dept.id} value={dept.id}>
@@ -771,9 +750,3 @@ export const AddEmployeeModal: React.FC<AddEmployeeModalProps> = ({ isOpen, onCl
         </div>
     );
 };
-
-
-
-
-
-

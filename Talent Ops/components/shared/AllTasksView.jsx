@@ -43,15 +43,219 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
 
-    const handleAllocatedHoursChange = (e) => {
-        const value = e.target.value;
-        if (value && (!/^\d+(\.\d+)?$/.test(value) || Number(value) <= 0)) {
-            setAllocatedHoursError('Please enter a valid positive number');
-        } else {
-            setAllocatedHoursError('');
+    // Access Request State
+    const [showAccessRequestModal, setShowAccessRequestModal] = useState(false);
+    const [accessReason, setAccessReason] = useState('');
+    const [taskForAccess, setTaskForAccess] = useState(null);
+    const [requestingAccess, setRequestingAccess] = useState(false);
+
+    const handleRequestAccess = async () => {
+        if (!accessReason.trim()) {
+            addToast?.('Please provide a reason', 'error');
+            return;
         }
-        setNewTask({ ...newTask, allocatedHours: value });
+        setRequestingAccess(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    access_requested: true,
+                    access_reason: accessReason,
+                    access_requested_at: new Date().toISOString(),
+                    access_status: 'pending'
+                })
+                .eq('id', taskForAccess.id)
+                .eq('org_id', orgId);
+
+            if (error) throw error;
+
+            // Notify Manager
+            if (taskForAccess.assigned_by) {
+                await supabase.from('notifications').insert({
+                    receiver_id: taskForAccess.assigned_by,
+                    sender_id: user.id,
+                    message: `Access requested for task: ${taskForAccess.title}`,
+                    type: 'access_requested',
+                    is_read: false,
+                    created_at: new Date().toISOString(),
+                    org_id: orgId
+                });
+            }
+
+            addToast?.('Access requested successfully', 'success');
+            setShowAccessRequestModal(false);
+            setAccessReason('');
+            setTaskForAccess(null);
+            fetchData();
+        } catch (error) {
+            console.error('Access Request Error:', error);
+            addToast?.('Failed to request access', 'error');
+        } finally {
+            setRequestingAccess(false);
+        }
     };
+
+    const handleApproveAccess = async (task) => {
+        // Legacy direct approval - keeping as fallback or utility if needed, 
+        // but UI now routes to handleProcessAccessReview via Modal
+        setAccessReviewTask(task);
+        setShowAccessReviewModal(true);
+    };
+
+    // Access Review Logic
+    const [accessReviewTask, setAccessReviewTask] = useState(null);
+    const [showAccessReviewModal, setShowAccessReviewModal] = useState(false);
+    const [reviewAction, setReviewAction] = useState('approve'); // 'approve', 'reassign', 'close'
+    const [closureReason, setClosureReason] = useState('');
+    const [reassignTarget, setReassignTarget] = useState('');
+    const [processingReview, setProcessingReview] = useState(false);
+
+    const handleProcessAccessReview = async () => {
+        if (!accessReviewTask) return;
+        setProcessingReview(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+
+            if (reviewAction === 'approve') {
+                await supabase.from('tasks').update({
+                    access_status: 'approved',
+                    is_locked: false // Explicit unlock
+                }).eq('id', accessReviewTask.id).eq('org_id', orgId);
+
+                await supabase.from('notifications').insert({
+                    receiver_id: accessReviewTask.assigned_to,
+                    sender_id: user.id,
+                    message: `Access approved for task: ${accessReviewTask.title}`,
+                    type: 'access_approved',
+                    is_read: false,
+                    created_at: new Date().toISOString(),
+                    org_id: orgId
+                });
+
+            } else if (reviewAction === 'close') {
+                if (!closureReason.trim()) {
+                    addToast('Please provide a reason for closing.', 'error');
+                    setProcessingReview(false);
+                    return;
+                }
+                await supabase.from('tasks').update({
+                    status: 'completed', // Use 'completed' as 'closed' is not a valid enum value
+                    closed_by_manager: true,
+                    closed_reason: closureReason,
+                    access_status: 'rejected', // Request denied implies rejection
+                    is_locked: true // Remain locked
+                }).eq('id', accessReviewTask.id).eq('org_id', orgId);
+
+                await supabase.from('notifications').insert({
+                    receiver_id: accessReviewTask.assigned_to,
+                    sender_id: user.id,
+                    message: `Task closed by manager: ${accessReviewTask.title}. Reason: ${closureReason}`,
+                    type: 'task_closed',
+                    is_read: false,
+                    created_at: new Date().toISOString(),
+                    org_id: orgId
+                });
+
+            } else if (reviewAction === 'reassign') {
+                if (!reassignTarget) {
+                    addToast('Please select a new assignee.', 'error');
+                    setProcessingReview(false);
+                    return;
+                }
+
+                // Find the new assignee's details for the log
+                const targetEmp = employees.find(e => e.id === reassignTarget);
+                const targetName = targetEmp ? targetEmp.full_name : 'Unknown';
+
+                // 1. Close the OLD task for the original assignee
+                const { error: closeError } = await supabase.from('tasks').update({
+                    status: 'completed', // Use 'completed' as 'closed' is not a valid enum value
+                    closed_by_manager: true,
+                    closed_reason: `Reassigned to ${targetName}`,
+                    reassigned_to: reassignTarget, // Keep trace
+                    reassigned_at: new Date().toISOString(),
+                    access_status: 'rejected', // Original request rejected/mooted
+                    is_locked: true
+                }).eq('id', accessReviewTask.id).eq('org_id', orgId);
+
+                if (closeError) throw closeError;
+
+                // 2. Create NEW task for the new assignee
+                // Extract pure DB columns by destructuring out UI-only or auto-generated fields
+                const {
+                    id, created_at, updated_at,
+                    assignee_name, assignee_avatar, assigned_by_name, project_name,
+                    ...taskData
+                } = accessReviewTask;
+
+                const newTaskPayload = {
+                    ...taskData,
+                    assigned_to: reassignTarget,
+                    status: 'pending', // Fresh start logic
+                    lifecycle_state: 'requirement_refiner', // Reset to start
+                    sub_state: 'pending_validation',
+                    phase_validations: {
+                        active_phases: taskData.phase_validations?.active_phases || ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment']
+                    },
+                    proof_url: null, // Clear proofs
+                    proof_text: null,
+                    reassigned_from: accessReviewTask.assigned_to,
+                    reassigned_to: null, // Ensure this is null
+                    reassigned_at: new Date().toISOString(),
+                    // Clear access/lock flags
+                    access_requested: false,
+                    access_status: 'approved', // Auto-approve to bypass overdue lock
+                    access_reason: 'Reassigned by manager',
+                    access_requested_at: null,
+                    access_reviewer_id: user.id, // Manager approved it by assigning
+                    access_reviewed_at: new Date().toISOString(),
+                    closed_by_manager: false,
+                    closed_reason: null,
+                    is_locked: false // Explicitly unlock for new user
+                };
+
+                const { error: createError } = await supabase.from('tasks').insert(newTaskPayload);
+                if (createError) throw createError;
+
+                // 3. Notify NEW assignee
+                await supabase.from('notifications').insert({
+                    receiver_id: reassignTarget,
+                    sender_id: user.id,
+                    message: `You have been reassigned task: ${accessReviewTask.title}`,
+                    type: 'task_assigned',
+                    is_read: false,
+                    created_at: new Date().toISOString(),
+                    org_id: orgId
+                });
+
+                // 4. Notify OLD assignee (Optional but good)
+                await supabase.from('notifications').insert({
+                    receiver_id: accessReviewTask.assigned_to,
+                    sender_id: user.id,
+                    message: `Task "${accessReviewTask.title}" has been reassigned to another team member.`,
+                    type: 'task_closed',
+                    is_read: false,
+                    created_at: new Date().toISOString(),
+                    org_id: orgId
+                });
+            }
+
+            addToast('Review processed successfully', 'success');
+            setShowAccessReviewModal(false);
+            setAccessReviewTask(null);
+            setClosureReason('');
+            setReassignTarget('');
+            fetchData(); // Refresh list to show new status/assignee
+        } catch (error) {
+            console.error('Review Error:', error);
+            addToast('Failed to process review', 'error');
+        } finally {
+            setProcessingReview(false);
+        }
+    };
+
 
     // New Task Form State
     const [newTask, setNewTask] = useState({
@@ -62,332 +266,166 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
         selectedAssignees: [],
         startDate: new Date().toISOString().split('T')[0],
         endDate: new Date().toISOString().split('T')[0],
-        dueTime: '',
+        startTime: '09:00',
+        dueTime: '17:00',
         priority: 'Medium',
-        allocatedHours: '',
         requiredPhases: ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment']
     });
 
-    useEffect(() => {
-        if (effectiveProjectId || userRole === 'executive') {
-            fetchData();
-            if (userRole === 'manager' || userRole === 'executive') {
-                fetchEmployees();
-            }
-        } else {
-            setLoading(false);
-        }
-    }, [userId, orgId, effectiveProjectId, userRole, viewMode]);
-
-    const handleDeleteProof = async (task, phaseKey) => {
-        if (!window.confirm('Are you sure you want to delete this proof?')) return;
-
-        try {
-            const currentValidations = task.phase_validations || {};
-            const updatedValidations = { ...currentValidations };
-            let updates = {};
-
-            if (phaseKey === 'LEGACY_PROOF') {
-                updates.proof_url = null;
-                updates.lifecycle_state = 'design_guidance'; // Reset to first phase
-                updates.sub_state = 'in_progress';
-            } else {
-                if (updatedValidations[phaseKey]) {
-                    delete updatedValidations[phaseKey];
-                }
-
-                updates.phase_validations = updatedValidations;
-
-                // Determine if we need to revert the lifecycle state
-                const deletedPhaseIndex = LIFECYCLE_PHASES.findIndex(p => p.key === phaseKey);
-                const currentPhaseIndex = LIFECYCLE_PHASES.findIndex(p => p.key === task.lifecycle_state);
-
-                if (deletedPhaseIndex !== -1) {
-                    if (currentPhaseIndex > deletedPhaseIndex) {
-                        // Revert to the phase where proof was deleted
-                        updates.lifecycle_state = phaseKey;
-                        updates.sub_state = 'in_progress';
-                    } else if (currentPhaseIndex === deletedPhaseIndex) {
-                        // We are in the same phase, just ensure it's not marked as validation complete/pending if we just deleted the proof
-                        updates.sub_state = 'in_progress';
-                    }
-                }
-            }
-
-            // Common updates
-            updates.updated_at = new Date().toISOString();
-
-            const { error } = await supabase
-                .from('tasks')
-                .update(updates)
-                .eq('id', task.id)
-                .eq('org_id', orgId);
-
-            if (error) throw error;
-
-            addToast('Proof deleted and status updated', 'success');
-
-            // Update local state if viewing the same task
-            if (selectedTask && selectedTask.id === task.id) {
-                setSelectedTask({
-                    ...selectedTask,
-                    phase_validations: updatedValidations,
-                    proof_url: phaseKey === 'LEGACY_PROOF' ? null : selectedTask.proof_url,
-                    lifecycle_state: updates.lifecycle_state || selectedTask.lifecycle_state,
-                    sub_state: updates.sub_state || selectedTask.sub_state
-                });
-            }
-
-            // Update tasks list if needed (optional optimization)
-            setTasks(prev => prev.map(t =>
-                t.id === task.id ? {
-                    ...t,
-                    phase_validations: updatedValidations,
-                    lifecycle_state: updates.lifecycle_state || t.lifecycle_state,
-                    sub_state: updates.sub_state || t.sub_state
-                } : t
-            ));
-
-        } catch (error) {
-            console.error('Error deleting proof:', error);
-            addToast('Failed to delete proof: ' + error.message, 'error');
-        }
-    };
-
     const fetchEmployees = async () => {
         try {
-            let formattedEmployees = [];
-
-            if (userRole === 'executive') {
-                // Fetch ALL employees for executives (excluding hidden admins)
-                formattedEmployees = await supabaseRequest(
-                    supabase.from('profiles').select('id, full_name, avatar_url').eq('org_id', orgId).neq('id', userId),
-                    addToast
-                ) || [];
-            } else if (currentProject?.id) {
-                // Fetch only members of the current project
-                const data = await supabaseRequest(
-                    supabase.from('project_members').select('user_id, profiles!inner(id, full_name, avatar_url)').eq('project_id', currentProject.id).eq('org_id', orgId),
-                    addToast
-                );
-
-                // Map to flat structure expected by the UI
-                formattedEmployees = data?.map(item => ({
-                    id: item.profiles.id,
-                    full_name: item.profiles.full_name,
-                    avatar_url: item.profiles.avatar_url
-                })) || [];
-            }
-
-            setEmployees(formattedEmployees);
+            const { data } = await supabase.from('profiles').select('*').eq('org_id', orgId);
+            setEmployees(data || []);
         } catch (error) {
             console.error('Error fetching employees:', error);
         }
     };
 
-    const handleUpdateTask = async (taskId, column, value) => {
-        try {
-            const { error } = await supabase
-                .from('tasks')
-                .update({ [column]: value })
-                .eq('id', taskId)
-                .eq('org_id', orgId);
-
-            if (error) throw error;
-            addToast?.('Task updated successfully', 'success');
-            fetchData();
-        } catch (error) {
-            console.error('Error updating task:', error);
-            addToast?.('Failed to update task', 'error');
-        }
-    };
-
-    const handleDeleteTask = async (taskId) => {
-        try {
-            const { error } = await supabase
-                .from('tasks')
-                .delete()
-                .eq('id', taskId)
-                .eq('org_id', orgId);
-
-            if (error) throw error;
-
-            // Remove from local state
-            setTasks(prevTasks => prevTasks.filter(t => t.id !== taskId));
-
-            addToast?.('Task deleted successfully', 'success');
-        } catch (error) {
-            console.error('Error deleting task:', error);
-            addToast?.('Failed to delete task', 'error');
-        }
-    };
-
-    const handleEditTask = (task) => {
-        setEditingTask({
-            id: task.id,
-            title: task.title,
-            description: task.description,
-            assigned_to: task.assigned_to,
-            due_date: task.due_date,
-            priority: task.priority,
-            status: task.status,
-            allocated_hours: task.allocated_hours || 0,
-            phase_validations: task.phase_validations || {},
-            requiredPhases: task.phase_validations?.active_phases || LIFECYCLE_PHASES.map(p => p.key)
-        });
-        setShowEditModal(true);
-    };
-
-    const handleSaveEdit = async () => {
-        if (!editingTask.title) {
-            addToast?.('Please enter a task title', 'error');
+    const fetchData = async () => {
+        if (!orgId) {
+            console.log('fetchData skipped: No orgId');
             return;
         }
 
-        try {
-            // Convert status to database format
-            let statusValue = editingTask.status.toLowerCase();
-            // If status has spaces, replace with underscores
-            if (statusValue.includes(' ')) {
-                statusValue = statusValue.replace(/ /g, '_');
-            }
-
-            const { error } = await supabase
-                .from('tasks')
-                .update({
-                    title: editingTask.title,
-                    description: editingTask.description,
-                    assigned_to: editingTask.assigned_to,
-                    due_date: editingTask.due_date,
-                    priority: editingTask.priority.toLowerCase(),
-                    status: statusValue,
-                    allocated_hours: parseFloat(editingTask.allocated_hours),
-                    phase_validations: {
-                        ...(editingTask.phase_validations || {}),
-                        active_phases: editingTask.requiredPhases
-                    }
-                })
-                .eq('id', editingTask.id)
-                .eq('org_id', orgId);
-
-            if (error) throw error;
-
-            addToast?.('Task updated successfully', 'success');
-            setShowEditModal(false);
-            setEditingTask(null);
-            fetchData(); // Refresh to get updated data
-        } catch (error) {
-            console.error('Error updating task:', error);
-            addToast?.('Failed to update task: ' + (error.message || 'Unknown error'), 'error');
-        }
-    };
-
-    const fetchData = async () => {
         setLoading(true);
         try {
-            let tasksData = [];
-            let taskError = null;
+            console.log('--- Fetching Tasks ---');
+            console.log('Params:', { orgId, effectiveProjectId, viewMode, userRole, userId });
+
+            let query = supabase.from('tasks').select('*, phase_validations');
 
             if (userRole === 'executive' || viewMode === 'global_tasks') {
-                // Fetch tasks for executives - filter by project if one is selected
-                let query = supabase.from('tasks').select('*, phase_validations').eq('org_id', orgId);
-
-                // If a specific project is selected, filter by that project
-                if (effectiveProjectId) {
-                    query = query.eq('project_id', effectiveProjectId);
-                }
-
-                tasksData = await supabaseRequest(
-                    query.order('id', { ascending: false }),
-                    addToast
-                );
+                query = query.eq('org_id', orgId);
+                if (effectiveProjectId) query = query.eq('project_id', effectiveProjectId);
             } else {
                 if (!effectiveProjectId) {
+                    console.warn('fetchData skipped: No effectiveProjectId for non-executive');
                     setLoading(false);
                     return;
                 }
 
-                // 1. Fetch simplified tasks for the current project
-                // Explicitly select phase_validations to ensure lifecycle sync for team members
-                let query = supabase.from('tasks').select('*, phase_validations').eq('project_id', effectiveProjectId).eq('org_id', orgId);
-
-                // Filter by role if not executive/manager/team_lead for this project
-                // We assume strict project-level permissions override global permissions for tasks view
-                const isProjectAdmin = ['manager', 'team_lead'].includes(effectiveProjectRole);
-
-                console.log('DEBUG: AllTasksView Fetch', { viewMode, userId, projectId: effectiveProjectId });
+                // Base filter for project context
+                query = query.eq('project_id', effectiveProjectId).eq('org_id', orgId);
+                console.log('Applying filtering: Project:', effectiveProjectId, 'Org:', orgId);
 
                 if (viewMode === 'my_tasks') {
-                    // Force filter to show ONLY tasks assigned to this user
-                    console.log('DEBUG: Filtering by assigned_to', userId);
                     query = query.eq('assigned_to', userId);
-                } else if (viewMode === 'team_tasks') {
-                    // Explicitly show all team tasks (no extra filter needed beyond project_id)
-                    console.log('DEBUG: Showing all team tasks');
+                    console.log('Filtering by Assignee (My Tasks):', userId);
                 } else {
-                    // Default behavior (Auto-detect based on role)
-                    if (!isProjectAdmin) {
-                        query = query.eq('assigned_to', userId);
-                    }
+                    console.log('Fetching ALL Team Tasks (No assignee filter)');
                 }
-
-                tasksData = await supabaseRequest(
-                    query.order('id', { ascending: false }),
-                    addToast
-                );
             }
 
-            // 2. Fetch profiles for name mapping (Assignees AND Assigner)
-            const assigneeIds = [...new Set(tasksData.map(t => t.assigned_to).filter(Boolean))];
-            const assignerIds = [...new Set(tasksData.map(t => t.assigned_by).filter(Boolean))];
-            const allProfileIds = [...new Set([...assigneeIds, ...assignerIds])];
+            // Order by most recent
+            query = query.order('id', { ascending: false });
 
+            // Execute RAW query to debug
+            const { data: tasksData, error } = await query;
+
+            if (error) {
+                console.error('Supabase Query Error:', error);
+                throw error;
+            }
+
+            console.log('Raw Tasks Found:', tasksData?.length);
+
+            // Efficiently fetch profiles
+            const userIds = [...new Set((tasksData || []).flatMap(t => [t.assigned_to, t.assigned_by, t.reassigned_to].filter(Boolean)))];
             let profileMap = {};
-            if (allProfileIds.length > 0) {
-                const profilesData = await supabaseRequest(
-                    supabase.from('profiles').select('id, full_name, avatar_url').in('id', allProfileIds).eq('org_id', orgId),
-                    addToast
-                );
-                if (profilesData) {
-                    profilesData.forEach(p => {
-                        profileMap[p.id] = { name: p.full_name, avatar: p.avatar_url };
-                    });
-                }
+            if (userIds.length > 0) {
+                const { data: profiles } = await supabase.from('profiles').select('id, full_name, avatar_url').in('id', userIds);
+                profiles?.forEach(p => { profileMap[p.id] = p; });
             }
 
-            // 3. For Executives: Fetch project names manually (since we didn't JOIN)
-            let projectMap = {};
-            if (userRole === 'executive') {
-                const projectIds = [...new Set(tasksData.map(t => t.project_id).filter(Boolean))];
-                if (projectIds.length > 0) {
-                    const projectsData = await supabaseRequest(
-                        supabase.from('projects').select('id, name').in('id', projectIds).eq('org_id', orgId),
-                        addToast
-                    );
+            const enhanced = (tasksData || []).map(task => ({
+                ...task,
+                assignee_name: profileMap[task.assigned_to]?.full_name || 'Unassigned',
+                assignee_avatar: profileMap[task.assigned_to]?.avatar_url,
+                assigned_by_name: task.assigned_by_name || profileMap[task.assigned_by]?.full_name || 'Unknown',
+                project_name: currentProject?.name || 'Project'
+            }));
 
-                    if (projectsData) {
-                        projectsData.forEach(p => projectMap[p.id] = p.name);
-                    }
-                }
-            }
-
-            // 4. Build enhanced tasks
-            const enhancedTasks = (tasksData || []).map(task => {
-                return {
-                    ...task,
-                    assignee_name: profileMap[task.assigned_to]?.name || 'Unassigned',
-                    assignee_avatar: profileMap[task.assigned_to]?.avatar,
-                    assigned_by_name: task.assigned_by_name || profileMap[task.assigned_by]?.name || 'Unknown', // Use DB column first, callback to profile fetch
-                    project_name: (userRole === 'executive' ? projectMap[task.project_id] : currentProject?.name) || 'Unknown Project'
-                };
-            });
-
-            setTasks(enhancedTasks);
+            setTasks(enhanced);
         } catch (error) {
-            console.error('AllTasksView Error:', error?.message || error);
+            console.error('FetchData Final Error:', error);
             addToast?.('Failed to load tasks', 'error');
         } finally {
             setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchData();
+        fetchEmployees();
+
+        const channel = supabase.channel('tasks_realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+                fetchData();
+            })
+            .subscribe();
+
+        return () => { supabase.removeChannel(channel); };
+    }, [orgId, effectiveProjectId, viewMode, userRole, userId]);
+
+    const handleUpdateTask = async (taskId, updates) => {
+        const { error } = await supabase.from('tasks').update(updates).eq('id', taskId);
+        if (error) {
+            addToast?.('Update failed', 'error');
+            throw error;
+        }
+        fetchData();
+    };
+
+    const handleDeleteTask = async (taskId) => {
+        if (!window.confirm('Are you sure you want to delete this task?')) return;
+        try {
+            await supabase.from('tasks').delete().eq('id', taskId);
+            addToast?.('Task deleted', 'success');
+            fetchData();
+        } catch (error) {
+            addToast?.('Failed to delete task', 'error');
+        }
+    };
+
+    const handleDeleteProof = async (task, phaseKey) => {
+        if (!window.confirm('Are you sure you want to delete this proof?')) return;
+        try {
+            const validations = { ...task.phase_validations };
+            if (validations[phaseKey]) {
+                delete validations[phaseKey].proof_url;
+                delete validations[phaseKey].proof_text;
+                validations[phaseKey].status = 'pending';
+            }
+            await handleUpdateTask(task.id, { phase_validations: validations });
+            addToast?.('Proof deleted', 'success');
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleEditTask = (task) => {
+        setEditingTask(task);
+        setShowEditModal(true);
+    };
+
+    const handleSaveEdit = async () => {
+        if (!editingTask) return;
+        try {
+            const updates = {
+                title: editingTask.title,
+                description: editingTask.description,
+                start_date: editingTask.start_date,
+                start_time: editingTask.start_time,
+                due_date: editingTask.due_date,
+                due_time: editingTask.due_time,
+                priority: editingTask.priority
+            };
+            await handleUpdateTask(editingTask.id, updates);
+            setShowEditModal(false);
+            setEditingTask(null);
+            addToast?.('Task updated', 'success');
+        } catch (error) {
+            addToast?.('Failed to save changes', 'error');
         }
     };
 
@@ -397,12 +435,10 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
             addToast?.('Please enter a task title', 'error');
             return;
         }
-        if (allocatedHoursError) {
-            addToast?.(allocatedHoursError, 'error');
-            return;
-        }
-        if (!newTask.allocatedHours || Number(newTask.allocatedHours) <= 0) {
-            addToast?.('Please enter allocated hours (e.g., 8, 20, 40)', 'error');
+
+        // Time validation (basic)
+        if (!newTask.startTime || !newTask.dueTime) {
+            addToast?.('Please select start and due times', 'error');
             return;
         }
 
@@ -434,11 +470,12 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     assigned_by_name: senderName,
                     project_id: effectiveProjectId,
                     start_date: newTask.startDate,
+                    start_time: newTask.startTime, // Added
                     due_date: newTask.endDate,
-                    due_time: newTask.dueTime || null,
+                    due_time: newTask.dueTime,     // Updated
                     priority: newTask.priority.toLowerCase(),
                     status: 'pending',
-                    allocated_hours: parseFloat(newTask.allocatedHours),
+                    // allocated_hours removed - DB triggers handle it
                     phase_validations: {
                         active_phases: newTask.requiredPhases
                     },
@@ -470,11 +507,12 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     assigned_by_name: senderName,
                     project_id: effectiveProjectId,
                     start_date: newTask.startDate,
+                    start_time: newTask.startTime, // Added
                     due_date: newTask.endDate,
-                    due_time: newTask.dueTime || null,
+                    due_time: newTask.dueTime,     // Updated
                     priority: newTask.priority.toLowerCase(),
                     status: 'pending',
-                    allocated_hours: parseFloat(newTask.allocatedHours),
+                    // allocated_hours removed
                     phase_validations: {
                         active_phases: newTask.requiredPhases
                     },
@@ -528,9 +566,9 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 selectedAssignees: [],
                 startDate: new Date().toISOString().split('T')[0],
                 endDate: new Date().toISOString().split('T')[0],
-                dueTime: '',
+                startTime: '09:00',
+                dueTime: '17:00',
                 priority: 'Medium',
-                allocatedHours: '',
                 requiredPhases: ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment']
             });
             fetchData();
@@ -813,6 +851,22 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     };
 
     const openIssueModal = (task) => {
+        // Validation: Check if locked
+        const curTime = new Date();
+        let dueDateTime = null;
+        if (task.due_date) {
+            const datePart = task.due_date;
+            const timePart = task.due_time ? task.due_time : '23:59:00';
+            dueDateTime = new Date(`${datePart}T${timePart}`);
+        }
+        const isOverdue = dueDateTime && curTime > dueDateTime;
+        const isLocked = (task.is_locked || isOverdue) && task.status !== 'completed' && task.access_status !== 'approved';
+
+        if (isLocked) {
+            addToast('Task is locked (Overdue). Please request access.', 'error');
+            return;
+        }
+
         setTaskWithIssue(task);
         setShowIssueModal(true);
     };
@@ -894,6 +948,22 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     const getPhaseIndex = (phase) => LIFECYCLE_PHASES.findIndex(p => p.key === phase);
 
     const openProofModal = (task) => {
+        // Validation: Check if locked
+        const curTime = new Date();
+        let dueDateTime = null;
+        if (task.due_date) {
+            const datePart = task.due_date;
+            const timePart = task.due_time ? task.due_time : '23:59:00';
+            dueDateTime = new Date(`${datePart}T${timePart}`);
+        }
+        const isOverdue = dueDateTime && curTime > dueDateTime;
+        const isLocked = (task.is_locked || isOverdue) && task.status !== 'completed' && task.access_status !== 'approved';
+
+        if (isLocked) {
+            addToast('Task is locked (Overdue). Please request access.', 'error');
+            return;
+        }
+
         setTaskForProof(task);
         setProofFile(null);
         setProofText('');
@@ -912,7 +982,27 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
         }
     };
 
-    const handleSubmitProof = async () => {
+    const handleSubmitProof = async (e) => {
+        e.preventDefault();
+        if (!taskForProof) return;
+
+        // CRITICAL LOCK CHECK: Re-verify against current time in case it expired while modal was open
+        const curTime = new Date();
+        let dueDateTime = null;
+        if (taskForProof.due_date) {
+            const datePart = taskForProof.due_date;
+            const timePart = taskForProof.due_time ? taskForProof.due_time : '23:59:00';
+            dueDateTime = new Date(`${datePart}T${timePart}`);
+        }
+        const isOverdue = dueDateTime && curTime > dueDateTime;
+        const isLocked = (taskForProof.is_locked || isOverdue) && taskForProof.status !== 'completed' && taskForProof.access_status !== 'approved';
+
+        if (isLocked) {
+            addToast('Time exceeded! Submission locked. Please request access.', 'error');
+            setShowProofModal(false); // Force close modal
+            return;
+        }
+
         if (!proofFile && !proofText.trim()) {
             addToast?.('Please upload a document OR enter a text message', 'error');
             return;
@@ -1633,7 +1723,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                             View
                                                         </button>
 
-                                                        {/* Edit Button - Only for managers/team leads */}
+                                                        {/* Edit Button */}
                                                         {(userRole === 'manager' || userRole === 'team_lead') && (
                                                             <button
                                                                 onClick={(e) => {
@@ -1654,37 +1744,124 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                     cursor: 'pointer',
                                                                     whiteSpace: 'nowrap'
                                                                 }}
-                                                                onMouseEnter={e => e.currentTarget.style.backgroundColor = '#2563eb'}
-                                                                onMouseLeave={e => e.currentTarget.style.backgroundColor = '#3b82f6'}
                                                             >
                                                                 <Edit2 size={12} />
                                                                 Edit
                                                             </button>
                                                         )}
 
-                                                        {/* Submit Proof Button - Only for My Tasks */}
-                                                        {viewMode === 'my_tasks' && (task.sub_state === 'in_progress' || task.sub_state === 'pending_validation') && (
+                                                        {/* Employee Actions: Show for My Tasks OR if I am the assignee */}
+                                                        {(viewMode === 'my_tasks' || (task.assigned_to === userId)) && (
+                                                            <>
+                                                                {/* Check Locking Logic */}
+                                                                {(() => {
+                                                                    const curTime = new Date();
+                                                                    let dueDateTime = null;
+                                                                    let isInvalidDate = false;
+
+                                                                    if (task.due_date) {
+                                                                        let datePart = task.due_date;
+                                                                        // Handle DD/MM/YYYY format if present
+                                                                        if (datePart.includes('/')) {
+                                                                            const parts = datePart.split('/');
+                                                                            if (parts.length === 3) {
+                                                                                // Assume DD/MM/YYYY -> YYYY-MM-DD
+                                                                                datePart = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                                                                            }
+                                                                        }
+
+                                                                        const timePart = task.due_time ? task.due_time : '23:59:00';
+                                                                        const isoString = `${datePart}T${timePart}`;
+                                                                        dueDateTime = new Date(isoString);
+
+                                                                        if (isNaN(dueDateTime.getTime())) {
+                                                                            console.warn('Invalid Date Parsed:', isoString);
+                                                                            isInvalidDate = true;
+                                                                        }
+                                                                    }
+
+                                                                    // If date is invalid but existed, treat as overdue/locked (Fail Secure)
+                                                                    const isOverdue = isInvalidDate || (dueDateTime && curTime > dueDateTime);
+
+                                                                    const isLocked = (task.is_locked || isOverdue) &&
+                                                                        task.status !== 'completed' &&
+                                                                        task.access_status !== 'approved';
+
+                                                                    if (isLocked) {
+                                                                        if (task.access_requested && task.access_status === 'pending') {
+                                                                            return (
+                                                                                <span style={{ fontSize: '0.7rem', padding: '6px 10px', borderRadius: '4px', backgroundColor: '#fef3c7', color: '#d97706', fontWeight: 600 }}>
+                                                                                    Access Pending
+                                                                                </span>
+                                                                            );
+                                                                        }
+                                                                        return (
+                                                                            <button
+                                                                                onClick={(e) => {
+                                                                                    e.stopPropagation();
+                                                                                    setTaskForAccess(task);
+                                                                                    setShowAccessRequestModal(true);
+                                                                                }}
+                                                                                style={{
+                                                                                    display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                                                                                    backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px',
+                                                                                    fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
+                                                                                }}
+                                                                            >
+                                                                                Request Access
+                                                                            </button>
+                                                                        );
+                                                                    }
+
+                                                                    // Not Locked: Show Submit and Add Issue
+                                                                    return (
+                                                                        <div style={{ display: 'flex', gap: '4px' }}>
+                                                                            {(task.sub_state === 'in_progress' || task.sub_state === 'pending_validation') && (
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); openProofModal(task); }}
+                                                                                    style={{
+                                                                                        display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px',
+                                                                                        backgroundColor: task.sub_state === 'pending_validation' ? '#f59e0b' : '#8b5cf6',
+                                                                                        color: 'white', border: 'none', borderRadius: '4px',
+                                                                                        fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
+                                                                                    }}
+                                                                                >
+                                                                                    {task.sub_state === 'pending_validation' ? 'Update' : 'Submit'}
+                                                                                </button>
+                                                                            )}
+                                                                            <button
+                                                                                onClick={(e) => { e.stopPropagation(); openIssueModal(task); }}
+                                                                                style={{
+                                                                                    display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                                                                                    backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px',
+                                                                                    fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
+                                                                                }}
+                                                                            >
+                                                                                Add Issue
+                                                                            </button>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                            </>
+                                                        )}
+
+                                                        {/* Manager: Access Requests */}
+                                                        {(userRole === 'manager' || userRole === 'team_lead') && task.access_requested && task.access_status === 'pending' && (
                                                             <button
-                                                                onClick={() => openProofModal(task)}
-                                                                style={{
-                                                                    display: 'inline-flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '6px',
-                                                                    padding: '8px 12px',
-                                                                    backgroundColor: task.sub_state === 'pending_validation' ? '#f59e0b' : '#8b5cf6',
-                                                                    color: 'white',
-                                                                    border: 'none',
-                                                                    borderRadius: '6px',
-                                                                    fontSize: '0.85rem',
-                                                                    fontWeight: 600,
-                                                                    cursor: 'pointer',
-                                                                    whiteSpace: 'nowrap'
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setAccessReviewTask(task);
+                                                                    setReviewAction('approve');
+                                                                    setShowAccessReviewModal(true);
                                                                 }}
-                                                                onMouseEnter={e => e.currentTarget.style.backgroundColor = task.sub_state === 'pending_validation' ? '#d97706' : '#7c3aed'}
-                                                                onMouseLeave={e => e.currentTarget.style.backgroundColor = task.sub_state === 'pending_validation' ? '#f59e0b' : '#8b5cf6'}
+                                                                title={`Reason: ${task.access_reason}`}
+                                                                style={{
+                                                                    display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                                                                    backgroundColor: '#f59e0b', color: 'white', border: 'none', borderRadius: '4px',
+                                                                    fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
+                                                                }}
                                                             >
-                                                                <Upload size={14} />
-                                                                {task.sub_state === 'pending_validation' ? 'Update Proof' : 'Submit'}
+                                                                Review Access
                                                             </button>
                                                         )}
 
@@ -1705,8 +1882,6 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                     cursor: 'pointer',
                                                                     whiteSpace: 'nowrap'
                                                                 }}
-                                                                onMouseEnter={e => e.currentTarget.style.backgroundColor = '#d97706'}
-                                                                onMouseLeave={e => e.currentTarget.style.backgroundColor = '#f59e0b'}
                                                             >
                                                                 <AlertTriangle size={14} />
                                                                 Resolve
@@ -1934,135 +2109,49 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                     )}
                                 </div>
 
-                                {/* Dates */}
+                                {/* Date and Time Grid */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                    {/* Start Date */}
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
-                                            Start Date
-                                        </label>
-                                        <div style={{ position: 'relative' }}>
-                                            <input
-                                                type="date"
-                                                value={newTask.startDate}
-                                                onChange={(e) => setNewTask({ ...newTask, startDate: e.target.value })}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '10px 12px',
-                                                    border: '1px solid #e2e8f0',
-                                                    borderRadius: '8px',
-                                                    fontSize: '0.9rem',
-                                                    outline: 'none'
-                                                }}
-                                            />
-                                        </div>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>Start Date</label>
+                                        <input
+                                            type="date"
+                                            value={newTask.startDate}
+                                            onChange={(e) => setNewTask({ ...newTask, startDate: e.target.value })}
+                                            style={{ width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                        />
                                     </div>
+                                    {/* Start Time */}
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
-                                            Due Date
-                                        </label>
-                                        <div style={{ position: 'relative' }}>
-                                            <input
-                                                type="date"
-                                                value={newTask.endDate}
-                                                onChange={(e) => setNewTask({ ...newTask, endDate: e.target.value })}
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '10px 12px',
-                                                    border: '1px solid #e2e8f0',
-                                                    borderRadius: '8px',
-                                                    fontSize: '0.9rem',
-                                                    outline: 'none'
-                                                }}
-                                            />
-                                        </div>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>Start Time</label>
+                                        <input
+                                            type="time"
+                                            value={newTask.startTime}
+                                            onChange={(e) => setNewTask({ ...newTask, startTime: e.target.value })}
+                                            style={{ width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                        />
                                     </div>
-                                </div>
-
-                                {/* Due Time */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
-                                        Due Time
-                                    </label>
-                                    <div style={{ position: 'relative' }}>
+                                    {/* Due Date */}
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>Due Date</label>
+                                        <input
+                                            type="date"
+                                            value={newTask.endDate}
+                                            onChange={(e) => setNewTask({ ...newTask, endDate: e.target.value })}
+                                            style={{ width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                        />
+                                    </div>
+                                    {/* Due Time */}
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>Due Time</label>
                                         <input
                                             type="time"
                                             value={newTask.dueTime}
                                             onChange={(e) => setNewTask({ ...newTask, dueTime: e.target.value })}
-                                            style={{
-                                                width: '100%',
-                                                padding: '10px 12px',
-                                                border: '1px solid #e2e8f0',
-                                                borderRadius: '8px',
-                                                fontSize: '0.95rem',
-                                                outline: 'none'
-                                            }}
+                                            style={{ width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
                                         />
                                     </div>
                                 </div>
-
-                                {/* Priority */}
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
-                                        Priority
-                                    </label>
-                                    <div style={{ position: 'relative' }}>
-                                        <select
-                                            value={newTask.priority}
-                                            onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
-                                            style={{
-                                                width: '100%',
-                                                padding: '10px 12px',
-                                                border: '1px solid #e2e8f0',
-                                                borderRadius: '8px',
-                                                fontSize: '0.95rem',
-                                                backgroundColor: 'white',
-                                                appearance: 'none',
-                                                outline: 'none'
-                                            }}
-                                        >
-                                            <option value="Low">Low</option>
-                                            <option value="Medium">Medium</option>
-                                            <option value="High">High</option>
-                                        </select>
-                                        <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-                                    </div>
-                                </div>
-
-                                {/* Allocated Hours - Restricted to Managers/Leads */}
-                                {(userRole === 'manager' || userRole === 'team_lead' || userRole === 'executive') && (
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
-                                            Allocated Hours <span style={{ color: '#ef4444' }}>*</span>
-                                        </label>
-                                        <div style={{ position: 'relative' }}>
-                                            <input
-                                                type="number"
-                                                min="1"
-                                                placeholder="e.g., 8, 20, 40"
-                                                value={newTask.allocatedHours}
-                                                onChange={handleAllocatedHoursChange}
-                                                required
-                                                style={{
-                                                    width: '100%',
-                                                    padding: '10px 12px',
-                                                    border: allocatedHoursError ? '1px solid #ef4444' : '1px solid #e2e8f0',
-                                                    borderRadius: '8px',
-                                                    fontSize: '0.95rem',
-                                                    outline: 'none'
-                                                }}
-                                            />
-                                            <Clock size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
-                                        </div>
-                                        <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>
-                                            Estimated time to complete this task (in hours)
-                                        </p>
-                                        {allocatedHoursError && (
-                                            <p style={{ fontSize: '0.75rem', color: '#ef4444', marginTop: '4px' }}>
-                                                {allocatedHoursError}
-                                            </p>
-                                        )}
-                                    </div>
-                                )}
 
                                 {/* Lifecycle Stages Selection */}
                                 <div>
@@ -2104,7 +2193,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                 });
                                                             }
                                                         }
-                                                    }}
+                                                    }
+                                                    }
                                                     style={{ accentColor: '#0f172a' }}
                                                 />
                                                 {phase.label}
@@ -2371,20 +2461,70 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Due Date</label>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Start Date/Time</label>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f172a' }}>
                                             <Calendar size={16} />
-                                            <span>{selectedTask.due_date ? new Date(selectedTask.due_date).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : 'No Date'}</span>
+                                            <span>
+                                                {selectedTask.start_date ? new Date(selectedTask.start_date).toLocaleDateString() : '-'}
+                                                {' '}
+                                                <span style={{ color: '#64748b', fontSize: '0.85em' }}>
+                                                    {selectedTask.start_time || ''}
+                                                </span>
+                                            </span>
                                         </div>
                                     </div>
                                     <div>
-                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Due Time</label>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Due Date/Time</label>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f172a' }}>
                                             <Clock size={16} />
-                                            <span>{selectedTask.due_time || 'No Time'}</span>
+                                            <span>
+                                                {selectedTask.due_date ? new Date(selectedTask.due_date).toLocaleDateString() : '-'}
+                                                {' '}
+                                                <span style={{ color: selectedTask.is_overdue ? '#ef4444' : '#64748b', fontSize: '0.85em', fontWeight: selectedTask.is_overdue ? 700 : 400 }}>
+                                                    {selectedTask.due_time || ''}
+                                                </span>
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
+
+                                {selectedTask.is_locked && selectedTask.access_status !== 'approved' && (
+                                    <div style={{ padding: '16px', backgroundColor: '#fee2e2', borderRadius: '12px', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                        <div>
+                                            <p style={{ fontWeight: 700, color: '#991b1b', margin: 0 }}>Task Locked - Overdue</p>
+                                            <p style={{ fontSize: '0.85rem', color: '#7f1d1d', margin: '4px 0 0 0' }}>
+                                                This task is locked because the deadline has passed.
+                                                {selectedTask.access_requested ? ' Access request is pending approval.' : ' Please request access to continue.'}
+                                            </p>
+                                        </div>
+                                        {!selectedTask.access_requested && (
+                                            <button
+                                                onClick={() => { setShowAccessRequestModal(true); setTaskForAccess(selectedTask); }}
+                                                style={{ padding: '8px 16px', backgroundColor: '#991b1b', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+                                            >
+                                                Request Access
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+
+                                {selectedTask.access_requested && (userRole === 'manager' || userRole === 'team_lead') && (
+                                    <div style={{ padding: '16px', backgroundColor: '#fff7ed', borderRadius: '12px', border: '1px solid #fed7aa', marginTop: '12px' }}>
+                                        <h4 style={{ margin: '0 0 8px 0', color: '#9a3412' }}>Access Request</h4>
+                                        <p style={{ margin: 0, fontSize: '0.9rem', color: '#c2410c' }}><strong>Reason:</strong> {selectedTask.access_reason}</p>
+                                        <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
+                                            <button
+                                                onClick={() => {
+                                                    setAccessReviewTask(selectedTask);
+                                                    setShowAccessReviewModal(true);
+                                                }}
+                                                style={{ padding: '6px 12px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}
+                                            >
+                                                Review & Manage Request
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
                                     <div>
@@ -3020,10 +3160,140 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     </div>
                 )
             }
-        </div >
+            {/* Access Request Modal */}
+            {showAccessRequestModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(4px)'
+                }}>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', width: '450px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+                        <h3 style={{ marginTop: 0, fontSize: '1.25rem', color: '#111827' }}>Request Task Access</h3>
+                        <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '16px' }}>
+                            The deadline for this task has passed. Please provide a reason to request renewed access.
+                        </p>
+
+                        <textarea
+                            value={accessReason}
+                            onChange={(e) => setAccessReason(e.target.value)}
+                            placeholder="Reason for late submission or access request..."
+                            style={{
+                                width: '100%', minHeight: '100px', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '0.95rem', marginBottom: '16px', outline: 'none'
+                            }}
+                        />
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                            <button
+                                onClick={() => setShowAccessRequestModal(false)}
+                                style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontWeight: 500 }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleRequestAccess}
+                                disabled={requestingAccess}
+                                style={{
+                                    padding: '8px 16px', borderRadius: '8px', border: 'none',
+                                    backgroundColor: '#ea580c', color: 'white', cursor: requestingAccess ? 'wait' : 'pointer', fontWeight: 600
+                                }}
+                            >
+                                {requestingAccess ? 'Sending Request...' : 'Submit Request'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* Access Review Modal (Manager) */}
+            {showAccessReviewModal && accessReviewTask && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, backdropFilter: 'blur(4px)'
+                }}>
+                    <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', width: '500px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+                        <h3 style={{ marginTop: 0, marginBottom: '4px', fontSize: '1.25rem', color: '#111827' }}>Review Access Request</h3>
+                        <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '20px' }}>Task: <span style={{ fontWeight: 600, color: '#374151' }}>{accessReviewTask.title}</span></p>
+
+                        <div style={{ backgroundColor: '#fff7ed', padding: '12px', borderRadius: '8px', border: '1px solid #ffedd5', marginBottom: '20px' }}>
+                            <p style={{ margin: 0, fontSize: '0.85rem', color: '#c2410c', fontWeight: 600 }}>Request Reason:</p>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '0.9rem', color: '#9a3412' }}>{accessReviewTask.access_reason}</p>
+                        </div>
+
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Action</label>
+                        <div style={{ display: 'flex', gap: '4px', padding: '4px', backgroundColor: '#f3f4f6', borderRadius: '8px', marginBottom: '20px' }}>
+                            {['approve', 'reassign', 'close'].map(action => (
+                                <button
+                                    key={action}
+                                    onClick={() => setReviewAction(action)}
+                                    style={{
+                                        flex: 1,
+                                        padding: '8px',
+                                        borderRadius: '6px',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        backgroundColor: reviewAction === action ? 'white' : 'transparent',
+                                        color: reviewAction === action ? '#0f172a' : '#6b7280',
+                                        fontWeight: reviewAction === action ? 700 : 500,
+                                        boxShadow: reviewAction === action ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                        textTransform: 'capitalize',
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    {action}
+                                </button>
+                            ))}
+                        </div>
+
+                        {reviewAction === 'reassign' && (
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Reassign To</label>
+                                <select
+                                    value={reassignTarget}
+                                    onChange={(e) => setReassignTarget(e.target.value)}
+                                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}
+                                >
+                                    <option value="">Select Employee</option>
+                                    {employees.filter(e => e.id !== accessReviewTask.assigned_to).map(emp => (
+                                        <option key={emp.id} value={emp.id}>{emp.full_name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
+                        {reviewAction === 'close' && (
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Closure Reason *</label>
+                                <textarea
+                                    value={closureReason}
+                                    onChange={(e) => setClosureReason(e.target.value)}
+                                    placeholder="Explain why the task is being closed..."
+                                    style={{ width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', fontSize: '0.9rem' }}
+                                />
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #f3f4f6', paddingTop: '20px' }}>
+                            <button
+                                onClick={() => { setShowAccessReviewModal(false); setAccessReviewTask(null); }}
+                                style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontWeight: 500 }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleProcessAccessReview}
+                                disabled={processingReview}
+                                style={{
+                                    padding: '10px 20px', borderRadius: '8px', border: 'none',
+                                    backgroundColor: reviewAction === 'close' ? '#ef4444' : '#0f172a',
+                                    color: 'white', cursor: processingReview ? 'wait' : 'pointer', fontWeight: 600
+                                }}
+                            >
+                                {processingReview ? 'Processing...' : 'Confirm Action'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 };
 
 export default AllTasksView;
-
-

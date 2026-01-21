@@ -62,6 +62,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
     const orgMenuItems = [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/manager-dashboard/dashboard' },
         { icon: ListTodo, label: 'All Tasks', path: '/manager-dashboard/global-tasks' },
+        { icon: Users, label: 'Employees', path: '/manager-dashboard/employees' },
         { icon: UserCheck, label: 'Employee Status', path: '/manager-dashboard/employee-status' },
         { icon: CalendarOff, label: 'Leave Requests', path: '/manager-dashboard/leaves' },
         { icon: CalendarOff, label: 'My Leaves', path: '/manager-dashboard/my-leaves' },

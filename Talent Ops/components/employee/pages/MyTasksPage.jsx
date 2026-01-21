@@ -32,6 +32,12 @@ const MyTasksPage = () => {
     const [showViewModal, setShowViewModal] = useState(false);
     const [taskForView, setTaskForView] = useState(null);
 
+    // Access Request State
+    const [showAccessRequestModal, setShowAccessRequestModal] = useState(false);
+    const [taskForAccess, setTaskForAccess] = useState(null);
+    const [accessReason, setAccessReason] = useState('');
+    const [requestingAccess, setRequestingAccess] = useState(false);
+
     useEffect(() => {
         if (currentProject?.id) {
             fetchTasks();
@@ -97,8 +103,26 @@ const MyTasksPage = () => {
     };
 
     const uploadProofAndRequestValidation = async () => {
-        if ((!proofFile && !proofText.trim()) || !taskForProof) {
-            addToast?.('Please upload a file OR enter text/notes', 'error');
+        if (!taskForProof) return;
+
+        // CRITICAL LOCK CHECK
+        const curTime = new Date();
+        let dueDateTime = null;
+        if (taskForProof.due_date) {
+            let datePart = taskForProof.due_date;
+            if (datePart.includes('/')) {
+                const parts = datePart.split('/');
+                datePart = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+            const timePart = taskForProof.due_time ? taskForProof.due_time : '23:59:00';
+            dueDateTime = new Date(`${datePart}T${timePart}`);
+        }
+        const isOverdue = dueDateTime && curTime > dueDateTime;
+        const isLocked = (taskForProof.is_locked || isOverdue) && taskForProof.status !== 'completed' && taskForProof.access_status !== 'approved';
+
+        if (isLocked) {
+            addToast('Time exceeded! Submission locked. Please request access.', 'error');
+            setShowProofModal(false);
             return;
         }
 
@@ -111,6 +135,7 @@ const MyTasksPage = () => {
 
             let proofUrl = null;
 
+            // 1. Upload File if present
             if (proofFile) {
                 const fileExt = proofFile.name.split('.').pop();
                 const fileName = `${taskForProof.id}_${Date.now()}.${fileExt}`;
@@ -118,84 +143,50 @@ const MyTasksPage = () => {
 
                 setUploadProgress(30);
 
-                const { data: uploadData, error: uploadError } = await supabase.storage
+                const { error: uploadError } = await supabase.storage
                     .from('task-proofs')
                     .upload(filePath, proofFile, { cacheControl: '3600', upsert: false });
 
                 if (uploadError) throw uploadError;
 
-                setUploadProgress(70);
-
                 const { data: urlData } = supabase.storage.from('task-proofs').getPublicUrl(filePath);
-                proofUrl = urlData?.publicUrl || filePath;
-
-                setUploadProgress(85);
+                proofUrl = urlData?.publicUrl;
+                setUploadProgress(70);
             }
 
-            let responseData;
-            let responseError;
-
-            // Updated Layout: Non-blocking validation
-            // 1. Update phase_validations JSON
-            // 2. Advance lifecycle_state to next phase
-
-            // Get active phases for this task (from phase_validations.active_phases)
+            // 2. Logic to Advance Phase
             const activePhases = taskForProof.phase_validations?.active_phases || LIFECYCLE_PHASES.map(p => p.key);
-
-            // Filter to only include valid phase keys (exclude 'closed')
             const validActivePhases = activePhases.filter(pk => pk !== 'closed' && LIFECYCLE_PHASES.some(p => p.key === pk));
 
-            // If the current lifecycle_state is not in active phases, use the first active phase
             let currentPhase = taskForProof.lifecycle_state;
             if (!validActivePhases.includes(currentPhase)) {
-                currentPhase = validActivePhases[0] || LIFECYCLE_PHASES[0].key;
-                console.log(`Lifecycle state '${taskForProof.lifecycle_state}' not in active phases. Using '${currentPhase}' instead.`);
+                currentPhase = validActivePhases[0] || 'requirement_refiner';
             }
 
-            const currentIndex = getPhaseIndex(currentPhase);
-
-            // Find current phase index within active phases
+            // We are submitting for 'currentPhase'.
+            // Find the NEXT phase to move to.
+            let nextPhase = currentPhase;
             const currentActiveIndex = validActivePhases.indexOf(currentPhase);
 
-            // Auto-Advance Logic:
-            // Find the next ACTIVE phase that DOES NOT have a proof yet.
-            let nextPhase = currentPhase;
-            let foundNext = false;
-
-            if (currentActiveIndex < validActivePhases.length - 1) { // Not at the last active phase
-                let probeActiveIndex = currentActiveIndex + 1;
-                while (probeActiveIndex < validActivePhases.length) {
-                    const probePhaseKey = validActivePhases[probeActiveIndex];
-
-                    // Check if this phase already has a proof
-                    const hasProof = taskForProof.phase_validations &&
-                        taskForProof.phase_validations[probePhaseKey] &&
-                        (taskForProof.phase_validations[probePhaseKey].proof_url || taskForProof.phase_validations[probePhaseKey].proof_text);
-
-                    if (hasProof) {
-                        // This phase is already done, check next
-                        probeActiveIndex++;
-                    } else {
-                        // Found a phase with no proof, this is our next target
-                        nextPhase = probePhaseKey;
-                        foundNext = true;
+            if (currentActiveIndex !== -1 && currentActiveIndex < validActivePhases.length - 1) {
+                // Scan forward
+                for (let i = currentActiveIndex + 1; i < validActivePhases.length; i++) {
+                    const pKey = validActivePhases[i];
+                    const existingVal = taskForProof.phase_validations?.[pKey];
+                    // If this future phase has no proof, we stop here (this is our new target)
+                    if (!existingVal?.proof_url && !existingVal?.proof_text) {
+                        nextPhase = pKey;
                         break;
                     }
+                    // If it HAS proof, we skip it (it's already done/pre-filled), keep looking
+                    // If we reach the end, we stay on the last phase
+                    if (i === validActivePhases.length - 1) {
+                        nextPhase = validActivePhases[validActivePhases.length - 1];
+                    }
                 }
-
-                // If we went through all subsequent active phases and they ALL had proofs,
-                // stay at current phase or mark as complete
-                if (!foundNext && probeActiveIndex >= validActivePhases.length) {
-                    // All active phases done - could mark as 'closed' if desired
-                    nextPhase = validActivePhases[validActivePhases.length - 1]; // Stay at last active phase
-                }
-            } else {
-                // Already at the last active phase
-                nextPhase = currentPhase;
             }
 
-
-            // Prepare updated validations object
+            // 3. Prepare Updates
             const currentValidations = taskForProof.phase_validations || {};
             const updatedValidations = {
                 ...currentValidations,
@@ -209,42 +200,37 @@ const MyTasksPage = () => {
 
             const updates = {
                 phase_validations: updatedValidations,
-                proof_url: proofUrl, // Keep latest proof in main column for compatibility
+                proof_url: proofUrl, // Legacy compat
                 proof_text: proofText,
                 updated_at: new Date().toISOString()
             };
 
-            // Only advance phase if we aren't already at the end
+            // Only update lifecycle state if we moved
             if (nextPhase !== currentPhase) {
                 updates.lifecycle_state = nextPhase;
-                updates.sub_state = 'in_progress'; // Reset substate for new phase
+                updates.sub_state = 'in_progress';
+            } else {
+                updates.sub_state = 'pending_validation';
             }
 
-            const { data, error } = await supabase
+            const { error } = await supabase
                 .from('tasks')
                 .update(updates)
-                .eq('id', taskForProof.id)
-                .select();
+                .eq('id', taskForProof.id);
 
-            responseError = error;
-            responseData = { success: !error, message: 'Proof submitted and task advanced' };
-
-            if (responseError) throw responseError;
+            if (error) throw error;
 
             setUploadProgress(100);
+            addToast('Proof submitted successfully!', 'success');
+            setShowProofModal(false);
+            setTaskForProof(null);
+            setProofFile(null);
+            setProofText('');
+            fetchTasks();
 
-            if (responseData?.success) {
-                addToast?.(taskForProof.sub_state === 'pending_validation' ? 'Proof updated successfully!' : 'Validation requested with proof!', 'success');
-                setShowProofModal(false);
-                setTaskForProof(null);
-                setProofFile(null);
-                fetchTasks(); // Refresh tasks to show updated status
-            } else {
-                addToast?.(responseData?.message || 'Failed to request validation', 'error');
-            }
         } catch (error) {
-            console.error('Upload error:', error);
-            addToast?.('Failed to upload proof: ' + error.message, 'error');
+            console.error('Error submitting proof:', error);
+            addToast('Failed to submit: ' + error.message, 'error');
         } finally {
             setUploading(false);
             setUploadProgress(0);
@@ -328,6 +314,27 @@ const MyTasksPage = () => {
             return;
         }
 
+        // CRITICAL LOCK CHECK
+        const curTime = new Date();
+        let dueDateTime = null;
+        if (taskForIssue.due_date) {
+            let datePart = taskForIssue.due_date;
+            if (datePart.includes('/')) {
+                const parts = datePart.split('/');
+                datePart = `${parts[2]}-${parts[1]}-${parts[0]}`;
+            }
+            const timePart = taskForIssue.due_time ? taskForIssue.due_time : '23:59:00';
+            dueDateTime = new Date(`${datePart}T${timePart}`);
+        }
+        const isOverdue = dueDateTime && curTime > dueDateTime;
+        const isLocked = (taskForIssue.is_locked || isOverdue) && taskForIssue.status !== 'completed' && taskForIssue.access_status !== 'approved';
+
+        if (isLocked) {
+            addToast('Task is locked (Overdue). Please request access to add issues.', 'error');
+            setShowIssueModal(false);
+            return;
+        }
+
         setSubmittingIssue(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -356,7 +363,8 @@ const MyTasksPage = () => {
                 .from('tasks')
                 .update({
                     issues: updatedIssues,
-                    updated_at: timestamp
+                    updated_at: timestamp,
+                    has_issues: true // Ensure flag is set
                 })
                 .eq('id', taskForIssue.id);
 
@@ -378,6 +386,40 @@ const MyTasksPage = () => {
     const openViewModal = (task) => {
         setTaskForView(task);
         setShowViewModal(true);
+    };
+
+    const handleRequestAccess = async () => {
+        if (!accessReason.trim()) {
+            addToast?.('Please provide a reason for requesting access.', 'error');
+            return;
+        }
+
+        setRequestingAccess(true);
+        try {
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    access_requested: true,
+                    access_reason: accessReason,
+                    access_status: 'pending',
+                    access_requested_at: new Date().toISOString()
+                })
+                .eq('id', taskForAccess.id);
+
+            if (error) throw error;
+
+            addToast('Access request sent successfully.', 'success');
+            setShowAccessRequestModal(false);
+            setTaskForAccess(null);
+            setAccessReason('');
+            fetchTasks();
+
+        } catch (error) {
+            console.error('Error requesting access:', error);
+            addToast('Failed to request access: ' + error.message, 'error');
+        } finally {
+            setRequestingAccess(false);
+        }
     };
 
     const getPriorityColor = (priority) => {
@@ -848,55 +890,232 @@ const MyTasksPage = () => {
                                             </div>
                                         </td>
                                         <td style={{ padding: '16px', textAlign: 'center' }}>
-                                            {task.status === 'completed' ? (
-                                                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                                                    <span style={{
-                                                        padding: '6px 12px',
-                                                        borderRadius: '20px',
-                                                        backgroundColor: '#dcfce7',
-                                                        color: '#166534',
-                                                        fontSize: '0.8rem',
-                                                        fontWeight: 600,
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        gap: '6px'
-                                                    }}>
-                                                        <CheckCircle size={14} /> Completed
-                                                    </span>
-                                                </div>
-                                            ) : (
-                                                <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', whiteSpace: 'nowrap' }}>
-                                                    <button
-                                                        onClick={() => openViewModal(task)}
-                                                        style={{
-                                                            padding: '6px 10px',
-                                                            borderRadius: '6px',
-                                                            backgroundColor: '#eff6ff',
-                                                            color: '#1d4ed8',
-                                                            border: '1px solid #bfdbfe',
-                                                            fontWeight: 500,
-                                                            cursor: 'pointer',
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            gap: '4px',
-                                                            fontSize: '0.75rem',
-                                                            transition: 'background-color 0.2s',
-                                                            whiteSpace: 'nowrap'
-                                                        }}
-                                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#dbeafe'}
-                                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#eff6ff'}
-                                                    >
-                                                        <Eye size={12} />
-                                                        View
-                                                    </button>
-                                                    {(task.sub_state === 'in_progress' || task.sub_state === 'pending_validation') && (
+                                            {(() => {
+                                                const curTime = new Date();
+                                                let dueDateTime = null;
+                                                let isInvalidDate = false;
+
+                                                if (task.due_date) {
+                                                    let datePart = task.due_date;
+                                                    // Handle DD/MM/YYYY format if present
+                                                    if (datePart.includes('/')) {
+                                                        const parts = datePart.split('/');
+                                                        if (parts.length === 3) {
+                                                            datePart = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                                                        }
+                                                    }
+                                                    const timePart = task.due_time ? task.due_time : '23:59:00';
+                                                    const isoString = `${datePart}T${timePart}`;
+                                                    dueDateTime = new Date(isoString);
+
+                                                    if (isNaN(dueDateTime.getTime())) {
+                                                        isInvalidDate = true;
+                                                    }
+                                                }
+
+                                                const isOverdue = isInvalidDate || (dueDateTime && curTime > dueDateTime);
+                                                const isLocked = (task.is_locked || isOverdue) &&
+                                                    task.status !== 'completed' &&
+                                                    task.access_status !== 'approved';
+
+                                                if (task.status === 'completed') {
+                                                    // Check if it was reassigned
+                                                    if (task.closed_by_manager === true && task.reassigned_to) {
+                                                        return (
+                                                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                                                <span style={{
+                                                                    padding: '6px 12px',
+                                                                    borderRadius: '20px',
+                                                                    backgroundColor: '#f1f5f9',
+                                                                    color: '#475569',
+                                                                    fontSize: '0.8rem',
+                                                                    fontWeight: 600,
+                                                                    display: 'inline-flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '6px'
+                                                                }}>
+                                                                    <AlertCircle size={14} /> Reassigned
+                                                                </span>
+                                                                <button
+                                                                    onClick={() => openViewModal(task)}
+                                                                    style={{
+                                                                        padding: '6px 12px',
+                                                                        borderRadius: '6px',
+                                                                        border: '1px solid #cbd5e1',
+                                                                        backgroundColor: 'white',
+                                                                        color: '#334155',
+                                                                        cursor: 'pointer',
+                                                                        fontSize: '0.8rem',
+                                                                        fontWeight: 500,
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '6px'
+                                                                    }}>
+                                                                    <Eye size={14} /> View
+                                                                </button>
+                                                            </div>
+                                                        );
+                                                    }
+
+                                                    return (
+                                                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                                            <span style={{
+                                                                padding: '6px 12px',
+                                                                borderRadius: '20px',
+                                                                backgroundColor: '#dcfce7',
+                                                                color: '#166534',
+                                                                fontSize: '0.8rem',
+                                                                fontWeight: 600,
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '6px'
+                                                            }}>
+                                                                <CheckCircle size={14} /> Completed
+                                                            </span>
+                                                            <button
+                                                                onClick={() => openViewModal(task)}
+                                                                style={{
+                                                                    padding: '6px 12px',
+                                                                    borderRadius: '6px',
+                                                                    border: '1px solid #cbd5e1',
+                                                                    backgroundColor: 'white',
+                                                                    color: '#334155',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: '0.8rem',
+                                                                    fontWeight: 500,
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '6px'
+                                                                }}>
+                                                                <Eye size={14} /> View
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                if (isLocked) {
+                                                    if (task.access_requested && task.access_status === 'pending') {
+                                                        return (
+                                                            <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                                                                <button
+                                                                    onClick={() => openViewModal(task)}
+                                                                    style={{
+                                                                        padding: '6px 10px',
+                                                                        borderRadius: '6px',
+                                                                        backgroundColor: '#eff6ff',
+                                                                        color: '#1d4ed8',
+                                                                        border: '1px solid #bfdbfe',
+                                                                        fontWeight: 500,
+                                                                        cursor: 'pointer',
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '4px',
+                                                                        fontSize: '0.75rem',
+                                                                        whiteSpace: 'nowrap'
+                                                                    }}
+                                                                >
+                                                                    <Eye size={12} /> View
+                                                                </button>
+                                                                <span style={{ fontSize: '0.7rem', padding: '6px 10px', borderRadius: '4px', backgroundColor: '#fef3c7', color: '#d97706', fontWeight: 600 }}>
+                                                                    Access Pending
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', alignItems: 'center' }}>
+                                                            <button
+                                                                onClick={() => openViewModal(task)}
+                                                                style={{
+                                                                    padding: '6px 10px',
+                                                                    borderRadius: '6px',
+                                                                    backgroundColor: '#eff6ff',
+                                                                    color: '#1d4ed8',
+                                                                    border: '1px solid #bfdbfe',
+                                                                    fontWeight: 500,
+                                                                    cursor: 'pointer',
+                                                                    display: 'inline-flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '4px',
+                                                                    fontSize: '0.75rem',
+                                                                    transition: 'background-color 0.2s',
+                                                                    whiteSpace: 'nowrap'
+                                                                }}
+                                                            >
+                                                                <Eye size={12} /> View
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setTaskForAccess(task);
+                                                                    setShowAccessRequestModal(true);
+                                                                }}
+                                                                style={{
+                                                                    display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                                                                    backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', borderRadius: '4px',
+                                                                    fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
+                                                                }}
+                                                            >
+                                                                Request Access
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                // Not Locked
+                                                return (
+                                                    <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', whiteSpace: 'nowrap' }}>
                                                         <button
-                                                            onClick={() => openProofModal(task)}
-                                                            disabled={uploading}
+                                                            onClick={() => openViewModal(task)}
                                                             style={{
                                                                 padding: '6px 10px',
                                                                 borderRadius: '6px',
-                                                                backgroundColor: task.sub_state === 'pending_validation' ? '#f59e0b' : '#8b5cf6',
+                                                                backgroundColor: '#eff6ff',
+                                                                color: '#1d4ed8',
+                                                                border: '1px solid #bfdbfe',
+                                                                fontWeight: 500,
+                                                                cursor: 'pointer',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px',
+                                                                fontSize: '0.75rem',
+                                                                transition: 'background-color 0.2s',
+                                                                whiteSpace: 'nowrap'
+                                                            }}
+                                                        >
+                                                            <Eye size={12} /> View
+                                                        </button>
+                                                        {(task.sub_state === 'in_progress' || task.sub_state === 'pending_validation') && (
+                                                            <button
+                                                                onClick={() => openProofModal(task)}
+                                                                disabled={uploading}
+                                                                style={{
+                                                                    padding: '6px 10px',
+                                                                    borderRadius: '6px',
+                                                                    backgroundColor: task.sub_state === 'pending_validation' ? '#f59e0b' : '#8b5cf6',
+                                                                    color: 'white',
+                                                                    border: 'none',
+                                                                    fontWeight: 500,
+                                                                    cursor: 'pointer',
+                                                                    display: 'inline-flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '4px',
+                                                                    fontSize: '0.75rem',
+                                                                    transition: 'background-color 0.2s',
+                                                                    whiteSpace: 'nowrap'
+                                                                }}
+                                                            >
+                                                                <Upload size={12} />
+                                                                {task.sub_state === 'pending_validation' ? 'Update Proof' : 'Submit'}
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => openIssueModal(task)}
+                                                            disabled={submittingIssue}
+                                                            style={{
+                                                                padding: '6px 10px',
+                                                                borderRadius: '6px',
+                                                                backgroundColor: task.issues ? '#dc2626' : '#ef4444',
                                                                 color: 'white',
                                                                 border: 'none',
                                                                 fontWeight: 500,
@@ -908,39 +1127,12 @@ const MyTasksPage = () => {
                                                                 transition: 'background-color 0.2s',
                                                                 whiteSpace: 'nowrap'
                                                             }}
-                                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = task.sub_state === 'pending_validation' ? '#d97706' : '#7c3aed'}
-                                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = task.sub_state === 'pending_validation' ? '#f59e0b' : '#8b5cf6'}
                                                         >
-                                                            <Upload size={12} />
-                                                            {task.sub_state === 'pending_validation' ? 'Update Proof' : 'Submit'}
+                                                            <AlertTriangle size={12} /> Add Issue
                                                         </button>
-                                                    )}
-                                                    <button
-                                                        onClick={() => openIssueModal(task)}
-                                                        disabled={submittingIssue}
-                                                        style={{
-                                                            padding: '6px 10px',
-                                                            borderRadius: '6px',
-                                                            backgroundColor: task.issues ? '#dc2626' : '#ef4444',
-                                                            color: 'white',
-                                                            border: 'none',
-                                                            fontWeight: 500,
-                                                            cursor: 'pointer',
-                                                            display: 'inline-flex',
-                                                            alignItems: 'center',
-                                                            gap: '4px',
-                                                            fontSize: '0.75rem',
-                                                            transition: 'background-color 0.2s',
-                                                            whiteSpace: 'nowrap'
-                                                        }}
-                                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#b91c1c'}
-                                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = task.issues ? '#dc2626' : '#ef4444'}
-                                                    >
-                                                        <AlertTriangle size={12} />
-                                                        Add Issue
-                                                    </button>
-                                                </div>
-                                            )}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                     </tr>
                                 );
@@ -1208,19 +1400,47 @@ const MyTasksPage = () => {
                                 </div>
                             </div>
 
+                            <div style={{ marginBottom: '24px' }}>
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>ASSIGNED BY</label>
+                                <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1e293b' }}>
+                                    {taskForView.assigned_by_name || 'Unknown Manager'}
+                                </div>
+                            </div>
+
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
                                 <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>DUE DATE</label>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>START DATE & TIME</label>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#334155' }}>
                                         <Calendar size={18} color="#64748b" />
-                                        {taskForView.due_date ? new Date(taskForView.due_date).toLocaleDateString() : 'No due date'}
+                                        <span>
+                                            {taskForView.start_date ? new Date(taskForView.start_date).toLocaleDateString() : '-'}
+                                            {' '}
+                                            <span style={{ fontSize: '0.9em', color: '#64748b' }}>{taskForView.start_time || ''}</span>
+                                        </span>
                                     </div>
                                 </div>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>DUE DATE & TIME</label>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#334155' }}>
+                                        <Clock size={18} color="#64748b" />
+                                        <span>
+                                            {taskForView.due_date ? new Date(taskForView.due_date).toLocaleDateString() : '-'}
+                                            {' '}
+                                            <span style={{ fontSize: '0.9em', color: '#64748b' }}>{taskForView.due_time || ''}</span>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>PHASE</label>
                                     <div style={{ fontSize: '1rem', color: '#334155', textTransform: 'capitalize' }}>
                                         {taskForView.lifecycle_state?.replace(/_/g, ' ') || 'Requirement Refiner'}
                                     </div>
+                                </div>
+                                <div>
+                                    {/* Placeholder or move allocated hours here if needed, but user didn't explicitly ask to move it back */}
                                 </div>
                             </div>
 
@@ -1234,18 +1454,40 @@ const MyTasksPage = () => {
                                 </div>
                                 <div>
                                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>STATUS</label>
-                                    <div style={{
-                                        display: 'inline-block',
-                                        fontSize: '0.9rem',
-                                        fontWeight: 700,
-                                        color: getStatusColor(taskForView.status).text,
-                                        textTransform: 'uppercase',
-                                        backgroundColor: getStatusColor(taskForView.status).bg,
-                                        padding: '4px 10px',
-                                        borderRadius: '6px'
-                                    }}>
-                                        {taskForView.status?.replace(/_/g, ' ') || 'Pending'}
-                                    </div>
+                                    {taskForView.closed_by_manager === true && taskForView.reassigned_to ? (
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            <div style={{
+                                                display: 'inline-block',
+                                                fontSize: '0.9rem',
+                                                fontWeight: 700,
+                                                color: '#475569',
+                                                textTransform: 'uppercase',
+                                                backgroundColor: '#f1f5f9',
+                                                padding: '4px 10px',
+                                                borderRadius: '6px'
+                                            }}>
+                                                REASSIGNED
+                                            </div>
+                                            {taskForView.closed_reason && (
+                                                <div style={{ fontSize: '0.85rem', color: '#ef4444', marginTop: '4px', fontWeight: 500 }}>
+                                                    {taskForView.closed_reason}
+                                                </div>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div style={{
+                                            display: 'inline-block',
+                                            fontSize: '0.9rem',
+                                            fontWeight: 700,
+                                            color: getStatusColor(taskForView.status).text,
+                                            textTransform: 'uppercase',
+                                            backgroundColor: getStatusColor(taskForView.status).bg,
+                                            padding: '4px 10px',
+                                            borderRadius: '6px'
+                                        }}>
+                                            {taskForView.status?.replace(/_/g, ' ') || 'Pending'}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -1379,7 +1621,118 @@ const MyTasksPage = () => {
                 )
             }
 
-            {/* Issue Logging Modal */}
+
+            {/* Access Request Modal */}
+            {showAccessRequestModal && taskForAccess && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px',
+                    zIndex: 1002,
+                    backdropFilter: 'blur(4px)'
+                }}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        borderRadius: '16px',
+                        width: '100%',
+                        maxWidth: '500px',
+                        boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+                        display: 'flex',
+                        flexDirection: 'column'
+                    }}>
+                        <div style={{
+                            padding: '20px 24px',
+                            borderBottom: '1px solid #f1f5f9',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>Request Submission Access</h2>
+                            <button
+                                onClick={() => setShowAccessRequestModal(false)}
+                                style={{ border: 'none', background: 'none', color: '#64748b', cursor: 'pointer', padding: '4px' }}
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '24px' }}>
+                            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#fef3c7', borderRadius: '8px', border: '1px solid #fcd34d' }}>
+                                <p style={{ margin: 0, fontSize: '0.9rem', color: '#92400e', fontWeight: 500 }}>
+                                    This task is overdue. You must request approval from your manager to unlock submission capabilities.
+                                </p>
+                            </div>
+
+                            <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
+                                Reason for Delay *
+                            </label>
+                            <textarea
+                                value={accessReason}
+                                onChange={(e) => setAccessReason(e.target.value)}
+                                placeholder="Please explain why the task was not submitted on time..."
+                                rows={4}
+                                style={{
+                                    width: '100%',
+                                    padding: '12px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #e2e8f0',
+                                    fontSize: '0.9rem',
+                                    color: '#0f172a',
+                                    resize: 'vertical'
+                                }}
+                            />
+                        </div>
+
+                        <div style={{
+                            padding: '20px 24px',
+                            backgroundColor: '#f8fafc',
+                            borderTop: '1px solid #f1f5f9',
+                            borderRadius: '0 0 16px 16px',
+                            display: 'flex',
+                            justifyContent: 'flex-end',
+                            gap: '12px'
+                        }}>
+                            <button
+                                onClick={() => setShowAccessRequestModal(false)}
+                                style={{
+                                    padding: '10px 20px',
+                                    borderRadius: '8px',
+                                    border: '1px solid #e2e8f0',
+                                    backgroundColor: 'white',
+                                    color: '#64748b',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleRequestAccess}
+                                disabled={requestingAccess || !accessReason.trim()}
+                                style={{
+                                    padding: '10px 24px',
+                                    borderRadius: '8px',
+                                    border: 'none',
+                                    backgroundColor: '#0f172a',
+                                    color: 'white',
+                                    fontWeight: 600,
+                                    cursor: requestingAccess || !accessReason.trim() ? 'not-allowed' : 'pointer',
+                                    opacity: requestingAccess || !accessReason.trim() ? 0.7 : 1
+                                }}
+                            >
+                                {requestingAccess ? 'Sending...' : 'Send Request'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 };

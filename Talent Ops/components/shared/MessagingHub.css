@@ -6,10 +6,12 @@
 .messaging-hub {
     display: grid;
     grid-template-columns: 60px 320px 1fr;
-    height: 100%;
-    max-height: 100%;
+    height: calc(100vh - 100px);
+    /* Increased offset to prevent clipping */
+    max-height: 100vh;
     background: #ffffff;
     overflow: hidden;
+    /* Prevents outer scroll */
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     margin: 0;
     padding: 0;
@@ -84,6 +86,8 @@
     flex-direction: column;
     border-right: 1px solid #e2e8f0;
     height: 100%;
+    overflow: hidden;
+    /* Important: Constrains flex child scrolling */
 }
 
 .conversation-header {

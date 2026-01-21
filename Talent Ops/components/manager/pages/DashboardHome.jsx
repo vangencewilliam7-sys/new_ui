@@ -10,6 +10,7 @@ import { supabase } from '../../../lib/supabaseClient';
 import NotesTile from '../../shared/NotesTile';
 
 import { useProject } from '../../employee/context/ProjectContext';
+import AttendanceTracker from '../components/AttendanceTracker';
 
 
 const DashboardHome = () => {
@@ -618,6 +619,9 @@ const DashboardHome = () => {
 
                 {/* Left Side: Stats & Tracker */}
                 <div style={{ gridColumn: 'span 8', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+                    {/* Attendance Tracker */}
+                    <AttendanceTracker />
 
                     {/* Modern Stat Cards Grid */}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>

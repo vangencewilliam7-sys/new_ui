@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, X, Eye, Mail, Phone, MapPin, Calendar, Briefcase, Download } from 'lucide-react';
+import { Plus, X, Eye, Mail, Phone, MapPin, Calendar, Briefcase, Download, Edit, Users, Clock, Activity, Target, TrendingUp, ChevronRight, LayoutGrid, List, Search, CheckCircle } from 'lucide-react';
 import DataTable from '../components/UI/DataTable';
 import { useToast } from '../context/ToastContext';
 import AnalyticsDemo from '../components/Demo/AnalyticsDemo';
@@ -24,6 +24,10 @@ const ModulePage = ({ title, type }) => {
     const { addToast } = useToast();
     const { userId, userRole, orgId } = useUser();
     const { currentProject, projectRole } = useProject();
+
+    // State for view controls
+    const [searchTerm, setSearchTerm] = useState('');
+    const [viewType, setViewType] = useState('grid');
 
     // State for leave requests
     // State for leave requests
@@ -74,20 +78,10 @@ const ModulePage = ({ title, type }) => {
                 if (type === 'workforce') {
                     let userIdsToFetch = null;
 
-                    // Filter by Project if selected
-                    if (currentProject?.id) {
-                        const { data: members } = await supabase
-                            .from('project_members')
-                            .select('user_id')
-                            .eq('project_id', currentProject.id)
-                            .eq('org_id', orgId);
+                    // Filter by Project REMOVED to show ALL employees in Organization
+                    // if (currentProject?.id) { ... }
 
-                        if (members) {
-                            userIdsToFetch = members.map(m => m.user_id);
-                        }
-                    }
-
-                    // 1. Fetch profiles
+                    // 1. Fetch profiles with full details
                     let query = supabase
                         .from('profiles')
                         .select(`
@@ -95,7 +89,8 @@ const ModulePage = ({ title, type }) => {
                             full_name, 
                             email, 
                             role, 
-                            role, 
+                            job_title, 
+                            department,
                             created_at,
                             avatar_url
                         `)
@@ -109,7 +104,7 @@ const ModulePage = ({ title, type }) => {
 
                     if (profileError) throw profileError;
 
-                    // 2. Fetch project assignments from project_members
+                    // 2. Fetch project assignments
                     const { data: assignments } = await supabase
                         .from('project_members')
                         .select('user_id, projects:project_id(name)')
@@ -127,23 +122,78 @@ const ModulePage = ({ title, type }) => {
                         });
                     }
 
+                    // 3. Fetch Attendance & Leaves for Status
+                    const today = new Date().toISOString().split('T')[0];
+                    const { data: attendanceData } = await supabase
+                        .from('attendance')
+                        .select('employee_id, clock_in, clock_out, date, current_task')
+                        .eq('date', today)
+                        .eq('org_id', orgId);
+
+                    const { data: leavesData } = await supabase
+                        .from('leaves')
+                        .select('employee_id')
+                        .eq('status', 'approved')
+                        .eq('org_id', orgId)
+                        .lte('from_date', today)
+                        .gte('to_date', today);
+
+                    const leaveSet = new Set(leavesData?.map(l => l.employee_id));
+                    const attendanceMap = {};
+                    if (attendanceData) {
+                        attendanceData.forEach(record => attendanceMap[record.employee_id] = record);
+                    }
+
                     if (profilesData) {
-                        setEmployees(profilesData.map(emp => ({
-                            id: emp.id,
-                            name: emp.full_name || 'N/A',
-                            email: emp.email || 'N/A',
-                            role: emp.role || 'N/A',
-                            dept: (projectMap[emp.id] && projectMap[emp.id].length > 0) ? projectMap[emp.id].join(', ') : 'Unassigned',
-                            status: 'Active',
-                            joinDate: emp.created_at ? new Date(emp.created_at).toLocaleDateString() : 'N/A',
-                            avatar_url: emp.avatar_url
-                        })));
+                        // Populate BOTH employees (legacy) and employeeStatus (rich view)
+                        const richData = profilesData.map(emp => {
+                            const attendance = attendanceMap[emp.id];
+                            let availability = 'Offline';
+                            let lastActive = 'N/A';
+
+                            if (attendance) {
+                                if (attendance.clock_in && !attendance.clock_out) {
+                                    availability = 'Online';
+                                    lastActive = `Clocked in at ${attendance.clock_in.slice(0, 5)}`;
+                                } else if (attendance.clock_out) {
+                                    availability = 'Offline';
+                                    lastActive = `Left at ${attendance.clock_out.slice(0, 5)}`;
+                                }
+                            }
+
+                            if (availability === 'Offline' && leaveSet.has(emp.id)) {
+                                availability = 'On Leave';
+                            }
+
+                            const currentTask = (availability === 'Online' && attendance?.current_task) ? attendance.current_task :
+                                (availability === 'Online') ? 'No active task' : '-';
+
+                            return {
+                                id: emp.id,
+                                name: emp.full_name || 'N/A',
+                                email: emp.email || 'N/A',
+                                role: emp.role || 'N/A',
+                                job_title: emp.job_title || 'N/A',
+                                department_display: emp.department || 'Main Office',
+                                dept: (projectMap[emp.id] && projectMap[emp.id].length > 0) ? projectMap[emp.id].join(', ') : 'Unassigned',
+                                projects: projectMap[emp.id]?.length || 0,
+                                status: 'Active',
+                                joinDate: emp.created_at ? new Date(emp.created_at).toLocaleDateString() : 'N/A',
+                                avatar_url: emp.avatar_url,
+                                availability: availability,
+                                task: currentTask,
+                                lastActive: lastActive
+                            };
+                        });
+
+                        setEmployees(richData);
+                        setEmployeeStatus(richData);
                     }
                 } else if (type === 'status') {
                     // Fetch profiles
                     const { data: profiles, error: profileError } = await supabase
                         .from('profiles')
-                        .select('id, full_name')
+                        .select('id, full_name, role, job_title, avatar_url, department')
                         .eq('org_id', orgId);
 
                     if (profileError) throw profileError;
@@ -237,9 +287,14 @@ const ModulePage = ({ title, type }) => {
                                 id: emp.id,
                                 name: emp.full_name || 'Unknown',
                                 dept: (projectMap[emp.id] && projectMap[emp.id].length > 0) ? projectMap[emp.id].join(', ') : 'Talent Ops',
+                                department_display: emp.department || 'Main Office',
                                 availability: availability,
                                 task: currentTask,
-                                lastActive: lastActive
+                                lastActive: lastActive,
+                                avatar_url: emp.avatar_url,
+                                role: emp.role || 'Employee',
+                                job_title: emp.job_title || 'N/A',
+                                projects: projectMap[emp.id]?.length || 0
                             };
                         }));
                     }
@@ -678,7 +733,7 @@ const ModulePage = ({ title, type }) => {
                 addToast(`Failed to ${action.toLowerCase()} leave request`, 'error');
                 // Revert optimistic update if needed
             }
-        } else if (action === 'View Employee') {
+        } else if (action === 'View Employee' || action === 'View Status') {
             setSelectedEmployee(item);
             setShowEmployeeModal(true);
         } else if (action === 'View Candidate') {
@@ -1265,6 +1320,147 @@ const ModulePage = ({ title, type }) => {
                 </div>
             </div>
 
+            {/* Quick Stats Summary for Status & Workforce */}
+            {(type === 'status' || type === 'workforce') && (
+                <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(4, 1fr)',
+                    gap: '24px',
+                    marginBottom: '8px'
+                }}>
+                    {[
+                        { label: 'Total Workforce', value: employeeStatus.length, icon: <Users size={20} />, color: '#38bdf8', bg: 'rgba(56, 189, 248, 0.1)' },
+                        { label: 'Active Now', value: employeeStatus.filter(e => e.availability === 'Online').length, icon: <CheckCircle size={20} />, color: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)' },
+                        { label: 'On Leave', value: employeeStatus.filter(e => e.availability === 'On Leave').length, icon: <Clock size={20} />, color: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)' },
+                        { label: 'Peak Engagement', value: '92%', icon: <Activity size={20} />, color: '#818cf8', bg: 'rgba(129, 140, 248, 0.1)' }
+                    ].map((stat, i) => (
+                        <div key={i} style={{
+                            backgroundColor: 'var(--card-bg)',
+                            borderRadius: '24px',
+                            padding: '24px',
+                            border: '1px solid var(--card-border)',
+                            boxShadow: '0 4px 20px rgba(0,0,0,0.02)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '20px'
+                        }}>
+                            <div style={{
+                                width: '56px',
+                                height: '56px',
+                                borderRadius: '16px',
+                                backgroundColor: stat.bg,
+                                color: stat.color,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                {stat.icon}
+                            </div>
+                            <div>
+                                <p style={{ fontSize: '0.8rem', fontWeight: '700', color: 'var(--card-subtext)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.02em' }}>{stat.label}</p>
+                                <p style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--card-text)' }}>{stat.value}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {/* Search and Filters Bar for Status & Workforce */}
+            {(type === 'status' || type === 'workforce') && (
+                <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: '24px',
+                    marginBottom: '8px'
+                }}>
+                    <div style={{
+                        position: 'relative',
+                        flex: 1,
+                        maxWidth: '500px'
+                    }}>
+                        <Search style={{
+                            position: 'absolute',
+                            left: '20px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            color: '#94a3b8'
+                        }} size={20} />
+                        <input
+                            type="text"
+                            placeholder={`Search employees status...`}
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            style={{
+                                width: '100%',
+                                padding: '12px 16px 12px 50px',
+                                borderRadius: '16px',
+                                border: '1px solid #f1f5f9',
+                                backgroundColor: '#ffffff',
+                                fontSize: '0.9rem',
+                                color: '#0f172a',
+                                outline: 'none',
+                                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.02)'
+                            }}
+                            onFocus={(e) => {
+                                e.target.style.borderColor = '#38bdf8';
+                                e.target.style.boxShadow = '0 10px 20px rgba(56, 189, 248, 0.05)';
+                            }}
+                            onBlur={(e) => {
+                                e.target.style.borderColor = '#f1f5f9';
+                                e.target.style.boxShadow = '0 4px 12px rgba(0,0,0,0.02)';
+                            }}
+                        />
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
+                            <button
+                                onClick={() => setViewType('grid')}
+                                style={{
+                                    padding: '6px 14px',
+                                    borderRadius: '10px',
+                                    backgroundColor: viewType === 'grid' ? '#ffffff' : 'transparent',
+                                    color: viewType === 'grid' ? '#0f172a' : '#64748b',
+                                    fontWeight: viewType === 'grid' ? '700' : '600',
+                                    fontSize: '0.8rem',
+                                    border: 'none',
+                                    boxShadow: viewType === 'grid' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <LayoutGrid size={16} /> Grid
+                            </button>
+                            <button
+                                onClick={() => setViewType('list')}
+                                style={{
+                                    padding: '8px 16px',
+                                    borderRadius: '10px',
+                                    backgroundColor: viewType === 'list' ? '#ffffff' : 'transparent',
+                                    color: viewType === 'list' ? '#0f172a' : '#64748b',
+                                    fontWeight: viewType === 'list' ? '700' : '600',
+                                    fontSize: '0.85rem',
+                                    border: 'none',
+                                    boxShadow: viewType === 'list' ? '0 2px 4px rgba(0,0,0,0.05)' : 'none',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <List size={16} /> List
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Pending Requests Card (For Approval View) */}
             {type === 'leaves' && (
                 <div style={{
@@ -1347,12 +1543,281 @@ const ModulePage = ({ title, type }) => {
                 </div>
             )}
 
-            <DataTable
-                title={`${title} List`}
-                columns={config.columns}
-                data={config.data}
-                onAction={handleAction}
-            />
+            {/* Rich Grid/List View for Status & Workforce */}
+            {(type === 'status' || type === 'workforce') ? (
+                viewType === 'grid' ? (
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+                        gap: '16px',
+                        marginTop: '8px'
+                    }}>
+                        {employeeStatus.filter(emp =>
+                            emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase())
+                        ).map((emp) => (
+                            <div
+                                key={emp.id}
+                                style={{
+                                    backgroundColor: '#ffffff',
+                                    borderRadius: '16px',
+                                    padding: '16px',
+                                    border: (emp.availability === 'Online') ? '2px solid #22c55e' : '1px solid #f1f5f9',
+                                    boxShadow: '0 4px 24px rgba(0,0,0,0.02)',
+                                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    position: 'relative',
+                                    overflow: 'hidden',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '12px'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(-8px)';
+                                    e.currentTarget.style.borderColor = (emp.availability === 'Online') ? '#22c55e' : '#e2e8f0';
+                                    e.currentTarget.style.boxShadow = '0 20px 40px rgba(0,0,0,0.06)';
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.transform = 'translateY(0)';
+                                    e.currentTarget.style.borderColor = (emp.availability === 'Online') ? '#22c55e' : '#f1f5f9';
+                                    e.currentTarget.style.boxShadow = '0 4px 24px rgba(0,0,0,0.02)';
+                                }}
+                                onClick={() => handleAction('View Status', emp)}
+                            >
+                                {/* Profile Header */}
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                    <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                                        <div style={{ width: '56px', height: '56px', borderRadius: '18px', background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                                            {emp.avatar_url ? (
+                                                <img src={emp.avatar_url} alt={emp.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            ) : (
+                                                <span style={{ fontSize: '1.2rem', fontWeight: '800', color: '#64748b' }}>{emp.name.charAt(0)}</span>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <h3 style={{ fontSize: '1.15rem', fontWeight: '800', color: '#0f172a', marginBottom: '2px', letterSpacing: '-0.02em' }}>{emp.name}</h3>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span style={{ fontSize: '0.75rem', fontWeight: '600', color: '#64748b' }}>{emp.department_display}</span>
+                                                <span style={{ color: '#cbd5e1' }}>•</span>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: emp.availability === 'Online' ? '#22c55e' : emp.availability === 'On Leave' ? '#ef4444' : '#94a3b8' }}></span>
+                                                    <span style={{ fontSize: '0.75rem', fontWeight: '700', color: emp.availability === 'Online' ? '#16a34a' : emp.availability === 'On Leave' ? '#dc2626' : '#64748b' }}>{emp.availability}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleAction('View Status', emp); }}
+                                            style={{ width: '36px', height: '36px', borderRadius: '12px', border: '1px solid #f1f5f9', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all 0.2s', cursor: 'pointer' }}
+                                        >
+                                            <Eye size={18} />
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleAction('Edit Employee', emp); }}
+                                            style={{ width: '36px', height: '36px', borderRadius: '12px', border: '1px solid #f1f5f9', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all 0.2s', cursor: 'pointer' }}
+                                        >
+                                            <Edit size={18} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Workforce: Project Active Badge (instead of Activity Pulse) */}
+                                {type === 'workforce' ? (
+                                    <div style={{ marginTop: '12px', marginBottom: '4px' }}>
+                                        <span style={{
+                                            backgroundColor: '#f0fdf4',
+                                            color: '#15803d',
+                                            padding: '8px 12px',
+                                            borderRadius: '8px',
+                                            fontSize: '0.8rem',
+                                            fontWeight: '700',
+                                            display: 'inline-block'
+                                        }}>
+                                            Active on {emp.projects} Projects
+                                        </span>
+                                    </div>
+                                ) : (
+                                    /* Status: Activity Pulse */
+                                    <div style={{
+                                        backgroundColor: '#f8fafc',
+                                        borderRadius: '16px',
+                                        padding: '16px',
+                                        border: '1px solid #f1f5f9',
+                                        marginTop: '12px'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <Activity size={14} style={{ color: '#38bdf8' }} />
+                                                <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#475569', textTransform: 'uppercase' }}>Active Intent</span>
+                                            </div>
+                                            <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b' }}>{emp.lastActive}</span>
+                                        </div>
+                                        <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#1e293b', marginBottom: '4px' }}>
+                                            {emp.task !== '-' ? emp.task : 'System Idle / Standby'}
+                                        </div>
+                                        <div style={{ width: '100%', height: '4px', backgroundColor: '#e2e8f0', borderRadius: '2px', marginTop: '12px', overflow: 'hidden' }}>
+                                            <div style={{
+                                                width: emp.availability === 'Online' ? '100%' : '0%',
+                                                height: '100%',
+                                                backgroundColor: '#38bdf8',
+                                                borderRadius: '2px',
+                                                boxShadow: '0 0 8px rgba(56, 189, 248, 0.5)'
+                                            }}></div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: type === 'workforce' ? '12px' : '0' }}>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <span style={{ padding: '4px 10px', borderRadius: '8px', backgroundColor: '#eff6ff', color: '#1d4ed8', fontSize: '0.7rem', fontWeight: '700' }}>
+                                            {emp.role}
+                                        </span>
+                                        <span style={{ padding: '4px 10px', borderRadius: '8px', backgroundColor: '#f5f3ff', color: '#6d28d9', fontSize: '0.7rem', fontWeight: '700' }}>
+                                            {emp.job_title}
+                                        </span>
+                                    </div>
+                                    {type !== 'workforce' && (
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleAction('View Status', emp); }}
+                                            style={{ color: '#3182ce', fontSize: '0.8rem', fontWeight: '700', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                        >
+                                            Live Intel <ChevronRight size={14} />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {/* Premium List View Header */}
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'minmax(300px, 1.5fr) 1fr 1.5fr 1fr 120px',
+                            padding: '12px 32px',
+                            color: '#64748b',
+                            fontSize: '0.75rem',
+                            fontWeight: '800',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em'
+                        }}>
+                            <div>Live Operator</div>
+                            <div>Department</div>
+                            <div>Live Activity / Presence</div>
+                            <div>Last Signal</div>
+                            <div style={{ textAlign: 'right' }}>Actions</div>
+                        </div>
+
+                        {/* Premium List Rows */}
+                        {employeeStatus.filter(emp =>
+                            emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                            emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase())
+                        ).map((emp) => (
+                            <div
+                                key={emp.id}
+                                style={{
+                                    backgroundColor: '#ffffff',
+                                    borderRadius: '20px',
+                                    padding: '16px 32px',
+                                    border: '1px solid #f1f5f9',
+                                    display: 'grid',
+                                    gridTemplateColumns: 'minmax(300px, 1.5fr) 1fr 1.5fr 1fr 120px',
+                                    alignItems: 'center',
+                                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                                    cursor: 'pointer',
+                                    boxShadow: '0 2px 8px rgba(0,0,0,0.01)'
+                                }}
+                                onMouseEnter={(e) => {
+                                    e.currentTarget.style.borderColor = '#e2e8f0';
+                                    e.currentTarget.style.boxShadow = '0 10px 20px rgba(0,0,0,0.04)';
+                                    e.currentTarget.style.transform = 'scale(1.005)';
+                                    e.currentTarget.style.zIndex = 10;
+                                }}
+                                onMouseLeave={(e) => {
+                                    e.currentTarget.style.borderColor = '#f1f5f9';
+                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.01)';
+                                    e.currentTarget.style.transform = 'scale(1)';
+                                    e.currentTarget.style.zIndex = 1;
+                                }}
+                                onClick={() => handleAction('View Status', emp)}
+                            >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                    <div style={{
+                                        width: '44px',
+                                        height: '44px',
+                                        borderRadius: '14px',
+                                        background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        overflow: 'hidden',
+                                        border: '1px solid #e2e8f0',
+                                        position: 'relative'
+                                    }}>
+                                        {emp.avatar_url ? (
+                                            <img src={emp.avatar_url} alt={emp.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : (
+                                            <span style={{ fontSize: '1rem', fontWeight: '800', color: '#64748b' }}>{emp.name.charAt(0)}</span>
+                                        )}
+                                        <div style={{ position: 'absolute', bottom: 0, right: 0, width: '12px', height: '12px', borderRadius: '50%', backgroundColor: emp.availability === 'Online' ? '#22c55e' : '#cbd5e1', border: '2px solid white' }}></div>
+                                    </div>
+                                    <div style={{ overflow: 'hidden' }}>
+                                        <h4 style={{ fontSize: '1rem', fontWeight: '700', color: '#0f172a', margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{emp.name}</h4>
+                                        <p style={{ fontSize: '0.75rem', color: '#64748b', margin: 0 }}>{emp.job_title}</p>
+                                    </div>
+                                </div>
+
+                                <div style={{ color: '#334155', fontWeight: '600', fontSize: '0.9rem' }}>
+                                    {emp.department_display}
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#1e293b' }}>{emp.task !== '-' ? emp.task : 'Active Standby'}</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                                            <div style={{ width: '60px', height: '4px', backgroundColor: '#f1f5f9', borderRadius: '2px', overflow: 'hidden' }}>
+                                                <div style={{ width: emp.availability === 'Online' ? '80%' : '0%', height: '100%', backgroundColor: '#22c55e' }}></div>
+                                            </div>
+                                            <span style={{ fontSize: '0.65rem', fontWeight: '800', color: '#94a3b8' }}>LIVE</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: '700', color: '#475569' }}>{emp.lastActive}</div>
+                                    <div style={{ fontSize: '0.65rem', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase' }}>Session Lock</div>
+                                </div>
+
+                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleAction('View Status', emp); }}
+                                        style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #f1f5f9', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all 0.2s', cursor: 'pointer' }}
+                                    >
+                                        <Eye size={18} />
+                                    </button>
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); handleAction('Edit Employee', emp); }}
+                                        style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #f1f5f9', backgroundColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', transition: 'all 0.2s', cursor: 'pointer' }}
+                                    >
+                                        <Edit size={18} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )
+            ) : (
+                <DataTable
+                    title={`${title} List`}
+                    columns={config.columns}
+                    data={config.data}
+                    onAction={handleAction}
+                />
+            )}
 
             {/* Apply Leave Modal */}
             {showApplyLeaveModal && (

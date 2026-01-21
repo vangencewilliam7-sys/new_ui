@@ -188,6 +188,9 @@ const MessagingHub = () => {
                     }
                     return [...prev, newMessage];
                 });
+
+                // Mark as read immediately since we are viewing it
+                markAsRead(selectedConversation.id);
             });
         }
 
@@ -419,7 +422,7 @@ const MessagingHub = () => {
                             member.user_id,
                             currentUserId,
                             senderName,
-                            `New message from ${senderName}`,
+                            messageInput || 'Sent an attachment', // Send actual content
                             'message'
                         );
                     }
