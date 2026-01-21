@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { NewLandingPage } from './components/pages/NewLandingPage';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { LoginPage } from './components/pages/LoginPage';
 import { ExecutiveDashboard } from './components/pages/ExecutiveDashboard';
 import { ManagerDashboard } from './components/pages/ManagerDashboard';
@@ -54,7 +53,7 @@ function App() {
         <ThemeProvider>
             <Router>
                 <Routes>
-                    <Route path="/" element={<NewLandingPage />} />
+                    <Route path="/" element={<Navigate to="/login" replace />} />
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/executive-dashboard/*" element={<ExecutiveDashboard />} />
                     <Route path="/manager-dashboard/*" element={<ManagerDashboard />} />

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Users, FolderOpen, UserPlus, X, Trash2, Search, Building2, ChevronDown, Check, CheckCircle, XCircle } from 'lucide-react';
 import { supabase } from '../../../lib/supabaseClient';
 import { useUser } from '../context/UserContext';
+import ProjectWizard from '../components/ProjectWizard';
 
 const ProjectManagement = ({ addToast = () => { } }) => {
     const { orgId } = useUser();
@@ -630,20 +631,14 @@ const ProjectManagement = ({ addToast = () => { } }) => {
                     )}
                 </div>
 
-                {/* Add Project Modal */}
+                {/* Add Project Wizard */}
                 {showAddProject && (
-                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                        <div style={{ backgroundColor: 'var(--surface)', padding: '24px', borderRadius: '16px', width: '400px' }}>
-                            <h3 style={{ marginBottom: '16px', fontWeight: 700 }}>Create New Project</h3>
-                            <input type="text" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} placeholder="Project name..."
-                                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '16px', fontSize: '1rem' }}
-                                onKeyPress={(e) => e.key === 'Enter' && createProject()} autoFocus />
-                            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                                <button onClick={() => setShowAddProject(false)} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--background)', cursor: 'pointer' }}>Cancel</button>
-                                <button onClick={createProject} style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#8b5cf6', color: 'white', fontWeight: 600, cursor: 'pointer' }}>Create</button>
-                            </div>
-                        </div>
-                    </div>
+                    <ProjectWizard
+                        isOpen={showAddProject}
+                        onClose={() => setShowAddProject(false)}
+                        onComplete={fetchProjects}
+                        addToast={addToast}
+                    />
                 )}
 
                 {/* Add Member Modal */}
