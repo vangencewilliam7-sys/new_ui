@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { LoginPage } from './components/pages/LoginPage';
+import { LandingPage } from './components/pages/LandingPage';
 import { ExecutiveDashboard } from './components/pages/ExecutiveDashboard';
 import { ManagerDashboard } from './components/pages/ManagerDashboard';
 import { TeamLeadDashboard } from './components/pages/TeamLeadDashboard';
@@ -50,10 +51,12 @@ function App() {
     }, []);
 
     return (
-        <ThemeProvider>
-            <Router>
-                <Routes>
-                    <Route path="/" element={<Navigate to="/login" replace />} />
+        <Router>
+            <Routes>
+                <Route path="/" element={<LandingPage />} />
+
+                {/* Wrap application routes with ThemeProvider */}
+                <Route element={<ThemeProvider><Outlet /></ThemeProvider>}>
                     <Route path="/login" element={<LoginPage />} />
                     <Route path="/executive-dashboard/*" element={<ExecutiveDashboard />} />
                     <Route path="/manager-dashboard/*" element={<ManagerDashboard />} />
@@ -61,9 +64,9 @@ function App() {
                     <Route path="/employee-dashboard/*" element={<EmployeeDashboard />} />
                     <Route path="/forgot-password" element={<ForgotPasswordPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
-                </Routes>
-            </Router>
-        </ThemeProvider>
+                </Route>
+            </Routes>
+        </Router>
     );
 }
 
