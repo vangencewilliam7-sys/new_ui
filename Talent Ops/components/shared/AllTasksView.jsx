@@ -1838,7 +1838,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                         </button>
 
                                                         {/* Edit Button */}
-                                                        {(userRole === 'manager' || userRole === 'team_lead') && (
+                                                        {(userRole === 'manager' || userRole === 'team_lead') && task.status !== 'completed' && (
                                                             <button
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
@@ -1928,6 +1928,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                     }
 
                                                                     // Not Locked: Show Submit and Add Issue
+                                                                    if (task.status === 'completed') return null;
+
                                                                     return (
                                                                         <div style={{ display: 'flex', gap: '4px' }}>
                                                                             {(task.sub_state === 'in_progress' || task.sub_state === 'pending_validation') && (

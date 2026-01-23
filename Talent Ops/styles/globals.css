@@ -65,6 +65,15 @@ body {
 }
 
 @layer utilities {
+    .no-scrollbar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+    }
+
     .text-gradient-violet {
         background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 50%, #06B6D4 100%);
         -webkit-background-clip: text;
