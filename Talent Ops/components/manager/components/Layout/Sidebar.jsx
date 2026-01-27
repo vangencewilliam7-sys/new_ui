@@ -23,7 +23,9 @@ import {
     FolderKanban,
     FileText,
     Check,
-    Ticket
+    Ticket,
+    TrendingUp,
+    Trophy
 } from 'lucide-react';
 import { useProject } from '../../../employee/context/ProjectContext';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -72,6 +74,8 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
         { icon: Megaphone, label: 'Announcements', path: '/manager-dashboard/announcements' },
         { icon: MessageCircle, label: 'Messages', path: '/manager-dashboard/messages' },
         { icon: FileCheck, label: 'Policies', path: '/manager-dashboard/policies' },
+        { icon: TrendingUp, label: 'Review', path: '/manager-dashboard/team-reviews' },
+        { icon: Trophy, label: 'Ranking', path: '/manager-dashboard/rankings' },
         { icon: Ticket, label: 'Raise a Ticket', path: '/manager-dashboard/raise-ticket' },
     ];
 

@@ -21,7 +21,9 @@ import {
     FolderKanban,
     ChevronsUpDown,
     Check,
-    Ticket
+    Ticket,
+    TrendingUp,
+    Trophy
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useUser } from '../../context/UserContext';
@@ -114,6 +116,8 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
         { icon: Network, label: 'Org Hierarchy', path: '/teamlead-dashboard/hierarchy' },
         { icon: Megaphone, label: 'Announcements', path: '/teamlead-dashboard/announcements' },
         { icon: MessageCircle, label: 'Messages', path: '/teamlead-dashboard/messages' },
+        { icon: TrendingUp, label: 'Review', path: '/teamlead-dashboard/team-reviews' },
+        { icon: Trophy, label: 'Ranking', path: '/teamlead-dashboard/rankings' },
         { icon: Ticket, label: 'Raise a Ticket', path: '/teamlead-dashboard/raise-ticket' },
     ];
 

@@ -23,7 +23,8 @@ import {
     TrendingUp,
     Building2,
     FolderKanban,
-    Ticket
+    Ticket,
+    Trophy
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMessages } from '../../../shared/context/MessageContext';
@@ -60,6 +61,8 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
         { icon: Megaphone, label: 'Announcements', path: '/executive-dashboard/announcements' },
         { icon: MessageCircle, label: 'Messages', path: '/executive-dashboard/messages' },
         { icon: FileCheck, label: 'Policies', path: '/executive-dashboard/policies' },
+        { icon: TrendingUp, label: 'Review', path: '/executive-dashboard/executive-reviews' },
+        { icon: Trophy, label: 'Ranking', path: '/executive-dashboard/rankings' },
         { icon: Ticket, label: 'Raise a Ticket', path: '/executive-dashboard/raise-ticket' },
     ];
 

@@ -9,6 +9,8 @@ import { EmployeeDashboard } from './components/pages/EmployeeDashboard';
 import { ForgotPasswordPage } from './components/pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './components/pages/ResetPasswordPage';
 // @ts-ignore
+import FullRankingPage from './components/performance/FullRankingPage';
+// @ts-ignore
 import { ThemeProvider } from './components/shared/context/ThemeContext';
 import { supabase } from './lib/supabaseClient';
 
@@ -63,6 +65,7 @@ function App() {
                     <Route path="/teamlead-dashboard/*" element={<TeamLeadDashboard />} />
                     <Route path="/employee-dashboard/*" element={<EmployeeDashboard />} />
                     <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                    <Route path="/reset-password" element={<ResetPasswordPage />} />
                     <Route path="/reset-password" element={<ResetPasswordPage />} />
                 </Route>
             </Routes>

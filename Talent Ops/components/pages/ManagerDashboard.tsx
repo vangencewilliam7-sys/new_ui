@@ -20,6 +20,12 @@ import { ToastProvider } from '../manager/context/ToastContext';
 import { UserProvider } from '../manager/context/UserContext';
 // @ts-ignore
 import { ProjectProvider } from '../employee/context/ProjectContext';
+// @ts-ignore
+import ManagerReviewPage from '../performance/ManagerReviewPage';
+// @ts-ignore
+import FullRankingPage from '../performance/FullRankingPage';
+// @ts-ignore
+import TeamPerformance from '../performance/TeamPerformanceAnalytics';
 import RoleGuard from '../shared/RoleGuard';
 import '../manager/index.css';
 
@@ -52,6 +58,9 @@ export const ManagerDashboard = () => {
                                 <Route path="raise-ticket" element={<RaiseTicketPage />} />
                                 <Route path="documents" element={<ModulePage title="Project Documents" type="documents" />} />
                                 <Route path="settings" element={<ModulePage title="Settings" type="default" />} />
+                                <Route path="team-reviews" element={<ManagerReviewPage />} />
+                                <Route path="rankings" element={<FullRankingPage />} />
+                                <Route path="performance" element={<TeamPerformance />} />
                             </Routes>
                         </Layout>
                     </ProjectProvider>

@@ -14,6 +14,10 @@ import { ToastProvider } from '../teamlead/context/ToastContext';
 import { UserProvider } from '../teamlead/context/UserContext';
 // @ts-ignore
 import RaiseTicketPage from '../shared/pages/RaiseTicketPage';
+// @ts-ignore
+import ManagerReviewPage from '../performance/ManagerReviewPage';
+// @ts-ignore
+import FullRankingPage from '../performance/FullRankingPage';
 import RoleGuard from '../shared/RoleGuard';
 import '../teamlead/index.css';
 
@@ -37,9 +41,10 @@ export const TeamLeadDashboard = () => {
                             <Route path="hierarchy" element={<ModulePage title="Organizational Hierarchy" type="default" />} />
                             <Route path="project-hierarchy" element={<ModulePage title="Project Hierarchy" type="default" />} />
                             <Route path="messages" element={<MessagingHub />} />
-                            <Route path="messages" element={<MessagingHub />} />
                             <Route path="announcements" element={<ModulePage title="Announcements" type="default" />} />
                             <Route path="raise-ticket" element={<RaiseTicketPage />} />
+                            <Route path="team-reviews" element={<ManagerReviewPage />} />
+                            <Route path="rankings" element={<FullRankingPage />} />
                             <Route path="settings" element={<ModulePage title="Settings" type="default" />} />
                         </Routes>
                     </Layout>
