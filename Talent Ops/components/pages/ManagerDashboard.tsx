@@ -27,6 +27,8 @@ import FullRankingPage from '../performance/FullRankingPage';
 // @ts-ignore
 import TeamPerformance from '../performance/TeamPerformanceAnalytics';
 import RoleGuard from '../shared/RoleGuard';
+// @ts-ignore
+import AttendanceLogsPage from '../shared/AttendanceLogsPage';
 import '../manager/index.css';
 
 export const ManagerDashboard = () => {
@@ -47,6 +49,7 @@ export const ManagerDashboard = () => {
                                 <Route path="leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
                                 <Route path="my-leaves" element={<MyLeavesPage />} />
                                 <Route path="employee-status" element={<ModulePage title="Employee Status" type="status" />} />
+                                <Route path="attendance-logs" element={<AttendanceLogsPage />} />
                                 <Route path="payslips" element={<ModulePage title="Payslips" type="payroll" />} />
                                 <Route path="policies" element={<ModulePage title="Policies" type="policies" />} />
                                 <Route path="payroll" element={<ModulePage title="Payroll" type="payroll-generation" />} />

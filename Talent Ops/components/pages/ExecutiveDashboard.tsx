@@ -31,6 +31,8 @@ import ExecutiveReviewPage from '../performance/ExecutiveReviewPage';
 import FullRankingPage from '../performance/FullRankingPage';
 import { EmployeeLifecycleManagement } from '../shared/EmployeeLifecycleManagement';
 import RoleGuard from '../shared/RoleGuard';
+// @ts-ignore
+import AttendanceLogsPage from '../shared/AttendanceLogsPage';
 import '../executive/index.css';
 
 // Wrapper to provide toast context from executive provider to employee component
@@ -55,6 +57,7 @@ export const ExecutiveDashboard = () => {
                                 <Route path="tasks" element={<ExecutiveAllTasksPage />} />
                                 <Route path="leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
                                 <Route path="employee-status" element={<ModulePage title="Employee Status" type="status" />} />
+                                <Route path="attendance-logs" element={<AttendanceLogsPage />} />
                                 <Route path="payslips" element={<ModulePage title="Payslips" type="payroll" />} />
                                 <Route path="policies" element={<ModulePage title="Policies" type="policies" />} />
                                 <Route path="payroll" element={<ModulePage title="Payroll" type="payroll-generation" />} />

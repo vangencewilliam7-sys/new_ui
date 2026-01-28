@@ -24,7 +24,8 @@ import {
     Building2,
     FolderKanban,
     Ticket,
-    Trophy
+    Trophy,
+    ClipboardList
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMessages } from '../../../shared/context/MessageContext';
@@ -52,6 +53,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
         { icon: LayoutDashboard, label: 'Dashboard', path: '/executive-dashboard/dashboard' },
         { icon: Users, label: 'Employees', path: '/executive-dashboard/employees' },
         { icon: UserCheck, label: 'Employee Status', path: '/executive-dashboard/employee-status' },
+        { icon: ClipboardList, label: 'Attendance Logs', path: '/executive-dashboard/attendance-logs' },
         { icon: CalendarOff, label: 'Leave Requests', path: '/executive-dashboard/leaves' },
         { icon: DollarSign, label: 'Payroll', path: '/executive-dashboard/payroll' },
         { icon: Receipt, label: 'Payslips', path: '/executive-dashboard/payslips' },
