@@ -23,6 +23,16 @@ const DashboardHome = () => {
         return `${year}-${month}-${day}`;
     };
 
+    // Live Clock State
+    const [currentTime, setCurrentTime] = useState(new Date());
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 1000);
+        return () => clearInterval(timer);
+    }, []);
+
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(today.getDate() + 1);
@@ -342,30 +352,8 @@ const DashboardHome = () => {
                 }}>
                     <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.65rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '2px' }}>LOCAL TIME</p>
                     <h2 style={{ fontSize: '1.75rem', fontWeight: '800', color: 'white', letterSpacing: '0.05em', lineHeight: 1 }}>
-                        {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
                     </h2>
-                    <button
-                        onClick={() => setShowAddEventModal(true)}
-                        style={{
-                            marginTop: '16px',
-                            padding: '12px 24px',
-                            borderRadius: '16px',
-                            background: 'linear-gradient(to right, #0ea5e9, #6366f1)',
-                            color: 'white',
-                            border: 'none',
-                            fontWeight: '800',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '8px',
-                            transition: 'all 0.3s ease',
-                            boxShadow: '0 10px 20px rgba(99, 102, 241, 0.2)'
-                        }}
-                        onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 15px 25px rgba(99, 102, 241, 0.3)'; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 10px 20px rgba(99, 102, 241, 0.2)'; }}
-                    >
-                        <Plus size={20} /> Plan New Event
-                    </button>
                 </div>
             </div>
 

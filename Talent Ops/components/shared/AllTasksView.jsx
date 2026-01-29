@@ -496,6 +496,9 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
         }
     };
 
+    const [phaseFiles, setPhaseFiles] = useState({});
+    const [phaseDescriptions, setPhaseDescriptions] = useState({});
+
     const handleAddTask = async (e) => {
         e.preventDefault();
         if (!newTask.title) {
@@ -522,6 +525,56 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 .single();
             const senderName = senderProfile?.full_name || (userRole === 'manager' ? 'Management' : (userRole === 'team_lead' ? 'Team Lead' : 'Task Manager'));
 
+            // 1. Upload Phase Guidance Files
+            const guidanceData = {};
+            const uploadPromises = Object.entries(phaseFiles).map(async ([phaseKey, file]) => {
+                if (!file) return;
+
+                const fileExt = file.name.split('.').pop();
+                const fileName = `guidance_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+                const filePath = `guidance/${effectiveProjectId || 'general'}/${phaseKey}/${fileName}`;
+
+                const { error: uploadError } = await supabase.storage
+                    .from('project-docs')
+                    .upload(filePath, file, { cacheControl: '3600', upsert: false });
+
+                if (uploadError) {
+                    console.error(`Failed to upload guidance for ${phaseKey}`, uploadError);
+                    return; // Continue without this file or throw?
+                }
+
+                const { data: urlData } = supabase.storage.from('project-docs').getPublicUrl(filePath);
+
+                guidanceData[phaseKey] = {
+                    guidance_doc_url: urlData.publicUrl,
+                    guidance_doc_name: file.name
+                };
+            });
+
+            await Promise.all(uploadPromises);
+
+            // Helper to build validation object
+            const buildPhaseValidations = () => {
+                const validations = {
+                    active_phases: newTask.requiredPhases
+                };
+
+                // Merge guidance data and descriptions into the validation object structure
+                newTask.requiredPhases.forEach(phase => {
+                    validations[phase] = {
+                        status: 'pending',
+                        description: phaseDescriptions[phase] || '',
+                        ...(guidanceData[phase] || {})
+                    };
+                });
+
+                return validations;
+            };
+
+            const preparedValidations = buildPhaseValidations();
+            console.log('--- Creating Task with Phase Validations ---', preparedValidations);
+
+
             if (newTask.assignType === 'multi') {
                 if (newTask.selectedAssignees.length === 0) {
                     addToast?.('Please select at least one employee', 'error');
@@ -537,15 +590,12 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     assigned_by_name: senderName,
                     project_id: effectiveProjectId,
                     start_date: newTask.startDate,
-                    start_time: newTask.startTime, // Added
+                    start_time: newTask.startTime,
                     due_date: newTask.endDate,
-                    due_time: newTask.dueTime,     // Updated
+                    due_time: newTask.dueTime,
                     priority: newTask.priority.toLowerCase(),
                     status: 'pending',
-                    // allocated_hours removed - DB triggers handle it
-                    phase_validations: {
-                        active_phases: newTask.requiredPhases
-                    },
+                    phase_validations: preparedValidations,
                     org_id: orgId
                 }));
 
@@ -574,15 +624,12 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     assigned_by_name: senderName,
                     project_id: effectiveProjectId,
                     start_date: newTask.startDate,
-                    start_time: newTask.startTime, // Added
+                    start_time: newTask.startTime,
                     due_date: newTask.endDate,
-                    due_time: newTask.dueTime,     // Updated
+                    due_time: newTask.dueTime,
                     priority: newTask.priority.toLowerCase(),
                     status: 'pending',
-                    // allocated_hours removed
-                    phase_validations: {
-                        active_phases: newTask.requiredPhases
-                    },
+                    phase_validations: preparedValidations,
                     org_id: orgId
                 };
 
@@ -590,9 +637,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
                 // Send Notifications
                 try {
-                    // senderName is already fetched above
                     if (newTask.assignType === 'individual' && newTask.assignedTo) {
-                        // Individual task - notify the assigned person
                         await supabase.from('notifications').insert({
                             receiver_id: newTask.assignedTo,
                             sender_id: user.id,
@@ -604,7 +649,6 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                             org_id: orgId
                         });
                     } else if (newTask.assignType === 'team' && employees.length > 0) {
-                        // Team task - notify all team members
                         const notifications = employees.map(emp => ({
                             receiver_id: emp.id,
                             sender_id: user.id,
@@ -619,9 +663,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     }
                 } catch (notifyError) {
                     console.error('Error sending notification:', notifyError);
-                    // Don't fail the task creation if notification fails
                 }
-            } // End else
+            }
 
             addToast?.('Task assigned successfully!', 'success');
             setShowAddTaskModal(false);
@@ -638,6 +681,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 priority: 'Medium',
                 requiredPhases: ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment']
             });
+            setPhaseFiles({}); // Clear files
+            setPhaseDescriptions({}); // Clear descriptions
             fetchData();
         } catch (error) {
             console.error('Error adding task:', error);
@@ -2317,55 +2362,146 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                     </div>
 
                                     {/* Lifecycle Stages Selection */}
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
+                                    <div style={{ marginTop: '12px' }}>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '12px' }}>
                                             Required Lifecycle Stages <span style={{ color: '#ef4444' }}>*</span>
                                         </label>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '12px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                            {LIFECYCLE_PHASES.map(phase => (
-                                                <label
-                                                    key={phase.key}
-                                                    style={{
+                                        <div id="lifecycle-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            {LIFECYCLE_PHASES.map(phase => {
+                                                const active = newTask.requiredPhases.includes(phase.key);
+                                                const file = phaseFiles[phase.key];
+
+                                                return (
+                                                    <div key={phase.key} style={{
                                                         display: 'flex',
-                                                        alignItems: 'center',
-                                                        gap: '6px',
-                                                        fontSize: '0.85rem',
-                                                        cursor: 'pointer',
-                                                        userSelect: 'none'
-                                                    }}
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={newTask.requiredPhases.includes(phase.key)}
-                                                        onChange={(e) => {
-                                                            if (e.target.checked) {
-                                                                const newPhases = [...newTask.requiredPhases, phase.key];
-                                                                // Sort by original order
-                                                                newPhases.sort((a, b) => {
-                                                                    const idxA = LIFECYCLE_PHASES.findIndex(p => p.key === a);
-                                                                    const idxB = LIFECYCLE_PHASES.findIndex(p => p.key === b);
-                                                                    return idxA - idxB;
-                                                                });
-                                                                setNewTask({ ...newTask, requiredPhases: newPhases });
-                                                            } else {
-                                                                // Prevent unchecking all (require at least one)
-                                                                if (newTask.requiredPhases.length > 1) {
-                                                                    setNewTask({
-                                                                        ...newTask,
-                                                                        requiredPhases: newTask.requiredPhases.filter(p => p !== phase.key)
-                                                                    });
-                                                                }
-                                                            }
+                                                        flexDirection: 'column',
+                                                        padding: '12px 14px',
+                                                        backgroundColor: active ? '#f8fafc' : 'white',
+                                                        border: `1px solid ${active ? '#e2e8f0' : '#f1f5f9'}`,
+                                                        borderRadius: '12px',
+                                                        transition: 'all 0.2s ease',
+                                                        marginBottom: '8px',
+                                                        cursor: 'pointer'
+                                                    }} onClick={() => {
+                                                        const isChecked = newTask.requiredPhases.includes(phase.key);
+                                                        if (!isChecked) {
+                                                            const newPhases = [...newTask.requiredPhases, phase.key].sort((a, b) =>
+                                                                LIFECYCLE_PHASES.findIndex(p => p.key === a) - LIFECYCLE_PHASES.findIndex(p => p.key === b)
+                                                            );
+                                                            setNewTask({ ...newTask, requiredPhases: newPhases });
+                                                        } else if (newTask.requiredPhases.length > 1) {
+                                                            setNewTask({ ...newTask, requiredPhases: newTask.requiredPhases.filter(p => p !== phase.key) });
+                                                            const newFiles = { ...phaseFiles };
+                                                            delete newFiles[phase.key];
+                                                            setPhaseFiles(newFiles);
+                                                            const newDescs = { ...phaseDescriptions };
+                                                            delete newDescs[phase.key];
+                                                            setPhaseDescriptions(newDescs);
                                                         }
-                                                        }
-                                                        style={{ accentColor: '#0f172a' }}
-                                                    />
-                                                    {phase.label}
-                                                </label>
-                                            ))}
+                                                    }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                                                                <div style={{
+                                                                    width: '18px',
+                                                                    height: '18px',
+                                                                    borderRadius: '4px',
+                                                                    border: `2px solid ${active ? '#0f172a' : '#cbd5e1'}`,
+                                                                    backgroundColor: active ? '#0f172a' : 'white',
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    justifyContent: 'center'
+                                                                }}>
+                                                                    {active && <div style={{ width: '6px', height: '6px', backgroundColor: 'white', borderRadius: '1.5px' }} />}
+                                                                </div>
+                                                                <span style={{
+                                                                    fontSize: '0.9rem',
+                                                                    fontWeight: active ? 600 : 400,
+                                                                    color: active ? '#0f172a' : '#64748b'
+                                                                }}>{phase.label}</span>
+                                                            </div>
+
+                                                            {active && (
+                                                                <div
+                                                                    style={{ display: 'flex', alignItems: 'center', gap: '8px' }}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                >
+                                                                    <input
+                                                                        type="file"
+                                                                        id={`guidance-${phase.key}`}
+                                                                        style={{ display: 'none' }}
+                                                                        onChange={(e) => {
+                                                                            if (e.target.files[0]) {
+                                                                                setPhaseFiles({ ...phaseFiles, [phase.key]: e.target.files[0] });
+                                                                            }
+                                                                        }}
+                                                                    />
+
+                                                                    {file ? (
+                                                                        <div style={{
+                                                                            display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: '#eff6ff',
+                                                                            padding: '6px 12px', borderRadius: '8px', border: '1px solid #dbeafe',
+                                                                            fontSize: '0.8rem', color: '#2563eb'
+                                                                        }}>
+                                                                            <FileText size={14} />
+                                                                            <span style={{ maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                                {file.name}
+                                                                            </span>
+                                                                            <X
+                                                                                size={14} style={{ cursor: 'pointer' }}
+                                                                                onClick={() => {
+                                                                                    const n = { ...phaseFiles };
+                                                                                    delete n[phase.key];
+                                                                                    setPhaseFiles(n);
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                    ) : (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => document.getElementById(`guidance-${phase.key}`).click()}
+                                                                            style={{
+                                                                                display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px',
+                                                                                borderRadius: '8px', border: '1px dashed #cbd5e1', backgroundColor: 'white',
+                                                                                color: '#64748b', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer'
+                                                                            }}
+                                                                        >
+                                                                            <Upload size={14} /> Add Specs
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        {active && (
+                                                            <div style={{ marginTop: '10px', width: '100%' }} onClick={e => e.stopPropagation()}>
+                                                                <textarea
+                                                                    placeholder={`Add specific instructions or requirements for the ${phase.label} stage...`}
+                                                                    value={phaseDescriptions[phase.key] || ''}
+                                                                    onChange={e => setPhaseDescriptions({ ...phaseDescriptions, [phase.key]: e.target.value })}
+                                                                    style={{
+                                                                        width: '100%',
+                                                                        minHeight: '60px',
+                                                                        padding: '10px',
+                                                                        borderRadius: '8px',
+                                                                        border: '1px solid #e2e8f0',
+                                                                        fontSize: '0.85rem',
+                                                                        color: '#334155',
+                                                                        fontFamily: 'inherit',
+                                                                        resize: 'vertical',
+                                                                        outline: 'none',
+                                                                        backgroundColor: 'white'
+                                                                    }}
+                                                                    onFocus={(e) => e.target.style.borderColor = '#2563eb'}
+                                                                    onBlur={(e) => e.target.style.borderColor = '#e2e8f0'}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )
+                                            })}
                                         </div>
                                         <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>
-                                            Uncheck stages that are not needed for this task.
+                                            Uncheck stages not needed. Upload guidance docs for stages if necessary.
                                         </p>
                                     </div>
 
@@ -2413,7 +2549,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                     </div>
                                 </form>
                             </div>
-                        </div>
+                        </div >
                     )
                 }
                 {/* Task Details Modal */}
@@ -2755,7 +2891,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                         </div>
                                     </div>
 
-                                    {/* Assigned By Section */}
+                                    {/* assigned By Section */}
                                     <div style={{ padding: '0 24px 20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                                         <div>
                                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Assigned By</label>
@@ -2781,9 +2917,98 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                         </div>
                                     </div>
 
+                                    {/* Guidance & Instructions Section */}
+                                    {(() => {
+                                        let validations = selectedTask.phase_validations || {};
+                                        if (typeof validations === 'string') {
+                                            try {
+                                                validations = JSON.parse(validations);
+                                            } catch (e) {
+                                                console.error('Error parsing phase_validations for guidance:', e);
+                                                validations = {};
+                                            }
+                                        }
+
+                                        // Check if we have any active phases with guidance docs OR descriptions
+                                        const hasInstructions = Object.values(validations).some(v => v.guidance_doc_url || v.description);
+
+                                        if (!hasInstructions) return null;
+
+                                        return (
+                                            <div style={{ padding: '20px', backgroundColor: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe' }}>
+                                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 800, color: '#1d4ed8', textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '0.05em' }}>
+                                                    <ListTodo size={18} /> Requirements & Stage Guidance
+                                                </label>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                                    {Object.entries(validations).map(([phaseKey, data]) => {
+                                                        if (!data.guidance_doc_url && !data.description) return null;
+                                                        const phaseLabel = LIFECYCLE_PHASES.find(p => p.key === phaseKey)?.label || phaseKey;
+
+                                                        return (
+                                                            <div key={phaseKey} style={{
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                gap: '10px',
+                                                                padding: '14px',
+                                                                backgroundColor: 'white',
+                                                                borderRadius: '10px',
+                                                                border: '1px solid #dbeafe',
+                                                                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.05)'
+                                                            }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                                                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e40af' }}>{phaseLabel}</span>
+                                                                    {data.guidance_doc_url && (
+                                                                        <a href={data.guidance_doc_url} target="_blank" rel="noopener noreferrer" style={{
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            gap: '4px',
+                                                                            color: '#2563eb',
+                                                                            fontSize: '0.8rem',
+                                                                            fontWeight: 600,
+                                                                            textDecoration: 'none',
+                                                                            padding: '4px 8px',
+                                                                            backgroundColor: '#eff6ff',
+                                                                            borderRadius: '6px'
+                                                                        }}>
+                                                                            View Specs <ExternalLink size={12} />
+                                                                        </a>
+                                                                    )}
+                                                                </div>
+
+                                                                {data.description && (
+                                                                    <div style={{
+                                                                        fontSize: '0.9rem',
+                                                                        color: '#334155',
+                                                                        lineHeight: '1.5',
+                                                                        padding: '10px',
+                                                                        backgroundColor: '#f8fafc',
+                                                                        borderRadius: '8px',
+                                                                        borderLeft: '4px solid #3b82f6',
+                                                                        margin: 0,
+                                                                        whiteSpace: 'pre-wrap'
+                                                                    }}>
+                                                                        {data.description}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
                                     {/* Validations History */}
                                     {(() => {
-                                        const validations = selectedTask.phase_validations || {};
+                                        let validations = selectedTask.phase_validations || {};
+                                        if (typeof validations === 'string') {
+                                            try {
+                                                validations = JSON.parse(validations);
+                                            } catch (e) {
+                                                console.error('Error parsing phase_validations for history:', e);
+                                                validations = {};
+                                            }
+                                        }
                                         const legacyProof = selectedTask.proof_url;
                                         const hasValidations = Object.values(validations).some(v => v.proof_url || v.proof_text);
                                         const hasLegacy = !!legacyProof && !hasValidations;
@@ -3361,138 +3586,142 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     )
                 }
                 {/* Access Request Modal */}
-                {showAccessRequestModal && (
-                    <div style={{
-                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                        backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(4px)'
-                    }}>
-                        <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', width: '450px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
-                            <h3 style={{ marginTop: 0, fontSize: '1.25rem', color: '#111827' }}>Request Task Access</h3>
-                            <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '16px' }}>
-                                The deadline for this task has passed. Please provide a reason to request renewed access.
-                            </p>
+                {
+                    showAccessRequestModal && (
+                        <div style={{
+                            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                            backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(4px)'
+                        }}>
+                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', width: '450px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+                                <h3 style={{ marginTop: 0, fontSize: '1.25rem', color: '#111827' }}>Request Task Access</h3>
+                                <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '16px' }}>
+                                    The deadline for this task has passed. Please provide a reason to request renewed access.
+                                </p>
 
-                            <textarea
-                                value={accessReason}
-                                onChange={(e) => setAccessReason(e.target.value)}
-                                placeholder="Reason for late submission or access request..."
-                                style={{
-                                    width: '100%', minHeight: '100px', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '0.95rem', marginBottom: '16px', outline: 'none'
-                                }}
-                            />
-
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
-                                <button
-                                    onClick={() => setShowAccessRequestModal(false)}
-                                    style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontWeight: 500 }}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleRequestAccess}
-                                    disabled={requestingAccess}
+                                <textarea
+                                    value={accessReason}
+                                    onChange={(e) => setAccessReason(e.target.value)}
+                                    placeholder="Reason for late submission or access request..."
                                     style={{
-                                        padding: '8px 16px', borderRadius: '8px', border: 'none',
-                                        backgroundColor: '#ea580c', color: 'white', cursor: requestingAccess ? 'wait' : 'pointer', fontWeight: 600
+                                        width: '100%', minHeight: '100px', padding: '12px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '0.95rem', marginBottom: '16px', outline: 'none'
                                     }}
-                                >
-                                    {requestingAccess ? 'Sending Request...' : 'Submit Request'}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-                {/* Access Review Modal (Manager) */}
-                {showAccessReviewModal && accessReviewTask && (
-                    <div style={{
-                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                        backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, backdropFilter: 'blur(4px)'
-                    }}>
-                        <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', width: '500px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
-                            <h3 style={{ marginTop: 0, marginBottom: '4px', fontSize: '1.25rem', color: '#111827' }}>Review Access Request</h3>
-                            <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '20px' }}>Task: <span style={{ fontWeight: 600, color: '#374151' }}>{accessReviewTask.title}</span></p>
+                                />
 
-                            <div style={{ backgroundColor: '#fff7ed', padding: '12px', borderRadius: '8px', border: '1px solid #ffedd5', marginBottom: '20px' }}>
-                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#c2410c', fontWeight: 600 }}>Request Reason:</p>
-                                <p style={{ margin: '4px 0 0 0', fontSize: '0.9rem', color: '#9a3412' }}>{accessReviewTask.access_reason}</p>
-                            </div>
-
-                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Action</label>
-                            <div style={{ display: 'flex', gap: '4px', padding: '4px', backgroundColor: '#f3f4f6', borderRadius: '8px', marginBottom: '20px' }}>
-                                {['approve', 'reassign', 'close'].map(action => (
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
                                     <button
-                                        key={action}
-                                        onClick={() => setReviewAction(action)}
+                                        onClick={() => setShowAccessRequestModal(false)}
+                                        style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontWeight: 500 }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleRequestAccess}
+                                        disabled={requestingAccess}
                                         style={{
-                                            flex: 1,
-                                            padding: '8px',
-                                            borderRadius: '6px',
-                                            border: 'none',
-                                            cursor: 'pointer',
-                                            backgroundColor: reviewAction === action ? 'white' : 'transparent',
-                                            color: reviewAction === action ? '#0f172a' : '#6b7280',
-                                            fontWeight: reviewAction === action ? 700 : 500,
-                                            boxShadow: reviewAction === action ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                                            textTransform: 'capitalize',
-                                            transition: 'all 0.2s'
+                                            padding: '8px 16px', borderRadius: '8px', border: 'none',
+                                            backgroundColor: '#ea580c', color: 'white', cursor: requestingAccess ? 'wait' : 'pointer', fontWeight: 600
                                         }}
                                     >
-                                        {action}
+                                        {requestingAccess ? 'Sending Request...' : 'Submit Request'}
                                     </button>
-                                ))}
-                            </div>
-
-                            {reviewAction === 'reassign' && (
-                                <div style={{ marginBottom: '20px' }}>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Reassign To</label>
-                                    <select
-                                        value={reassignTarget}
-                                        onChange={(e) => setReassignTarget(e.target.value)}
-                                        style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}
-                                    >
-                                        <option value="">Select Employee</option>
-                                        {employees.filter(e => e.id !== accessReviewTask.assigned_to).map(emp => (
-                                            <option key={emp.id} value={emp.id}>{emp.full_name}</option>
-                                        ))}
-                                    </select>
                                 </div>
-                            )}
-
-                            {reviewAction === 'close' && (
-                                <div style={{ marginBottom: '20px' }}>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Closure Reason *</label>
-                                    <textarea
-                                        value={closureReason}
-                                        onChange={(e) => setClosureReason(e.target.value)}
-                                        placeholder="Explain why the task is being closed..."
-                                        style={{ width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', fontSize: '0.9rem' }}
-                                    />
-                                </div>
-                            )}
-
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #f3f4f6', paddingTop: '20px' }}>
-                                <button
-                                    onClick={() => { setShowAccessReviewModal(false); setAccessReviewTask(null); }}
-                                    style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontWeight: 500 }}
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={handleProcessAccessReview}
-                                    disabled={processingReview}
-                                    style={{
-                                        padding: '10px 20px', borderRadius: '8px', border: 'none',
-                                        backgroundColor: reviewAction === 'close' ? '#ef4444' : '#0f172a',
-                                        color: 'white', cursor: processingReview ? 'wait' : 'pointer', fontWeight: 600
-                                    }}
-                                >
-                                    {processingReview ? 'Processing...' : 'Confirm Action'}
-                                </button>
                             </div>
                         </div>
-                    </div>
-                )}
-            </div>
+                    )
+                }
+                {/* Access Review Modal (Manager) */}
+                {
+                    showAccessReviewModal && accessReviewTask && (
+                        <div style={{
+                            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                            backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1200, backdropFilter: 'blur(4px)'
+                        }}>
+                            <div style={{ backgroundColor: 'white', padding: '24px', borderRadius: '16px', width: '500px', maxWidth: '90%', boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)' }}>
+                                <h3 style={{ marginTop: 0, marginBottom: '4px', fontSize: '1.25rem', color: '#111827' }}>Review Access Request</h3>
+                                <p style={{ color: '#6b7280', fontSize: '0.9rem', marginBottom: '20px' }}>Task: <span style={{ fontWeight: 600, color: '#374151' }}>{accessReviewTask.title}</span></p>
+
+                                <div style={{ backgroundColor: '#fff7ed', padding: '12px', borderRadius: '8px', border: '1px solid #ffedd5', marginBottom: '20px' }}>
+                                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#c2410c', fontWeight: 600 }}>Request Reason:</p>
+                                    <p style={{ margin: '4px 0 0 0', fontSize: '0.9rem', color: '#9a3412' }}>{accessReviewTask.access_reason}</p>
+                                </div>
+
+                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Action</label>
+                                <div style={{ display: 'flex', gap: '4px', padding: '4px', backgroundColor: '#f3f4f6', borderRadius: '8px', marginBottom: '20px' }}>
+                                    {['approve', 'reassign', 'close'].map(action => (
+                                        <button
+                                            key={action}
+                                            onClick={() => setReviewAction(action)}
+                                            style={{
+                                                flex: 1,
+                                                padding: '8px',
+                                                borderRadius: '6px',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                backgroundColor: reviewAction === action ? 'white' : 'transparent',
+                                                color: reviewAction === action ? '#0f172a' : '#6b7280',
+                                                fontWeight: reviewAction === action ? 700 : 500,
+                                                boxShadow: reviewAction === action ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                                textTransform: 'capitalize',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {action}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                {reviewAction === 'reassign' && (
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Reassign To</label>
+                                        <select
+                                            value={reassignTarget}
+                                            onChange={(e) => setReassignTarget(e.target.value)}
+                                            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none' }}
+                                        >
+                                            <option value="">Select Employee</option>
+                                            {employees.filter(e => e.id !== accessReviewTask.assigned_to).map(emp => (
+                                                <option key={emp.id} value={emp.id}>{emp.full_name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {reviewAction === 'close' && (
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#374151', marginBottom: '8px' }}>Closure Reason *</label>
+                                        <textarea
+                                            value={closureReason}
+                                            onChange={(e) => setClosureReason(e.target.value)}
+                                            placeholder="Explain why the task is being closed..."
+                                            style={{ width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid #d1d5db', outline: 'none', fontSize: '0.9rem' }}
+                                        />
+                                    </div>
+                                )}
+
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', borderTop: '1px solid #f3f4f6', paddingTop: '20px' }}>
+                                    <button
+                                        onClick={() => { setShowAccessReviewModal(false); setAccessReviewTask(null); }}
+                                        style={{ padding: '10px 16px', borderRadius: '8px', border: '1px solid #d1d5db', backgroundColor: 'white', color: '#374151', cursor: 'pointer', fontWeight: 500 }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleProcessAccessReview}
+                                        disabled={processingReview}
+                                        style={{
+                                            padding: '10px 20px', borderRadius: '8px', border: 'none',
+                                            backgroundColor: reviewAction === 'close' ? '#ef4444' : '#0f172a',
+                                            color: 'white', cursor: processingReview ? 'wait' : 'pointer', fontWeight: 600
+                                        }}
+                                    >
+                                        {processingReview ? 'Processing...' : 'Confirm Action'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )
+                }
+            </div >
         </>
     );
 };

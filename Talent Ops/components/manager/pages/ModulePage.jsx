@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, X, Eye, Mail, Phone, MapPin, Calendar, Briefcase, Download, Edit, Users, Clock, Activity, Target, TrendingUp, ChevronRight, LayoutGrid, List, Search, CheckCircle } from 'lucide-react';
+import { Plus, X, Eye, Mail, Phone, MapPin, Calendar, Briefcase, Download, Edit, Users, Clock, Activity, Target, TrendingUp, ChevronRight, LayoutGrid, List, Search, CheckCircle, MoreVertical, AlertTriangle } from 'lucide-react';
 import DataTable from '../components/UI/DataTable';
 import { useToast } from '../context/ToastContext';
 import AnalyticsDemo from '../components/Demo/AnalyticsDemo';
@@ -42,6 +42,7 @@ const ModulePage = ({ title, type }) => {
     // State for view controls
     const [searchTerm, setSearchTerm] = useState('');
     const [viewType, setViewType] = useState('grid');
+    const [activeMenuId, setActiveMenuId] = useState(null);
 
     // State for leave requests
     // State for leave requests
@@ -87,6 +88,10 @@ const ModulePage = ({ title, type }) => {
     // State for Employee Details modal
     const [selectedEmployee, setSelectedEmployee] = useState(null);
     const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+
+    // State for Handover Modal
+    const [showHandoverModal, setShowHandoverModal] = useState(false);
+    const [selectedMemberForHandover, setSelectedMemberForHandover] = useState(null);
 
     // State for Candidate Details modal
     const [selectedCandidate, setSelectedCandidate] = useState(null);
@@ -155,10 +160,12 @@ const ModulePage = ({ title, type }) => {
 
                     // 3. Fetch Attendance & Leaves for Status
                     const today = new Date().toISOString().split('T')[0];
+                    const yesterday = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
                     const { data: attendanceData } = await supabase
                         .from('attendance')
                         .select('employee_id, clock_in, clock_out, date, current_task')
-                        .eq('date', today)
+                        .in('date', [yesterday, today])
                         .eq('org_id', orgId);
 
                     const { data: leavesData } = await supabase
@@ -172,7 +179,12 @@ const ModulePage = ({ title, type }) => {
                     const leaveSet = new Set(leavesData?.map(l => l.employee_id));
                     const attendanceMap = {};
                     if (attendanceData) {
-                        attendanceData.forEach(record => attendanceMap[record.employee_id] = record);
+                        // Sort so most recent record is stored in map
+                        const sortedAtt = [...attendanceData].sort((a, b) => {
+                            if (a.date !== b.date) return a.date.localeCompare(b.date);
+                            return a.clock_in.localeCompare(b.clock_in);
+                        });
+                        sortedAtt.forEach(record => attendanceMap[record.employee_id] = record);
                     }
 
                     if (profilesData) {
@@ -249,12 +261,13 @@ const ModulePage = ({ title, type }) => {
 
                     // Fetch TODAY'S attendance for "Availability", "Last Active", and "Current Task"
                     const today = new Date().toISOString().split('T')[0];
-                    console.log('🔍 Team Status - Fetching attendance for date:', today);
+                    const yesterday = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+                    console.log('🔍 Team Status - Fetching attendance for range:', [yesterday, today]);
 
                     const { data: attendanceData, error: attendanceError } = await supabase
                         .from('attendance')
                         .select('employee_id, clock_in, clock_out, date, current_task')
-                        .eq('date', today)
+                        .in('date', [yesterday, today])
                         .eq('org_id', orgId);
 
                     console.log('📊 Team Status - Attendance Data:', attendanceData);
@@ -814,6 +827,35 @@ const ModulePage = ({ title, type }) => {
         }
     };
 
+    const initiatHandover = (member) => {
+        setSelectedMemberForHandover(member);
+        setShowHandoverModal(true);
+    };
+
+    const confirmHandover = async () => {
+        if (!currentProject || !selectedMemberForHandover) return;
+
+        try {
+            const { error } = await supabase.rpc('handover_project_role', {
+                project_id_input: currentProject.id,
+                target_user_id_input: selectedMemberForHandover.id // Use .id from employees row
+            });
+
+            if (error) throw error;
+
+            addToast('Role handover successful! You are now an employee.', 'success');
+            setShowHandoverModal(false);
+            setSelectedMemberForHandover(null);
+
+            // Refresh
+            setRefreshTrigger(prev => prev + 1);
+            // Ideally navigate away or refresh full app context if privileges are lost
+        } catch (error) {
+            console.error('Handover failed:', error);
+            addToast(error.message || 'Handover failed', 'error');
+        }
+    };
+
     const handleApplyLeave = async (e) => {
         e.preventDefault();
 
@@ -979,28 +1021,92 @@ const ModulePage = ({ title, type }) => {
                 { header: 'Join Date', accessor: 'joinDate' },
                 {
                     header: 'Actions', accessor: 'actions', render: (row) => (
-                        <button
-                            onClick={() => handleAction('View Employee', row)}
-                            style={{
-                                padding: '6px 12px',
-                                borderRadius: '6px',
-                                fontSize: '0.75rem',
-                                fontWeight: 600,
-                                backgroundColor: '#e0f2fe',
-                                color: '#075985',
-                                border: '1px solid #7dd3fc',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px',
-                                transition: 'all 0.2s'
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#bae6fd'}
-                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#e0f2fe'}
-                        >
-                            <Eye size={14} />
-                            View
-                        </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                                onClick={() => handleAction('View Employee', row)}
+                                style={{
+                                    padding: '6px 12px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 600,
+                                    backgroundColor: '#e0f2fe',
+                                    color: '#075985',
+                                    border: '1px solid #7dd3fc',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    transition: 'all 0.2s'
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#bae6fd'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#e0f2fe'}
+                            >
+                                <Eye size={14} />
+                                View
+                            </button>
+
+                            {/* More Actions Menu (Kebab) - Only for PM/TL and not for self */}
+                            {((projectRole === 'project_manager' || projectRole === 'team_lead') && row.id !== userId) && (
+                                <div style={{ position: 'relative' }}>
+                                    <button
+                                        onClick={() => setActiveMenuId(activeMenuId === row.id ? null : row.id)}
+                                        style={{
+                                            padding: '6px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #e2e8f0',
+                                            backgroundColor: 'white',
+                                            cursor: 'pointer',
+                                            color: '#64748b',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            justifyContent: 'center'
+                                        }}
+                                    >
+                                        <MoreVertical size={14} />
+                                    </button>
+
+                                    {activeMenuId === row.id && (
+                                        <div style={{
+                                            position: 'absolute',
+                                            top: '100%',
+                                            right: 0,
+                                            marginTop: '4px',
+                                            backgroundColor: 'white',
+                                            borderRadius: '8px',
+                                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                                            border: '1px solid #f3f4f6',
+                                            width: '160px',
+                                            zIndex: 50,
+                                            overflow: 'hidden',
+                                            padding: '4px'
+                                        }}>
+                                            <button
+                                                onClick={() => { initiatHandover(row); setActiveMenuId(null); }}
+                                                style={{
+                                                    width: '100%',
+                                                    textAlign: 'left',
+                                                    padding: '8px 12px',
+                                                    fontSize: '0.8rem',
+                                                    color: '#d97706',
+                                                    backgroundColor: 'white',
+                                                    border: 'none',
+                                                    cursor: 'pointer',
+                                                    fontWeight: 600,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: '8px',
+                                                    borderRadius: '6px'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fffbeb'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                                            >
+                                                <Users size={14} /> Handover Role
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     )
                 },
             ],
@@ -2565,6 +2671,77 @@ const ModulePage = ({ title, type }) => {
                                     </button>
                                 </>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Handover Confirmation Modal */}
+            {showHandoverModal && selectedMemberForHandover && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    zIndex: 1100
+                }}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        padding: '32px',
+                        borderRadius: '24px',
+                        width: '480px',
+                        boxShadow: '0 20px 50px rgba(0,0,0,0.2)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '16px'
+                    }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: '#b91c1c' }}>
+                            <div style={{ padding: '12px', borderRadius: '50%', backgroundColor: '#fef2f2' }}>
+                                <AlertTriangle size={32} />
+                            </div>
+                            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Confirm Role Handover</h3>
+                        </div>
+
+                        <p style={{ color: '#4b5563', lineHeight: 1.6, marginTop: '8px' }}>
+                            You are about to transfer your <strong>{projectRole === 'project_manager' ? 'Project Manager' : 'Team Lead'}</strong> role to <strong>{selectedMemberForHandover.name}</strong>.
+                        </p>
+
+                        <div style={{ backgroundColor: '#fffba0', padding: '12px 16px', borderRadius: '12px', border: '1px solid #fde047', fontSize: '0.9rem', color: '#854d0e', display: 'flex', gap: '10px' }}>
+                            <AlertTriangle size={20} style={{ flexShrink: 0 }} />
+                            <div>
+                                <strong>Warning:</strong> You will lose your current administrative privileges for this project immediately after this action.
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
+                            <button
+                                onClick={() => { setShowHandoverModal(false); setSelectedMemberForHandover(null); }}
+                                style={{
+                                    padding: '12px 24px',
+                                    borderRadius: '12px',
+                                    border: '1px solid #e5e7eb',
+                                    backgroundColor: 'white',
+                                    color: '#374151',
+                                    fontWeight: 600,
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={confirmHandover}
+                                style={{
+                                    padding: '12px 24px',
+                                    borderRadius: '12px',
+                                    border: 'none',
+                                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                                    color: 'white',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                    boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                                }}
+                            >
+                                Confirm Handover
+                            </button>
                         </div>
                     </div>
                 </div>

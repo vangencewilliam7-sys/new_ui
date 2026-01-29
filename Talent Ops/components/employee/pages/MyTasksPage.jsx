@@ -6,6 +6,14 @@ import { useUser } from '../context/UserContext';
 import { useToast } from '../context/ToastContext';
 import SkillSelectionModal from '../components/UI/SkillSelectionModal';
 
+const LIFECYCLE_PHASES = [
+    { key: 'requirement_refiner', label: 'Requirement Refiner', short: 'Req' },
+    { key: 'design_guidance', label: 'Design Guidance', short: 'Des' },
+    { key: 'build_guidance', label: 'Build Guidance', short: 'Bld' },
+    { key: 'acceptance_criteria', label: 'Acceptance Criteria', short: 'Acc' },
+    { key: 'deployment', label: 'Deployment', short: 'Dep' }
+];
+
 const MyTasksPage = () => {
     // We don't need projectRole, but we use useProject context for consistency (or future use)
     const { currentProject } = useProject();
@@ -1599,6 +1607,48 @@ const MyTasksPage = () => {
                                     </div>
                                 </div>
                             )}
+
+                            {/* Guidance Documents Section */}
+                            {(() => {
+                                const validations = taskForView.phase_validations || {};
+                                const hasGuidance = Object.values(validations).some(v => v.guidance_doc_url);
+
+                                if (!hasGuidance) return null;
+
+                                return (
+                                    <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 600, color: '#1d4ed8', textTransform: 'uppercase', marginBottom: '12px' }}>
+                                            <FileText size={16} /> PHASE GUIDANCE
+                                        </label>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            {Object.entries(validations).map(([phaseKey, data]) => {
+                                                if (!data.guidance_doc_url) return null;
+                                                // Assuming LIFECYCLE_PHASES is imported or available in scope. 
+                                                // If not, standard mapping or simple key display. 
+                                                // MyTasksPage usually has LIFECYCLE_PHASES or similar array. 
+                                                // Checking imports... MyTasksPage imports it or defines it? 
+                                                // I recall MyTasksPage defines LIFECYCLE_PHASES at the top or imports.
+                                                // Let's use a safe fallback if not.
+                                                const phaseLabel = (typeof LIFECYCLE_PHASES !== 'undefined' ? LIFECYCLE_PHASES.find(p => p.key === phaseKey)?.label : null) || phaseKey;
+
+                                                return (
+                                                    <div key={phaseKey} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #dbeafe' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e40af' }}>{phaseLabel}:</span>
+                                                            <span style={{ fontSize: '0.9rem', color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '250px' }}>
+                                                                {data.guidance_doc_name || 'Guidance Document'}
+                                                            </span>
+                                                        </div>
+                                                        <a href={data.guidance_doc_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#2563eb', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}>
+                                                            View <ExternalLink size={12} />
+                                                        </a>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {/* Validations History */}
                             {/* Validations History */}

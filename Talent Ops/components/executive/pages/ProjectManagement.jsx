@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, FolderOpen, UserPlus, X, Trash2, Search, Building2, ChevronDown, Check, CheckCircle, XCircle } from 'lucide-react';
+import { Plus, Users, FolderOpen, UserPlus, X, Trash2, Search, Building2, ChevronDown, Check, CheckCircle, XCircle, AlertTriangle, MoreVertical } from 'lucide-react';
 import { supabase } from '../../../lib/supabaseClient';
 import { useUser } from '../context/UserContext';
 import ProjectWizard from '../components/ProjectWizard';
@@ -16,6 +16,43 @@ const ProjectManagement = ({ addToast = () => { } }) => {
     const [newProjectName, setNewProjectName] = useState('');
     const [searchUser, setSearchUser] = useState('');
     const [selectedRole, setSelectedRole] = useState('consultant');
+    const [showHandoverModal, setShowHandoverModal] = useState(false);
+    const [selectedMemberForHandover, setSelectedMemberForHandover] = useState(null);
+    const [activeMenuId, setActiveMenuId] = useState(null);
+    // Determine my role in the currently selected project (for permission check)
+    // Note: 'projectMembers' contains EVERYONE. We need to find OURSELVES in it.
+    const { userId } = useUser();
+    const myProjectMemberRecord = projectMembers.find(m => m.user_id === userId);
+    const projectRole = myProjectMemberRecord?.role;
+
+    const initiatHandover = (member) => {
+        setSelectedMemberForHandover(member);
+        setShowHandoverModal(true);
+    };
+
+    const confirmHandover = async () => {
+        if (!selectedProject || !selectedMemberForHandover) return;
+
+        try {
+            const { error } = await supabase.rpc('handover_project_role', {
+                project_id_input: selectedProject.id,
+                target_user_id_input: selectedMemberForHandover.user_id
+            });
+
+            if (error) throw error;
+
+            addToast?.('Role handover successful! You are now an employee.', 'success');
+            setShowHandoverModal(false);
+            setSelectedMemberForHandover(null);
+
+            // Refresh to reflect changes (which might kick us out of this view if we lose access)
+            fetchProjectMembers(selectedProject.id);
+            // Ideally navigate away or refresh full app context if privileges are lost
+        } catch (error) {
+            console.error('Handover failed:', error);
+            addToast?.(error.message || 'Handover failed', 'error');
+        }
+    };
 
     useEffect(() => {
         if (orgId) {
@@ -602,6 +639,8 @@ const ProjectManagement = ({ addToast = () => { } }) => {
                                                             <option value="team_lead">Team Lead</option>
                                                             <option value="manager">Manager</option>
                                                         </select>
+
+                                                        {/* Delete Button */}
                                                         <button onClick={() => removeMember(member.id)} style={{
                                                             padding: '10px',
                                                             borderRadius: '10px',
@@ -616,6 +655,70 @@ const ProjectManagement = ({ addToast = () => { } }) => {
                                                         }}>
                                                             <Trash2 size={16} />
                                                         </button>
+
+                                                        {/* More Actions Menu (Kebab) - Only for PM/TL */}
+                                                        {((projectRole === 'project_manager' || projectRole === 'team_lead') && member.user_id !== userId) && (
+                                                            <div style={{ position: 'relative' }}>
+                                                                <button
+                                                                    onClick={() => setActiveMenuId(activeMenuId === member.id ? null : member.id)}
+                                                                    style={{
+                                                                        padding: '10px',
+                                                                        borderRadius: '10px',
+                                                                        border: '1px solid #e2e8f0',
+                                                                        backgroundColor: 'white',
+                                                                        cursor: 'pointer',
+                                                                        color: '#64748b',
+                                                                        transition: 'all 0.2s ease',
+                                                                        display: 'flex',
+                                                                        alignItems: 'center',
+                                                                        justifyContent: 'center'
+                                                                    }}
+                                                                >
+                                                                    <MoreVertical size={16} />
+                                                                </button>
+
+                                                                {/* Dropdown Menu */}
+                                                                {activeMenuId === member.id && (
+                                                                    <div style={{
+                                                                        position: 'absolute',
+                                                                        top: '120%',
+                                                                        right: 0,
+                                                                        backgroundColor: 'white',
+                                                                        borderRadius: '12px',
+                                                                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                                                                        border: '1px solid #f3f4f6',
+                                                                        width: '180px',
+                                                                        zIndex: 50,
+                                                                        overflow: 'hidden',
+                                                                        padding: '4px'
+                                                                    }}>
+                                                                        <button
+                                                                            onClick={() => { initiatHandover(member); setActiveMenuId(null); }}
+                                                                            style={{
+                                                                                width: '100%',
+                                                                                textAlign: 'left',
+                                                                                padding: '10px 12px',
+                                                                                fontSize: '0.85rem',
+                                                                                color: '#d97706',
+                                                                                backgroundColor: 'white',
+                                                                                border: 'none',
+                                                                                cursor: 'pointer',
+                                                                                fontWeight: 600,
+                                                                                display: 'flex',
+                                                                                alignItems: 'center',
+                                                                                gap: '8px',
+                                                                                borderRadius: '8px',
+                                                                                transition: 'background 0.2s'
+                                                                            }}
+                                                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fffbeb'}
+                                                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                                                                        >
+                                                                            <Users size={16} /> Handover Role
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             );
@@ -630,6 +733,77 @@ const ProjectManagement = ({ addToast = () => { } }) => {
                         </div>
                     )}
                 </div>
+
+                {/* Handover Confirmation Modal */}
+                {showHandoverModal && selectedMemberForHandover && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        zIndex: 1100
+                    }}>
+                        <div style={{
+                            backgroundColor: 'white',
+                            padding: '32px',
+                            borderRadius: '24px',
+                            width: '480px',
+                            boxShadow: '0 20px 50px rgba(0,0,0,0.2)',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '16px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: '#b91c1c' }}>
+                                <div style={{ padding: '12px', borderRadius: '50%', backgroundColor: '#fef2f2' }}>
+                                    <AlertTriangle size={32} />
+                                </div>
+                                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>Confirm Role Handover</h3>
+                            </div>
+
+                            <p style={{ color: '#4b5563', lineHeight: 1.6, marginTop: '8px' }}>
+                                You are about to transfer your <strong>{projectRole === 'project_manager' ? 'Project Manager' : 'Team Lead'}</strong> role to <strong>{selectedMemberForHandover.profiles?.full_name}</strong>.
+                            </p>
+
+                            <div style={{ backgroundColor: '#fffba0', padding: '12px 16px', borderRadius: '12px', border: '1px solid #fde047', fontSize: '0.9rem', color: '#854d0e', display: 'flex', gap: '10px' }}>
+                                <AlertTriangle size={20} style={{ flexShrink: 0 }} />
+                                <div>
+                                    <strong>Warning:</strong> You will lose your current administrative privileges for this project immediately after this action.
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '16px' }}>
+                                <button
+                                    onClick={() => { setShowHandoverModal(false); setSelectedMemberForHandover(null); }}
+                                    style={{
+                                        padding: '12px 24px',
+                                        borderRadius: '12px',
+                                        border: '1px solid #e5e7eb',
+                                        backgroundColor: 'white',
+                                        color: '#374151',
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
+                                    }}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmHandover}
+                                    style={{
+                                        padding: '12px 24px',
+                                        borderRadius: '12px',
+                                        border: 'none',
+                                        background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                                        color: 'white',
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        boxShadow: '0 4px 12px rgba(239, 68, 68, 0.3)'
+                                    }}
+                                >
+                                    Confirm Handover
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Add Project Wizard */}
                 {showAddProject && (

@@ -186,20 +186,27 @@ const ModulePage = ({ title, type }) => {
 
                 if (projectData) teamName = projectData.name;
 
+                // 3. Fetch today's attendance for status (Check yesterday too for timezones)
                 const today = new Date().toISOString().split('T')[0];
+                const yesterday = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-                // 3. Fetch today's attendance for status
                 const { data: attendance } = await supabase
                     .from('attendance')
-                    .select('employee_id, clock_in, clock_out')
-                    .eq('date', today)
+                    .select('employee_id, clock_in, clock_out, date')
+                    .in('date', [yesterday, today])
                     .eq('org_id', orgId);
 
                 const activeSet = new Set();
                 if (attendance) {
-                    attendance.forEach(a => {
+                    const sortedAtt = [...attendance].sort((a, b) => {
+                        if (a.date !== b.date) return a.date.localeCompare(b.date);
+                        return a.clock_in.localeCompare(b.clock_in);
+                    });
+                    sortedAtt.forEach(a => {
                         if (a.clock_in && !a.clock_out) {
                             activeSet.add(a.employee_id);
+                        } else if (a.clock_out) {
+                            activeSet.delete(a.employee_id);
                         }
                     });
                 }
@@ -296,11 +303,14 @@ const ModulePage = ({ title, type }) => {
                 const today = new Date().toISOString().split('T')[0];
                 console.log('📅 Fetching attendance for date:', today);
 
-                // Try to fetch ALL attendance records first to debug
+                // Try to fetch records for range to debug
                 let attendance = [];
+                const yesterday = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
                 const { data: allAttendance, error: attendanceError } = await supabase
                     .from('attendance')
                     .select('*')
+                    .in('date', [yesterday, today])
                     .eq('org_id', orgId);
 
                 console.log('⏰ ALL Attendance data fetched:', allAttendance);
