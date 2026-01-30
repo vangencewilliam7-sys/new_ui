@@ -145,8 +145,6 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
                     alignItems: 'center',
                     justifyContent: isCollapsed ? 'center' : 'flex-start',
                     gap: '10px',
-                    justifyContent: isCollapsed ? 'center' : 'flex-start',
-                    gap: '10px',
                     padding: '8px 12px',
                     borderRadius: '8px',
                     backgroundColor: isActive ? 'var(--accent)' : 'transparent',

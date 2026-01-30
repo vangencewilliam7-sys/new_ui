@@ -348,8 +348,6 @@ const ModulePage = ({ title, type }) => {
                                 joinDate: emp.join_date ? new Date(emp.join_date).toLocaleDateString() : (emp.created_at ? new Date(emp.created_at).toLocaleDateString() : 'N/A'),
                                 performance: 'N/A',
                                 projects: projectMap[emp.id]?.length || 0,
-                                performance: 'N/A',
-                                projects: projectMap[emp.id]?.length || 0,
                                 tasksCompleted: 0,
                                 avatar_url: emp.avatar_url
                             };
