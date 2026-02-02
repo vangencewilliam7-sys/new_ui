@@ -8,7 +8,7 @@ const MessageNotificationToast = ({
     onReply,
     onDismiss,
     onNavigate,
-    autoHideDuration = 8000
+    autoHideDuration = 5000
 }) => {
     const [showReplyInput, setShowReplyInput] = useState(false);
     const [replyText, setReplyText] = useState('');

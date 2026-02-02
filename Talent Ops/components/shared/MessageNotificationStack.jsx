@@ -19,7 +19,7 @@ const MessageNotificationStack = () => {
     // Don't show notifications if already on messages page
     const isOnMessagesPage = location.pathname.includes('/messages');
 
-    if (isOnMessagesPage || !notificationQueue?.length) {
+    if (isOnMessagesPage) {
         return null;
     }
 
@@ -56,6 +56,37 @@ const MessageNotificationStack = () => {
                     onNavigate={() => handleNavigate(notification)}
                 />
             ))}
+
+            {/* DEBUG: Temporary Test Button */}
+            <button
+                onClick={() => {
+                    console.log('Testing notification...');
+                    addNotification({
+                        id: Date.now(),
+                        sender_name: 'System Test',
+                        content: 'This is a test notification to verify the popup works.',
+                        avatar_url: null,
+                        conversation_id: null,
+                        timestamp: Date.now()
+                    });
+                }}
+                style={{
+                    position: 'fixed',
+                    bottom: '10px',
+                    right: '10px',
+                    zIndex: 10000,
+                    padding: '8px 16px',
+                    background: '#ef4444',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    opacity: 0.8
+                }}
+            >
+                Test Notification
+            </button>
         </div>
     );
 };
