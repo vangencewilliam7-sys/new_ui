@@ -90,6 +90,10 @@ const ModulePage = ({ title, type }) => {
     const [selectedEmployee, setSelectedEmployee] = useState(null);
     const [showEmployeeModal, setShowEmployeeModal] = useState(false);
 
+    // State for Handover Modal
+    const [showHandoverModal, setShowHandoverModal] = useState(false);
+    const [selectedMemberForHandover, setSelectedMemberForHandover] = useState(null);
+
     // State for Edit Employee modal
     const [employeeToEdit, setEmployeeToEdit] = useState(null);
     const [showEditEmployeeModal, setShowEditEmployeeModal] = useState(false);
