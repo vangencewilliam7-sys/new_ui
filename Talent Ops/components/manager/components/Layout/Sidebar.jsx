@@ -84,21 +84,21 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
     // Role-based project menu configurations
     const projectMenusByRole = {
         consultant: [
-            { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
+            { icon: Users, label: 'Team Members', path: '/manager-dashboard/project-members' },
             { icon: FileText, label: 'Project Documents', path: '/manager-dashboard/documents' },
             { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/manager-dashboard/project-hierarchy' },
         ],
         employee: [
-            { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
+            { icon: Users, label: 'Team Members', path: '/manager-dashboard/project-members' },
             { icon: FileText, label: 'Project Documents', path: '/manager-dashboard/documents' },
             { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/manager-dashboard/project-hierarchy' },
         ],
         team_lead: [
-            { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
+            { icon: Users, label: 'Team Members', path: '/manager-dashboard/project-members' },
             { icon: ListTodo, label: 'All Project Tasks', path: '/manager-dashboard/tasks' },
             { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
@@ -106,7 +106,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: FileText, label: 'Documents', path: '/manager-dashboard/documents' },
         ],
         manager: [
-            { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
+            { icon: Users, label: 'Team Members', path: '/manager-dashboard/project-members' },
             { icon: ListTodo, label: 'All Project Tasks', path: '/manager-dashboard/tasks' },
             { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },

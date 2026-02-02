@@ -43,6 +43,7 @@ export const ManagerDashboard = () => {
                                 <Route path="dashboard" element={<DashboardHome />} />
                                 <Route path="analytics" element={<ModulePage title="Analytics" type="analytics" />} />
                                 <Route path="employees" element={<ModulePage title="Team Members" type="workforce" />} />
+                                <Route path="project-members" element={<ModulePage title="Project Team Members" type="project-members" />} />
                                 <Route path="tasks" element={<ModulePage title="All Project Tasks" type="tasks" />} />
                                 <Route path="global-tasks" element={<ManagerAllTasksPage />} />
                                 <Route path="personal-tasks" element={<ModulePage title="My Tasks" type="personal-tasks" />} />

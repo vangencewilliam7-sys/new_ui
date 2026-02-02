@@ -248,6 +248,145 @@ const ModulePage = ({ title, type }) => {
                         setEmployees(richData);
                         setEmployeeStatus(richData);
                     }
+                } else if (type === 'project-members') {
+                    // Fetch employees who are members of the CURRENT PROJECT only
+                    if (!currentProject?.id) {
+                        setEmployees([]);
+                        setEmployeeStatus([]);
+                        return;
+                    }
+
+                    // 1. Fetch project members for current project
+                    const { data: projectMembersData, error: projectMembersError } = await supabase
+                        .from('project_members')
+                        .select('user_id, role')
+                        .eq('project_id', currentProject.id)
+                        .eq('org_id', orgId);
+
+                    if (projectMembersError) throw projectMembersError;
+
+                    const userIdsInProject = projectMembersData?.map(pm => pm.user_id) || [];
+                    const memberRoleMap = {};
+                    projectMembersData?.forEach(pm => {
+                        memberRoleMap[pm.user_id] = pm.role;
+                    });
+
+                    if (userIdsInProject.length === 0) {
+                        setEmployees([]);
+                        setEmployeeStatus([]);
+                        return;
+                    }
+
+                    // 2. Fetch profiles for project members only
+                    const { data: profilesData, error: profileError } = await supabase
+                        .from('profiles')
+                        .select(`
+                            id, 
+                            full_name, 
+                            email, 
+                            role, 
+                            job_title, 
+                            department,
+                            created_at,
+                            avatar_url
+                        `)
+                        .eq('org_id', orgId)
+                        .in('id', userIdsInProject);
+
+                    if (profileError) throw profileError;
+
+                    // 3. Fetch departments for mapping
+                    const { data: deptData } = await supabase
+                        .from('departments')
+                        .select('id, department_name')
+                        .eq('org_id', orgId);
+
+                    const deptMap = {};
+                    if (deptData) {
+                        deptData.forEach(d => deptMap[d.id] = d.department_name);
+                    }
+
+                    // 4. Fetch Attendance & Leaves for Status
+                    const today = new Date().toISOString().split('T')[0];
+                    const yesterday = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+                    const { data: attendanceData } = await supabase
+                        .from('attendance')
+                        .select('employee_id, clock_in, clock_out, date, current_task')
+                        .in('date', [yesterday, today])
+                        .eq('org_id', orgId)
+                        .in('employee_id', userIdsInProject);
+
+                    const { data: leavesData } = await supabase
+                        .from('leaves')
+                        .select('employee_id')
+                        .eq('status', 'approved')
+                        .eq('org_id', orgId)
+                        .lte('from_date', today)
+                        .gte('to_date', today)
+                        .in('employee_id', userIdsInProject);
+
+                    const leaveSet = new Set(leavesData?.map(l => l.employee_id));
+                    const attendanceMap = {};
+                    if (attendanceData) {
+                        const sortedAtt = [...attendanceData].sort((a, b) => {
+                            if (a.date !== b.date) return a.date.localeCompare(b.date);
+                            return (a.clock_in || '').localeCompare(b.clock_in || '');
+                        });
+                        sortedAtt.forEach(record => attendanceMap[record.employee_id] = record);
+                    }
+
+                    if (profilesData) {
+                        const richData = profilesData.map(emp => {
+                            const attendance = attendanceMap[emp.id];
+                            let availability = 'Offline';
+                            let lastActive = 'N/A';
+
+                            if (attendance) {
+                                if (attendance.clock_in && !attendance.clock_out) {
+                                    availability = 'Online';
+                                    lastActive = `Clocked in at ${attendance.clock_in.slice(0, 5)}`;
+                                } else if (attendance.clock_out) {
+                                    availability = 'Offline';
+                                    lastActive = `Left at ${attendance.clock_out.slice(0, 5)}`;
+                                }
+                            }
+
+                            if (availability === 'Offline' && leaveSet.has(emp.id)) {
+                                availability = 'On Leave';
+                            }
+
+                            const currentTask = (availability === 'Online' && attendance?.current_task) ? attendance.current_task :
+                                (availability === 'Online') ? 'No active task' : '-';
+
+                            // Get project role for this member
+                            let projectRoleDisplay = memberRoleMap[emp.id] || 'Member';
+                            if (projectRoleDisplay === 'team_lead') projectRoleDisplay = 'Team Lead';
+                            else if (projectRoleDisplay === 'employee') projectRoleDisplay = 'Member';
+                            else if (projectRoleDisplay === 'manager') projectRoleDisplay = 'Manager';
+
+                            return {
+                                id: emp.id,
+                                name: emp.full_name || 'N/A',
+                                email: emp.email || 'N/A',
+                                role: emp.role || 'N/A',
+                                job_title: emp.job_title || 'N/A',
+                                department_display: deptMap[emp.department] || emp.department || 'Main Office',
+                                dept: currentProject.name, // Show project name as department
+                                projects: 1,
+                                project_role: projectRoleDisplay, // Role in this project
+                                status: 'Active',
+                                joinDate: emp.created_at ? new Date(emp.created_at).toLocaleDateString() : 'N/A',
+                                avatar_url: emp.avatar_url,
+                                availability: availability,
+                                task: currentTask,
+                                lastActive: lastActive
+                            };
+                        });
+
+                        setEmployees(richData);
+                        setEmployeeStatus(richData);
+                    }
                 } else if (type === 'status') {
                     // Fetch profiles
                     const { data: profiles, error: profileError } = await supabase
@@ -1638,7 +1777,7 @@ const ModulePage = ({ title, type }) => {
             </div>
 
             {/* Quick Stats Summary for Status & Workforce */}
-            {(type === 'status' || type === 'workforce') && (
+            {(type === 'status' || type === 'workforce' || type === 'project-members') && (
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(4, 1fr)',
@@ -1682,8 +1821,8 @@ const ModulePage = ({ title, type }) => {
                 </div>
             )}
 
-            {/* Search and Filters Bar for Status & Workforce */}
-            {(type === 'status' || type === 'workforce') && (
+            {/* Search and Filters Bar for Status, Workforce & Project Members */}
+            {(type === 'status' || type === 'workforce' || type === 'project-members') && (
                 <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -1860,8 +1999,8 @@ const ModulePage = ({ title, type }) => {
                 </div>
             )}
 
-            {/* Rich Grid/List View for Status & Workforce */}
-            {(type === 'status' || type === 'workforce') ? (
+            {/* Rich Grid/List View for Status, Workforce & Project Members */}
+            {(type === 'status' || type === 'workforce' || type === 'project-members') ? (
                 viewType === 'grid' ? (
                     <div style={{
                         display: 'grid',

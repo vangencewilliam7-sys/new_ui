@@ -89,6 +89,18 @@ export const getConversationsByCategory = async (userId, category, orgId) => {
             };
         });
 
+        // Step 4.5: Sort by last_message_at (most recent first)
+        conversationsWithIndexes.sort((a, b) => {
+            const aTime = a.conversation_indexes?.[0]?.last_message_at;
+            const bTime = b.conversation_indexes?.[0]?.last_message_at;
+
+            if (!aTime && !bTime) return 0;
+            if (!aTime) return 1;  // No message goes to bottom
+            if (!bTime) return -1;
+
+            return new Date(bTime) - new Date(aTime); // Newest first
+        });
+
         // Step 5: Self-healing for missing message previews
         // If we have a timestamp but no message content, fetch it
         const brokenConversations = conversationsWithIndexes.filter(c => {

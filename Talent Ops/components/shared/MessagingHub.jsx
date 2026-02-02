@@ -39,7 +39,7 @@ const MessagingHub = () => {
     const [selectedTeamMembers, setSelectedTeamMembers] = useState([]);
     const [teamName, setTeamName] = useState('');
     const [authLoading, setAuthLoading] = useState(true);
-    const { markAsRead, lastReadTimes } = useMessages();
+    const { markAsRead, lastReadTimes, lastIncomingMessage } = useMessages();
     const [showMembersModal, setShowMembersModal] = useState(false);
     const [currentMembers, setCurrentMembers] = useState([]);
     const [hoveredMessageId, setHoveredMessageId] = useState(null);
@@ -128,6 +128,20 @@ const MessagingHub = () => {
             });
         }
     };
+
+    // Reload conversations when a new message arrives globally (to update sorting)
+    useEffect(() => {
+        if (lastIncomingMessage && currentUserId) {
+            console.log('New message received globally, refreshing conversation list...');
+            // Invalidate cache for current category to force refresh
+            setConversationCache(prev => {
+                const newCache = { ...prev };
+                delete newCache[activeCategory];
+                return newCache;
+            });
+            loadConversations();
+        }
+    }, [lastIncomingMessage]);
 
     // Get current user from Supabase auth
     useEffect(() => {
