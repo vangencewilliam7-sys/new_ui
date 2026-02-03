@@ -20,6 +20,8 @@ import { AddPolicyModal } from '../../shared/AddPolicyModal';
 import { useUser } from '../context/UserContext';
 import { useProject } from '../../employee/context/ProjectContext';
 import ProjectDocuments from '../../employee/pages/ProjectDocuments';
+import AILeaveInsight from '../../shared/AILeaveInsight';
+import { analyzeLeaveRequest } from '../../../services/AILeaveAdvisor';
 
 const APPLIER_RESPONSIBILITIES = [
     "Complete high-priority current tasks",
@@ -60,6 +62,10 @@ const ModulePage = ({ title, type }) => {
 
     const [remainingLeaves, setRemainingLeaves] = useState(0);
     const [pendingTasks, setPendingTasks] = useState([]);
+
+    // AI Leave Analysis state
+    const [aiAnalysis, setAiAnalysis] = useState(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     // State for Apply Leave modal
     const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
@@ -757,6 +763,8 @@ const ModulePage = ({ title, type }) => {
 
     const handleViewLeave = async (leaveRequest) => {
         setSelectedLeaveRequest(leaveRequest);
+        setAiAnalysis(null);
+        setIsAnalyzing(true);
 
         // Fetch tasks for the employee during leave dates
         const tasks = await fetchEmployeeTasks(
@@ -771,6 +779,21 @@ const ModulePage = ({ title, type }) => {
         if (user) {
             const pTasks = await fetchPendingTasks(user.id);
             setPendingTasks(pTasks);
+        }
+
+        // Run AI analysis for the leave request
+        try {
+            const analysis = await analyzeLeaveRequest(
+                leaveRequest.employee_id,
+                leaveRequest.startDate,
+                leaveRequest.endDate,
+                orgId
+            );
+            setAiAnalysis(analysis);
+        } catch (error) {
+            console.error('AI analysis error:', error);
+        } finally {
+            setIsAnalyzing(false);
         }
 
         setShowLeaveDetailsModal(true);
@@ -2851,8 +2874,15 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
+                        {/* AI Leave Analysis - Manager View */}
+                        <AILeaveInsight
+                            analysis={aiAnalysis}
+                            isLoading={isAnalyzing}
+                            variant="manager"
+                        />
+
                         {/* Tasks During Leave */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '24px' }}>
                             <div style={{ marginBottom: '24px' }}>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '16px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <Briefcase size={20} color="var(--primary)" /> Tasks During Leave Period

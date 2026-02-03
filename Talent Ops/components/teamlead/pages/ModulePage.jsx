@@ -28,6 +28,8 @@ import TeamTasks from '../components/TeamTasks';
 import PayslipsPage from '../../shared/PayslipsPage';
 import AnnouncementsPage from '../../shared/AnnouncementsPage';
 import ProjectHierarchyDemo from '../../shared/ProjectHierarchyDemo';
+import AILeaveInsight from '../../shared/AILeaveInsight';
+import { analyzeLeaveRequest } from '../../../services/AILeaveAdvisor';
 
 const ModulePage = ({ title, type }) => {
     const { addToast } = useToast();
@@ -42,6 +44,10 @@ const ModulePage = ({ title, type }) => {
     const [showLeaveDetailsModal, setShowLeaveDetailsModal] = useState(false);
     const [employeeTasks, setEmployeeTasks] = useState([]);
     const [pendingTasks, setPendingTasks] = useState([]);
+
+    // AI Leave Analysis state
+    const [aiAnalysis, setAiAnalysis] = useState(null);
+    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
     // State for team members
     const [teamMembers, setTeamMembers] = useState([]);
@@ -524,6 +530,8 @@ const ModulePage = ({ title, type }) => {
 
     const handleViewLeave = async (leaveRequest) => {
         setSelectedLeaveRequest(leaveRequest);
+        setAiAnalysis(null);
+        setIsAnalyzing(true);
 
         // Fetch tasks for the employee during leave dates
         const tasks = await fetchEmployeeTasks(
@@ -538,6 +546,21 @@ const ModulePage = ({ title, type }) => {
         if (user) {
             const pTasks = await fetchPendingTasks(user.id);
             setPendingTasks(pTasks);
+        }
+
+        // Run AI analysis for the leave request
+        try {
+            const analysis = await analyzeLeaveRequest(
+                leaveRequest.employee_id,
+                leaveRequest.startDate,
+                leaveRequest.endDate,
+                orgId
+            );
+            setAiAnalysis(analysis);
+        } catch (error) {
+            console.error('AI analysis error:', error);
+        } finally {
+            setIsAnalyzing(false);
         }
 
         setShowLeaveDetailsModal(true);
@@ -1993,8 +2016,15 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
+                        {/* AI Leave Analysis - Team Lead View */}
+                        <AILeaveInsight
+                            analysis={aiAnalysis}
+                            isLoading={isAnalyzing}
+                            variant="teamlead"
+                        />
+
                         {/* Tasks Section for Approver View */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '24px' }}>
                             <div style={{ marginBottom: '24px' }}>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '16px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <Briefcase size={20} color="var(--primary)" /> Tasks During Leave Period
