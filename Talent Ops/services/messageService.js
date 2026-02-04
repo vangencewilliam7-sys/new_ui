@@ -43,9 +43,9 @@ export const getConversationsByCategory = async (userId, category, orgId) => {
             .select('*')
             .in('id', conversationIds);
 
-        // Filter by org_id, but also include conversations with NULL org_id (legacy conversations)
+        // Filter by org_id strictly
         if (orgId) {
-            query = query.or(`org_id.eq.${orgId},org_id.is.null`);
+            query = query.eq('org_id', orgId);
         }
 
         // Filter by conversation type based on category
@@ -508,6 +508,7 @@ export const subscribeToConversation = (conversationId, callbacks) => {
                 table: 'message_reactions'
             },
             (payload) => {
+                console.log('Realtime reaction event (raw):', payload);
                 if (onReaction) onReaction(payload.new || payload.old);
             }
         )
@@ -1021,6 +1022,10 @@ export const sendMessageWithReply = async (conversationId, content, senderId, re
             .single();
 
         if (error) throw error;
+
+        // Update conversation index to ensure sorting works
+        await updateConversationIndex(conversationId, content);
+
         return data;
     } catch (error) {
         console.error('Error sending message with reply:', error);
@@ -1129,29 +1134,20 @@ export const removeReaction = async (messageId, userId, reaction) => {
  */
 export const toggleReaction = async (messageId, userId, reaction) => {
     try {
-        // Check if reaction exists
-        const { data: existing } = await supabase
-            .from('message_reactions')
-            .select('id')
-            .eq('message_id', messageId)
-            .eq('user_id', userId)
-            .eq('reaction', reaction)
-            .single();
+        const { error } = await supabase.rpc('toggle_reaction', {
+            p_message_id: messageId,
+            p_user_id: userId,
+            p_reaction: reaction
+        });
 
-        if (existing) {
-            // Remove reaction
-            await removeReaction(messageId, userId, reaction);
-            return false; // Removed
-        } else {
-            // Add reaction
-            await addReaction(messageId, userId, reaction);
-            return true; // Added
-        }
+        if (error) throw error;
+        return true;
     } catch (error) {
         console.error('Error toggling reaction:', error);
         throw error;
     }
 };
+
 
 /**
  * Get all reactions for a message

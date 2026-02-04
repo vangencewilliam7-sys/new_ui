@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageCircle, Users, Building2, Search, Paperclip, Send, X, Plus, User, Trash2, Settings, UserPlus, Edit2, Shield, UserMinus, Reply, Smile, BarChart2, CheckCircle2 } from 'lucide-react';
+import { MessageCircle, Users, Building2, Search, Paperclip, Send, X, Plus, User, Trash2, Settings, UserPlus, Edit2, Shield, UserMinus, Reply, Smile, BarChart2, CheckCircle2, Info } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import {
     getConversationsByCategory,
@@ -65,10 +65,13 @@ const MessagingHub = () => {
     const [showAddMemberModal, setShowAddMemberModal] = useState(false);
     const [showRenameModal, setShowRenameModal] = useState(false);
     const [newGroupName, setNewGroupName] = useState('');
+    const [showSearch, setShowSearch] = useState(false);
+    const [messageSearchQuery, setMessageSearchQuery] = useState('');
 
     // Reply & Reaction state
     const [replyingTo, setReplyingTo] = useState(null);
     const [showReactionPicker, setShowReactionPicker] = useState(null);
+    const [viewingReactionsFor, setViewingReactionsFor] = useState(null);
     const [messageReactions, setMessageReactions] = useState({});
 
 
@@ -79,6 +82,7 @@ const MessagingHub = () => {
     const [allowMultiplePoll, setAllowMultiplePoll] = useState(false);
     const [allPollVotes, setAllPollVotes] = useState({}); // { messageId: [votes] }
     const [showVoteDetails, setShowVoteDetails] = useState(null); // messageId
+    const isReacting = useRef(false);
 
     // Helper Component for Poll Messages
     const PollContent = ({ msg, votes, onVote, currentUserId, onViewVotes }) => {
@@ -308,10 +312,16 @@ const MessagingHub = () => {
         try {
             console.log('Loading all users for messaging...');
 
-            const { data, error } = await supabase
+            let query = supabase
                 .from('profiles')
                 .select('id, email, full_name, avatar_url, role')
                 .order('full_name', { ascending: true, nullsFirst: false });
+
+            if (orgId) {
+                query = query.eq('org_id', orgId);
+            }
+
+            const { data, error } = await query;
 
             if (error) {
                 console.error('Error fetching users:', error);
@@ -401,9 +411,20 @@ const MessagingHub = () => {
                     }
                 },
                 onReaction: async (payload) => {
-                    const msgId = payload.message_id;
+                    // console.log('Received reaction payload:', payload);
+                    const msgId = payload?.message_id;
+                    const userId = payload?.user_id;
+
+                    // Ignore if this is OUR reaction and we are currently performing the local action
+                    if (userId === currentUserId && isReacting.current) {
+                        console.log('Ignoring self-reaction echo (lock active)');
+                        return;
+                    }
+
                     if (msgId) {
                         try {
+                            // Fetch immediately without delay for faster updates
+                            // The DB event means it's committed, so we should be able to read it.
                             const summary = await getReactionSummary(msgId);
 
                             setMessageReactions(prev => ({
@@ -412,6 +433,13 @@ const MessagingHub = () => {
                             }));
                         } catch (err) {
                             console.error('Error handling realtime reaction:', err);
+                        }
+                    } else {
+                        // Fallback for deletions if REPLICA IDENTITY FULL isn't on
+                        if (selectedConversation?.id) {
+                            // We could try to reload, but let's be less aggressive if we can't identify the message
+                            // loadMessages(selectedConversation);
+                            console.warn('Received reaction event without message_id');
                         }
                     }
                 },
@@ -429,7 +457,18 @@ const MessagingHub = () => {
                 unsubscribeFromConversation(subscription);
             }
         };
-    }, [selectedConversation]);
+    }, [selectedConversation, currentUserId]);
+
+    // Auto-scroll to bottom
+    const messagesEndRef = useRef(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages, selectedConversation]);
 
     const loadConversations = async () => {
         if (!currentUserId) {
@@ -681,9 +720,41 @@ const MessagingHub = () => {
         if (!selectedConversation || !currentUserId) return;
 
         try {
+            let targetConversationId = selectedConversation.id;
+
+            // Handle temporary conversation (new DM)
+            if (selectedConversation.temp) {
+                try {
+                    console.log('Creating new conversation for temporary DM...');
+                    const newConv = await createDMConversation(
+                        currentUserId,
+                        selectedConversation.otherUser.id,
+                        currentUserOrgId
+                    );
+                    targetConversationId = newConv.id;
+
+                    // Update selected conversation to be real and not temp
+                    // We need to fetch the other user details again or preserve them because createDMConversation just returns the row
+                    // We used selectedConversation.otherUser for the name/avatar so let's keep it
+                    setSelectedConversation({
+                        ...newConv,
+                        name: selectedConversation.name,
+                        avatar_url: selectedConversation.avatar_url,
+                        otherUser: selectedConversation.otherUser,
+                        type: 'dm',
+                        temp: false
+                    });
+
+                } catch (err) {
+                    console.error('Error creating conversation:', err);
+                    setErrorMessage('Failed to create conversation. Please try again.');
+                    return;
+                }
+            }
+
             // Send with optional reply (Snapshot storage approach)
             const newMessage = await sendMessageWithReply(
-                selectedConversation.id,
+                targetConversationId,
                 messageInput.trim(),
                 currentUserId,
                 replyingTo?.id || null,
@@ -695,7 +766,7 @@ const MessagingHub = () => {
             if (attachments.length > 0) {
                 try {
                     const uploadPromises = attachments.map(file =>
-                        uploadAttachment(file, selectedConversation.id, newMessage.id)
+                        uploadAttachment(file, targetConversationId, newMessage.id)
                     );
                     await Promise.all(uploadPromises);
                     console.log('Successfully uploaded all attachments');
@@ -721,7 +792,7 @@ const MessagingHub = () => {
                             `New message in ${selectedConversation.name || 'chat'}`,
                             `${senderName}: ${messageInput.substring(0, 50)}${messageInput.length > 50 ? '...' : ''}`,
                             '/messages',
-                            { conversationId: selectedConversation.id }
+                            { conversationId: targetConversationId }
                         );
                     }
                 }
@@ -746,7 +817,9 @@ const MessagingHub = () => {
                 delete newCache[activeCategory];
                 return newCache;
             });
-            loadConversations();
+            // We used to call loadConversations() here, but since we might have just created a new conversation
+            // loadConversations will actually help put it in the list.
+            await loadConversations();
 
         } catch (error) {
             console.error('Error sending message:', error);
@@ -754,21 +827,79 @@ const MessagingHub = () => {
         }
     };
 
-    const handleReaction = async (messageId, emoji) => {
+    const handleReaction = async (messageId, reaction) => {
+        if (!currentUserId) return;
+
+        // Close picker immediately
+        setShowReactionPicker(null);
+
+        // Set lock to ignore incoming realtime events for this action
+        isReacting.current = true;
+
+        // 1. Optimistic Update
+        setMessageReactions(prev => {
+            const currentSummary = prev[messageId] || {};
+
+            // Find if user already reacted with ANY emoji
+            let oldReactionEmoji = null;
+            Object.entries(currentSummary).forEach(([emoji, data]) => {
+                if (data.users.some(u => u.user_id === currentUserId)) {
+                    oldReactionEmoji = emoji;
+                }
+            });
+
+            // Create deep copy of summary for mutation
+            const newSummary = JSON.parse(JSON.stringify(currentSummary));
+
+            // If user had a reaction, remove it first
+            if (oldReactionEmoji) {
+                if (newSummary[oldReactionEmoji]) {
+                    newSummary[oldReactionEmoji].users = newSummary[oldReactionEmoji].users.filter(u => u.user_id !== currentUserId);
+                    newSummary[oldReactionEmoji].count = Math.max(0, newSummary[oldReactionEmoji].count - 1);
+                    if (newSummary[oldReactionEmoji].count === 0) {
+                        delete newSummary[oldReactionEmoji];
+                    }
+                }
+            }
+
+            // If the new reaction is DIFFERENT from the old one, OR if there was no old one, ADD it.
+            if (oldReactionEmoji !== reaction) {
+                if (!newSummary[reaction]) {
+                    newSummary[reaction] = { count: 0, users: [] };
+                }
+                newSummary[reaction].users.push({
+                    user_id: currentUserId,
+                    name: 'You'
+                });
+                newSummary[reaction].count += 1;
+            }
+
+            return {
+                ...prev,
+                [messageId]: newSummary
+            };
+        });
+
         try {
-            await toggleReaction(messageId, currentUserId, emoji);
+            // 2. Perform actual server action
+            await toggleReaction(messageId, currentUserId, reaction);
 
-            // Refresh reactions for this message
+            // We rely on the optimistic update and the anti-flicker lock in onReaction.
+            // No need to re-fetch authoritative state immediately as it can cause flicker.
+
+        } catch (error) {
+            console.error('Error toggling reaction:', error);
+            // Revert on error would go here, maybe reload messages/summary
             const summary = await getReactionSummary(messageId);
-
             setMessageReactions(prev => ({
                 ...prev,
                 [messageId]: summary
             }));
-
-            setShowReactionPicker(null);
-        } catch (error) {
-            console.error('Error adding reaction:', error);
+        } finally {
+            // Release lock after a short delay to ensure all realtime echoes are cleared
+            setTimeout(() => {
+                isReacting.current = false;
+            }, 1000);
         }
     };
 
@@ -1355,7 +1486,30 @@ const MessagingHub = () => {
                                     )}
                                 </span>
                             </div>
-                            <div style={{ display: 'flex', gap: '8px' }}>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <button
+                                    onClick={() => {
+                                        setShowSearch(!showSearch);
+                                        if (showSearch) setMessageSearchQuery('');
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '6px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #e5e7eb',
+                                        background: showSearch ? '#f3f4f6' : 'white',
+                                        cursor: 'pointer',
+                                        fontSize: '12px',
+                                        color: '#374151',
+                                        fontWeight: 500,
+                                        transition: 'all 0.2s'
+                                    }}
+                                >
+                                    <Search size={14} />
+                                    {showSearch ? 'Close Search' : 'Search'}
+                                </button>
                                 {(selectedConversation.type === 'team' || selectedConversation.type === 'everyone') && (
                                     <button
                                         onClick={fetchConversationMembers}
@@ -1374,7 +1528,7 @@ const MessagingHub = () => {
                                         }}
                                     >
                                         <Users size={14} />
-                                        View Members
+                                        Members
                                     </button>
                                 )}
                                 {isCurrentUserAdmin && selectedConversation.type === 'team' && (
@@ -1395,11 +1549,69 @@ const MessagingHub = () => {
                                         }}
                                     >
                                         <Settings size={14} />
-                                        Group Settings
+                                        Settings
                                     </button>
                                 )}
                             </div>
                         </div>
+
+                        {/* Message Search Bar */}
+                        {showSearch && (
+                            <div style={{
+                                padding: '12px 20px',
+                                background: '#f9fafb',
+                                borderBottom: '1px solid #e5e7eb',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <div style={{
+                                    flex: 1,
+                                    position: 'relative',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                }}>
+                                    <Search size={16} style={{ position: 'absolute', left: '12px', color: '#9ca3af' }} />
+                                    <input
+                                        type="text"
+                                        placeholder="Search in this conversation..."
+                                        value={messageSearchQuery}
+                                        onChange={(e) => setMessageSearchQuery(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px 12px 8px 36px',
+                                            borderRadius: '8px',
+                                            border: '1px solid #d1d5db',
+                                            fontSize: '14px',
+                                            outline: 'none',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                        }}
+                                        autoFocus
+                                    />
+                                    {messageSearchQuery && (
+                                        <button
+                                            onClick={() => setMessageSearchQuery('')}
+                                            style={{
+                                                position: 'absolute',
+                                                right: '8px',
+                                                background: 'none',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                color: '#9ca3af'
+                                            }}
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                                    {messages.filter(m =>
+                                        m.content?.toLowerCase().includes(messageSearchQuery.toLowerCase()) ||
+                                        m.poll_question?.toLowerCase().includes(messageSearchQuery.toLowerCase())
+                                    ).length} results
+                                </div>
+                            </div>
+                        )}
 
                         {/* Group Settings Panel (Admin Only) */}
                         {showGroupSettings && isCurrentUserAdmin && selectedConversation.type === 'team' && (
@@ -1494,282 +1706,328 @@ const MessagingHub = () => {
                                     <p>No messages yet. Start the conversation!</p>
                                 </div>
                             ) : (
-                                messages.map((msg, index) => {
-                                    const prevMsg = messages[index - 1];
-                                    const prevDate = prevMsg ? new Date(prevMsg.created_at).toDateString() : null;
-                                    const currDate = new Date(msg.created_at).toDateString();
-                                    const isNewDay = currDate !== prevDate;
+                                (() => {
+                                    const filtered = messages.filter(msg => {
+                                        if (!messageSearchQuery) return true;
+                                        const query = messageSearchQuery.toLowerCase();
+                                        const content = (msg.content || '').toLowerCase();
+                                        const pollQuestion = (msg.poll_question || '').toLowerCase();
+                                        const pollOptions = (msg.poll_options || []).join(' ').toLowerCase();
+                                        return content.includes(query) || pollQuestion.includes(query) || pollOptions.includes(query);
+                                    });
 
-                                    return (
-                                        <React.Fragment key={msg.id}>
-                                            {isNewDay && (
-                                                <div className="date-divider" style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    margin: '24px 0 12px 0',
-                                                    position: 'relative'
-                                                }}>
-                                                    <div style={{ height: '1px', background: '#e5e7eb', width: '100%', position: 'absolute' }}></div>
-                                                    <span style={{
-                                                        background: '#f9fafb',
-                                                        padding: '0 16px',
-                                                        fontSize: '11px',
-                                                        color: '#6b7280',
-                                                        fontWeight: 600,
-                                                        zIndex: 1,
-                                                        textTransform: 'uppercase',
-                                                        letterSpacing: '0.05em'
+                                    if (filtered.length === 0 && messageSearchQuery) {
+                                        return (
+                                            <div style={{ textAlign: 'center', padding: '3rem 2rem', color: '#6b7280' }}>
+                                                <Search size={48} style={{ marginBottom: '1rem', opacity: 0.2 }} />
+                                                <p style={{ fontSize: '15px' }}>No messages found matching "<strong>{messageSearchQuery}</strong>"</p>
+                                                <button
+                                                    onClick={() => setMessageSearchQuery('')}
+                                                    style={{
+                                                        marginTop: '1rem',
+                                                        background: 'none',
+                                                        border: '1px solid #d1d5db',
+                                                        padding: '6px 16px',
+                                                        borderRadius: '20px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px'
+                                                    }}
+                                                >
+                                                    Clear Search
+                                                </button>
+                                            </div>
+                                        );
+                                    }
+
+                                    return filtered.map((msg, index, filteredArray) => {
+                                        const prevMsg = filteredArray[index - 1];
+                                        const prevDate = prevMsg ? new Date(prevMsg.created_at).toDateString() : null;
+                                        const currDate = new Date(msg.created_at).toDateString();
+                                        const isNewDay = currDate !== prevDate;
+
+                                        return (
+                                            <React.Fragment key={msg.id}>
+                                                {isNewDay && (
+                                                    <div className="date-divider" style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        margin: '24px 0 12px 0',
+                                                        position: 'relative'
                                                     }}>
-                                                        {formatDividerDate(msg.created_at)}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            <div
-                                                className={`message ${msg.sender_user_id === currentUserId ? 'sent' : 'received'}`}
-                                                style={{ position: 'relative', marginBottom: '8px' }}
-                                                onMouseEnter={() => setHoveredMessageId(msg.id)}
-                                                onMouseLeave={() => setHoveredMessageId(null)}
-                                            >
-                                                <div className="message-bubble" style={{ position: 'relative' }}>
-                                                    {/* Sender Name for Group Chats */}
-                                                    {(selectedConversation.type === 'team' || selectedConversation.type === 'everyone') && msg.sender_user_id !== currentUserId && (
-                                                        <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px', marginLeft: '2px', fontWeight: 600 }}>
-                                                            {getSenderName(msg.sender_user_id)}
-                                                        </div>
-                                                    )}
-
-                                                    {/* Replied Message Context (Snapshot Approach) */}
-                                                    {msg.replied_message_content && (
-                                                        <div style={{
-                                                            padding: '6px 10px',
-                                                            background: 'rgba(0,0,0,0.04)',
-                                                            borderLeft: '3px solid #cbd5e1',
-                                                            marginBottom: '6px',
-                                                            borderRadius: '4px',
-                                                            fontSize: '12px'
+                                                        <div style={{ height: '1px', background: '#e5e7eb', width: '100%', position: 'absolute' }}></div>
+                                                        <span style={{
+                                                            background: '#f9fafb',
+                                                            padding: '0 16px',
+                                                            fontSize: '11px',
+                                                            color: '#6b7280',
+                                                            fontWeight: 600,
+                                                            zIndex: 1,
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.05em'
                                                         }}>
-                                                            <div style={{ color: '#64748b', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 }}>
-                                                                <Reply size={10} />
-                                                                {msg.replied_message_sender_name || 'User'}
+                                                            {formatDividerDate(msg.created_at)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div
+                                                    className={`message ${msg.sender_user_id === currentUserId ? 'sent' : 'received'}`}
+                                                    style={{ position: 'relative', marginBottom: '8px' }}
+                                                    onMouseEnter={() => setHoveredMessageId(msg.id)}
+                                                    onMouseLeave={() => setHoveredMessageId(null)}
+                                                >
+                                                    <div className="message-bubble" style={{ position: 'relative' }}>
+                                                        {/* Sender Name for Group Chats */}
+                                                        {(selectedConversation.type === 'team' || selectedConversation.type === 'everyone') && msg.sender_user_id !== currentUserId && (
+                                                            <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px', marginLeft: '2px', fontWeight: 600 }}>
+                                                                {getSenderName(msg.sender_user_id)}
                                                             </div>
-                                                            <div style={{ color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
-                                                                {msg.replied_message_content}
+                                                        )}
+
+                                                        {/* Replied Message Context (Snapshot Approach) */}
+                                                        {msg.replied_message_content && (
+                                                            <div style={{
+                                                                padding: '6px 10px',
+                                                                background: 'rgba(0,0,0,0.04)',
+                                                                borderLeft: '3px solid #cbd5e1',
+                                                                marginBottom: '6px',
+                                                                borderRadius: '4px',
+                                                                fontSize: '12px'
+                                                            }}>
+                                                                <div style={{ color: '#64748b', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 }}>
+                                                                    <Reply size={10} />
+                                                                    {msg.replied_message_sender_name || 'User'}
+                                                                </div>
+                                                                <div style={{ color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                                                                    {msg.replied_message_content}
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    )}
+                                                        )}
 
-                                                    {/* Message Actions Hover (Unified Action Bar) */}
-                                                    {hoveredMessageId === msg.id && !msg.is_deleted && (
-                                                        <div style={{
-                                                            position: 'absolute',
-                                                            top: '-32px',
-                                                            right: msg.sender_user_id === currentUserId ? '4px' : 'auto',
-                                                            left: msg.sender_user_id !== currentUserId ? '4px' : 'auto',
-                                                            background: 'white',
-                                                            borderRadius: '24px',
-                                                            padding: '4px 8px',
-                                                            boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            gap: '2px',
-                                                            zIndex: 100,
-                                                            border: '1px solid #e5e7eb'
-                                                        }}>
-                                                            <button
-                                                                onClick={() => setReplyingTo({
-                                                                    id: msg.id,
-                                                                    content: msg.content,
-                                                                    sender_name: msg.sender_user_id === currentUserId ? 'You' : (getSenderName(msg.sender_user_id) || 'User')
-                                                                })}
-                                                                title="Reply"
-                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', borderRadius: '50%', transition: 'all 0.2s' }}
-                                                                onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#3b82f6'; }}
-                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
-                                                            >
-                                                                <Reply size={16} />
-                                                            </button>
-                                                            <button
-                                                                onClick={() => setShowReactionPicker(showReactionPicker === msg.id ? null : msg.id)}
-                                                                title="React"
-                                                                style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', borderRadius: '50%', transition: 'all 0.2s' }}
-                                                                onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#eab308'; }}
-                                                                onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
-                                                            >
-                                                                <Smile size={16} />
-                                                            </button>
-
-                                                            {/* Delete Actions (Sender only, within 5 mins) */}
-                                                            {msg.sender_user_id === currentUserId && (new Date() - new Date(msg.created_at)) < 5 * 60 * 1000 && (
-                                                                <>
-                                                                    <div style={{ width: '1px', height: '18px', background: '#e2e8f0', margin: '0 6px' }} />
+                                                        {/* Message Actions Hover (Unified Action Bar) */}
+                                                        {hoveredMessageId === msg.id && !msg.is_deleted && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                top: '-32px',
+                                                                right: msg.sender_user_id === currentUserId ? '4px' : 'auto',
+                                                                left: msg.sender_user_id !== currentUserId ? '4px' : 'auto',
+                                                                background: 'white',
+                                                                borderRadius: '24px',
+                                                                padding: '4px 8px',
+                                                                boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '2px',
+                                                                zIndex: 100,
+                                                                border: '1px solid #e5e7eb'
+                                                            }}>
+                                                                <button
+                                                                    onClick={() => setReplyingTo({
+                                                                        id: msg.id,
+                                                                        content: msg.content,
+                                                                        sender_name: msg.sender_user_id === currentUserId ? 'You' : (getSenderName(msg.sender_user_id) || 'User')
+                                                                    })}
+                                                                    title="Reply"
+                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', borderRadius: '50%', transition: 'all 0.2s' }}
+                                                                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#3b82f6'; }}
+                                                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
+                                                                >
+                                                                    <Reply size={16} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setShowReactionPicker(showReactionPicker === msg.id ? null : msg.id)}
+                                                                    title="React"
+                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', borderRadius: '50%', transition: 'all 0.2s' }}
+                                                                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#eab308'; }}
+                                                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
+                                                                >
+                                                                    <Smile size={16} />
+                                                                </button>
+                                                                {messageReactions[msg.id] && Object.keys(messageReactions[msg.id]).length > 0 && (
                                                                     <button
-                                                                        onClick={() => deleteMessageForMe(msg.id)}
-                                                                        title="Delete for me"
-                                                                        style={{ background: 'none', border: 'none', padding: '4px 8px', cursor: 'pointer', color: '#64748b', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '12px', transition: 'all 0.2s' }}
-                                                                        onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#1e293b'; }}
+                                                                        onClick={() => setViewingReactionsFor(msg.id)}
+                                                                        title="View Reactions"
+                                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', borderRadius: '50%', transition: 'all 0.2s' }}
+                                                                        onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#3b82f6'; }}
                                                                         onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
                                                                     >
-                                                                        <Trash2 size={13} /> Me
+                                                                        <Info size={16} />
                                                                     </button>
-                                                                    <button
-                                                                        onClick={() => deleteMessageForEveryone(msg.id)}
-                                                                        title="Delete for everyone"
-                                                                        style={{ background: 'none', border: 'none', padding: '4px 8px', cursor: 'pointer', color: '#ef4444', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '12px', transition: 'all 0.2s' }}
-                                                                        onMouseEnter={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#b91c1c'; }}
-                                                                        onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#ef4444'; }}
-                                                                    >
-                                                                        <Trash2 size={13} /> All
-                                                                    </button>
-                                                                </>
-                                                            )}
-                                                        </div>
-                                                    )}
+                                                                )}
 
-                                                    {/* Reaction Picker Popup */}
-                                                    {showReactionPicker === msg.id && (
-                                                        <div style={{
-                                                            position: 'absolute',
-                                                            bottom: '100%',
-                                                            right: msg.sender_user_id === currentUserId ? '0' : 'auto',
-                                                            left: msg.sender_user_id !== currentUserId ? '0' : 'auto',
-                                                            background: 'white',
-                                                            border: '1px solid #e5e7eb',
-                                                            borderRadius: '12px',
-                                                            padding: '8px',
-                                                            display: 'flex',
-                                                            gap: '4px',
-                                                            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                                                            zIndex: 100,
-                                                            marginBottom: '8px'
-                                                        }}>
-                                                            {['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👏'].map(emoji => (
-                                                                <button
-                                                                    key={emoji}
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        handleReaction(msg.id, emoji);
-                                                                    }}
-                                                                    style={{
-                                                                        padding: '8px',
-                                                                        background: 'none',
-                                                                        border: 'none',
-                                                                        fontSize: '20px',
-                                                                        cursor: 'pointer',
-                                                                        borderRadius: '8px',
-                                                                        transition: 'transform 0.1s'
-                                                                    }}
-                                                                    onMouseEnter={(e) => e.target.style.transform = 'scale(1.2)'}
-                                                                    onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
-                                                                >
-                                                                    {emoji}
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    )}
-
-                                                    <div className="message-content" style={{ fontStyle: msg.is_deleted ? 'italic' : 'normal', color: msg.is_deleted ? '#94a3b8' : 'inherit' }}>
-                                                        {msg.is_deleted && <Trash2 size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />}
-                                                        {msg.is_deleted ? msg.content : (
-                                                            msg.is_poll ? (
-                                                                <PollContent
-                                                                    msg={msg}
-                                                                    votes={allPollVotes[msg.id] || []}
-                                                                    onVote={(idx) => handleVote(msg.id, idx, msg.allow_multiple_answers)}
-                                                                    currentUserId={currentUserId}
-                                                                    onViewVotes={() => setShowVoteDetails(msg.id)}
-                                                                />
-                                                            ) : renderMessageContent(msg.content)
+                                                                {/* Delete Actions (Sender only, within 5 mins) */}
+                                                                {msg.sender_user_id === currentUserId && (new Date() - new Date(msg.created_at)) < 5 * 60 * 1000 && (
+                                                                    <>
+                                                                        <div style={{ width: '1px', height: '18px', background: '#e2e8f0', margin: '0 6px' }} />
+                                                                        <button
+                                                                            onClick={() => deleteMessageForMe(msg.id)}
+                                                                            title="Delete for me"
+                                                                            style={{ background: 'none', border: 'none', padding: '4px 8px', cursor: 'pointer', color: '#64748b', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '12px', transition: 'all 0.2s' }}
+                                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#1e293b'; }}
+                                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
+                                                                        >
+                                                                            <Trash2 size={13} /> Me
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => deleteMessageForEveryone(msg.id)}
+                                                                            title="Delete for everyone"
+                                                                            style={{ background: 'none', border: 'none', padding: '4px 8px', cursor: 'pointer', color: '#ef4444', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '12px', transition: 'all 0.2s' }}
+                                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#b91c1c'; }}
+                                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#ef4444'; }}
+                                                                        >
+                                                                            <Trash2 size={13} /> All
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
                                                         )}
-                                                    </div>
-                                                    {msg.attachments && msg.attachments.length > 0 && (
-                                                        <div className="message-attachments">
-                                                            {msg.attachments.map(att => (
-                                                                <a
-                                                                    key={att.id}
-                                                                    href={att.url}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="attachment-link"
-                                                                >
-                                                                    📎 {att.file_name}
-                                                                </a>
-                                                            ))}
-                                                        </div>
-                                                    )}
 
-                                                    {/* Reactions Display */}
-                                                    {!msg.is_deleted && messageReactions[msg.id] && Object.keys(messageReactions[msg.id]).length > 0 && (
-                                                        <div style={{
-                                                            display: 'flex',
-                                                            gap: '6px',
-                                                            marginTop: '6px',
-                                                            flexWrap: 'wrap',
-                                                            justifyContent: msg.sender_user_id === currentUserId ? 'flex-end' : 'flex-start',
-                                                            padding: '0 4px'
-                                                        }}>
-                                                            {Object.entries(messageReactions[msg.id]).map(([emoji, data]) => {
-                                                                const isSelf = data.users.some(u => u.user_id === currentUserId);
-                                                                return (
-                                                                    <div
+                                                        {/* Reaction Picker Popup */}
+                                                        {showReactionPicker === msg.id && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                bottom: '100%',
+                                                                right: msg.sender_user_id === currentUserId ? '0' : 'auto',
+                                                                left: msg.sender_user_id !== currentUserId ? '0' : 'auto',
+                                                                background: 'white',
+                                                                border: '1px solid #e5e7eb',
+                                                                borderRadius: '12px',
+                                                                padding: '8px',
+                                                                display: 'flex',
+                                                                gap: '4px',
+                                                                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                                                                zIndex: 100,
+                                                                marginBottom: '8px'
+                                                            }}>
+                                                                {['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👏'].map(emoji => (
+                                                                    <button
                                                                         key={emoji}
                                                                         onClick={(e) => {
                                                                             e.stopPropagation();
                                                                             handleReaction(msg.id, emoji);
                                                                         }}
-                                                                        title={data.users.map(u => u.name).join(', ')}
                                                                         style={{
-                                                                            display: 'inline-flex',
-                                                                            alignItems: 'center',
-                                                                            padding: data.count > 1 ? '3px 10px' : '3px 8px',
-                                                                            background: isSelf ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.8)',
-                                                                            backdropFilter: 'blur(4px)',
-                                                                            border: isSelf ? '1.5px solid #3b82f6' : '1px solid #e2e8f0',
-                                                                            borderRadius: '20px',
-                                                                            fontSize: '14px',
+                                                                            padding: '8px',
+                                                                            background: 'none',
+                                                                            border: 'none',
+                                                                            fontSize: '20px',
                                                                             cursor: 'pointer',
-                                                                            boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
-                                                                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                                                            transform: 'translateY(0)',
+                                                                            borderRadius: '8px',
+                                                                            transition: 'transform 0.1s'
                                                                         }}
-                                                                        onMouseEnter={(e) => {
-                                                                            e.currentTarget.style.transform = 'translateY(-1px)';
-                                                                            e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.06)';
-                                                                        }}
-                                                                        onMouseLeave={(e) => {
-                                                                            e.currentTarget.style.transform = 'translateY(0)';
-                                                                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.04)';
-                                                                        }}
+                                                                        onMouseEnter={(e) => e.target.style.transform = 'scale(1.2)'}
+                                                                        onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
                                                                     >
-                                                                        <span style={{ transform: 'scale(1.1)', display: 'inline-block' }}>{emoji}</span>
-                                                                        {data.count > 1 && (
-                                                                            <span style={{
-                                                                                fontSize: '11px',
-                                                                                color: isSelf ? '#1d4ed8' : '#64748b',
-                                                                                fontWeight: 700,
-                                                                                marginLeft: '4px'
-                                                                            }}>
-                                                                                {data.count}
-                                                                            </span>
-                                                                        )}
-                                                                    </div>
-                                                                );
+                                                                        {emoji}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        <div className="message-content" style={{ fontStyle: msg.is_deleted ? 'italic' : 'normal', color: msg.is_deleted ? '#94a3b8' : 'inherit' }}>
+                                                            {msg.is_deleted && <Trash2 size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />}
+                                                            {msg.is_deleted ? msg.content : (
+                                                                msg.is_poll ? (
+                                                                    <PollContent
+                                                                        msg={msg}
+                                                                        votes={allPollVotes[msg.id] || []}
+                                                                        onVote={(idx) => handleVote(msg.id, idx, msg.allow_multiple_answers)}
+                                                                        currentUserId={currentUserId}
+                                                                        onViewVotes={() => setShowVoteDetails(msg.id)}
+                                                                    />
+                                                                ) : renderMessageContent(msg.content)
+                                                            )}
+                                                        </div>
+                                                        {msg.attachments && msg.attachments.length > 0 && (
+                                                            <div className="message-attachments">
+                                                                {msg.attachments.map(att => (
+                                                                    <a
+                                                                        key={att.id}
+                                                                        href={att.url}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="attachment-link"
+                                                                    >
+                                                                        📎 {att.file_name}
+                                                                    </a>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Reactions Display */}
+                                                        {!msg.is_deleted && messageReactions[msg.id] && Object.keys(messageReactions[msg.id]).length > 0 && (
+                                                            <div style={{
+                                                                display: 'flex',
+                                                                gap: '6px',
+                                                                marginTop: '6px',
+                                                                flexWrap: 'wrap',
+                                                                justifyContent: msg.sender_user_id === currentUserId ? 'flex-end' : 'flex-start',
+                                                                padding: '0 4px'
+                                                            }}>
+                                                                {Object.entries(messageReactions[msg.id]).map(([emoji, data]) => {
+                                                                    const isSelf = data.users.some(u => u.user_id === currentUserId);
+                                                                    return (
+                                                                        <div
+                                                                            key={emoji}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleReaction(msg.id, emoji);
+                                                                            }}
+                                                                            title={data.users.map(u => u.name).join(', ')}
+                                                                            style={{
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                padding: data.count > 1 ? '3px 10px' : '3px 8px',
+                                                                                background: isSelf ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+                                                                                backdropFilter: 'blur(4px)',
+                                                                                border: isSelf ? '1.5px solid #3b82f6' : '1px solid #e2e8f0',
+                                                                                borderRadius: '20px',
+                                                                                fontSize: '14px',
+                                                                                cursor: 'pointer',
+                                                                                boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+                                                                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                                                transform: 'translateY(0)',
+                                                                            }}
+                                                                            onMouseEnter={(e) => {
+                                                                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                                                                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.06)';
+                                                                            }}
+                                                                            onMouseLeave={(e) => {
+                                                                                e.currentTarget.style.transform = 'translateY(0)';
+                                                                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.04)';
+                                                                            }}
+                                                                        >
+                                                                            <span style={{ transform: 'scale(1.1)', display: 'inline-block' }}>{emoji}</span>
+                                                                            {data.count > 1 && (
+                                                                                <span style={{
+                                                                                    fontSize: '11px',
+                                                                                    color: isSelf ? '#1d4ed8' : '#64748b',
+                                                                                    fontWeight: 700,
+                                                                                    marginLeft: '4px'
+                                                                                }}>
+                                                                                    {data.count}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+
+                                                        <div className="message-time">
+                                                            {new Date(msg.created_at).toLocaleTimeString([], {
+                                                                hour: '2-digit',
+                                                                minute: '2-digit'
                                                             })}
                                                         </div>
-                                                    )}
-
-                                                    <div className="message-time">
-                                                        {new Date(msg.created_at).toLocaleTimeString([], {
-                                                            hour: '2-digit',
-                                                            minute: '2-digit'
-                                                        })}
                                                     </div>
                                                 </div>
-                                            </div>
-                                        </React.Fragment>
-                                    );
-                                })
+                                            </React.Fragment>
+                                        );
+                                    })
+                                })()
                             )}
+                            <div ref={messagesEndRef} />
                         </div>
 
                         <div className="message-input-container">
@@ -2673,6 +2931,16 @@ const MessagingHub = () => {
                 </div>
             )}
 
+            {/* Reaction Details Modal */}
+            {viewingReactionsFor && (
+                <ReactionDetailsModal
+                    messageId={viewingReactionsFor}
+                    reactions={messageReactions[viewingReactionsFor]}
+                    onClose={() => setViewingReactionsFor(null)}
+                    currentUserId={currentUserId}
+                />
+            )}
+
             {/* Vote Details Modal */}
             {showVoteDetails && (
                 <div className="modal-overlay" onClick={() => setShowVoteDetails(null)}>
@@ -2731,6 +2999,142 @@ const MessagingHub = () => {
             )}
         </div>
 
+    );
+};
+
+// Reaction Details Modal Component
+const ReactionDetailsModal = ({ messageId, reactions, onClose, currentUserId }) => {
+    const [activeTab, setActiveTab] = useState('All');
+
+    if (!reactions || Object.keys(reactions).length === 0) return null;
+
+    const allReactions = Object.entries(reactions).flatMap(([emoji, data]) =>
+        data.users.map(u => ({ ...u, emoji }))
+    );
+
+    const tabs = ['All', ...Object.keys(reactions)];
+
+    const displayedUsers = activeTab === 'All'
+        ? allReactions
+        : reactions[activeTab]?.users.map(u => ({ ...u, emoji: activeTab })) || [];
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10000
+        }} onClick={onClose}>
+            <div style={{
+                background: 'white',
+                borderRadius: '12px',
+                width: '400px',
+                maxWidth: '90%',
+                maxHeight: '80vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.2)'
+            }} onClick={e => e.stopPropagation()}>
+                <div style={{
+                    padding: '16px',
+                    borderBottom: '1px solid #e5e7eb',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Message Reactions</h3>
+                    <button
+                        onClick={onClose}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div style={{
+                    display: 'flex',
+                    gap: '8px',
+                    padding: '12px 16px',
+                    borderBottom: '1px solid #e5e7eb',
+                    overflowX: 'auto'
+                }}>
+                    {tabs.map(tab => (
+                        <button
+                            key={tab}
+                            onClick={() => setActiveTab(tab)}
+                            style={{
+                                padding: '6px 12px',
+                                borderRadius: '16px',
+                                border: 'none',
+                                background: activeTab === tab ? '#eff6ff' : 'transparent',
+                                color: activeTab === tab ? '#2563eb' : '#64748b',
+                                fontWeight: 500,
+                                fontSize: '13px',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            {tab === 'All' ? `All ${allReactions.length}` : `${tab} ${reactions[tab].count}`}
+                        </button>
+                    ))}
+                </div>
+
+                <div style={{
+                    padding: '16px',
+                    overflowY: 'auto',
+                    flex: 1
+                }}>
+                    {displayedUsers.map((user, idx) => (
+                        <div key={`${user.user_id}-${idx}`} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            padding: '8px 0',
+                            borderBottom: idx < displayedUsers.length - 1 ? '1px solid #f1f5f9' : 'none'
+                        }}>
+                            <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: '#e2e8f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                color: '#64748b',
+                                overflow: 'hidden'
+                            }}>
+                                {user.avatar_url ? (
+                                    <img src={user.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                    (user.name || 'U').charAt(0).toUpperCase()
+                                )}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '14px', fontWeight: 500, color: '#1e293b' }}>
+                                    {user.user_id === currentUserId ? 'You' : user.name}
+                                </div>
+                            </div>
+                            <div style={{ fontSize: '20px' }}>
+                                {user.emoji}
+                            </div>
+                        </div>
+                    ))}
+                    {displayedUsers.length === 0 && (
+                        <div style={{ textAlign: 'center', color: '#64748b', padding: '20px' }}>
+                            No reactions yet.
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
     );
 };
 
