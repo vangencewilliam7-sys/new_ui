@@ -77,15 +77,13 @@ const DashboardHome = () => {
                     // 3. Fetch Leave Balance from profiles table
                     const { data: profileData } = await supabase
                         .from('profiles')
-                        .select('leaves_remaining, monthly_leave_quota, team_id')
+                        .select('total_leaves_balance, monthly_leave_quota, team_id')
                         .eq('id', user.id)
                         .single();
 
                     if (profileData) {
-                        // Use leaves_remaining (even if 0), only fall back if null/undefined
-                        setLeaveBalance(profileData.leaves_remaining !== null && profileData.leaves_remaining !== undefined
-                            ? profileData.leaves_remaining
-                            : (profileData.monthly_leave_quota || 0));
+                        // Use total_leaves_balance
+                        setLeaveBalance(profileData.total_leaves_balance ?? (profileData.monthly_leave_quota || 0));
                     }
 
                     // 4. Fetch All Employees & Team Members

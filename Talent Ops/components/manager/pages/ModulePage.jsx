@@ -58,6 +58,8 @@ const ModulePage = ({ title, type }) => {
     const [selectedLeaveRequest, setSelectedLeaveRequest] = useState(null);
     const [showLeaveDetailsModal, setShowLeaveDetailsModal] = useState(false);
     const [employeeTasks, setEmployeeTasks] = useState([]);
+    const [evalBalance, setEvalBalance] = useState(0);
+    const [evalPendingPaid, setEvalPendingPaid] = useState(0);
 
     // ... (rest of states)
 
@@ -579,6 +581,8 @@ const ModulePage = ({ title, type }) => {
                                     startDate: leave.from_date, // Added for calculation
                                     endDate: leave.to_date, // Added for calculation
                                     duration: `${diffDays} Days`,
+                                    duration_weekdays: leave.duration_weekdays, // Critical for approval calculation
+                                    lop_days: leave.lop_days, // Critical for approval calculation
                                     dates: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`,
                                     status: leave.status ? leave.status.charAt(0).toUpperCase() + leave.status.slice(1).toLowerCase() : 'Pending'
                                 };
@@ -644,13 +648,13 @@ const ModulePage = ({ title, type }) => {
 
             const { data } = await supabase
                 .from('profiles')
-                .select('leaves_remaining')
+                .select('total_leaves_balance')
                 .eq('id', user.id)
                 .eq('org_id', orgId)
                 .single();
 
             if (data) {
-                setRemainingLeaves(data.leaves_remaining || 0);
+                setRemainingLeaves(data.total_leaves_balance || 0);
             }
         };
 
@@ -788,6 +792,23 @@ const ModulePage = ({ title, type }) => {
             const pTasks = await fetchPendingTasks(user.id);
             setPendingTasks(pTasks);
         }
+
+        // Fetch live balance and other pending requests for re-evaluation preview
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('total_leaves_balance')
+            .eq('id', leaveRequest.employee_id)
+            .single();
+
+        const { data: pending } = await supabase
+            .from('leaves')
+            .select('duration_weekdays')
+            .eq('employee_id', leaveRequest.employee_id)
+            .eq('status', 'pending')
+            .neq('id', leaveRequest.id); // Exclude the current one
+
+        setEvalBalance(profile?.total_leaves_balance || 0);
+        setEvalPendingPaid(pending?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0);
 
         // Run AI analysis for the leave request
         try {
@@ -950,48 +971,78 @@ const ModulePage = ({ title, type }) => {
                 // Database update (Lowercase for DB)
                 const dbStatus = action === 'Approve' ? 'approved' : 'rejected';
 
-                const { error } = await supabase
-                    .from('leaves')
-                    .update({ status: dbStatus })
-                    .eq('id', item.id)
-                    .eq('org_id', orgId);
+                // Fetch latest profile status for the employee
+                const { data: profileData, error: profileFetchError } = await supabase
+                    .from('profiles')
+                    .select('leaves_taken_this_month, total_leaves_balance')
+                    .eq('id', item.employee_id)
+                    .eq('org_id', orgId)
+                    .single();
 
-                if (error) throw error;
+                if (profileFetchError) throw profileFetchError;
 
-                // Refund logic: If Rejected AND NOT 'Loss of Pay', decrement leaves_taken_this_month
-                if (action === 'Reject' && item.type !== 'Loss of Pay' && item.employee_id) {
-                    const start = new Date(item.startDate);
-                    const end = new Date(item.endDate);
-                    const diffTime = Math.abs(end - start);
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                let finalPaid = item.duration_weekdays || 0;
+                let finalLop = item.lop_days || 0;
 
-                    // Fetch current profile stats
-                    const { data: profileData, error: profileFetchError } = await supabase
+                if (action === 'Approve') {
+                    // Re-calculate the split based on the CURRENT live balance
+                    // This allows "converting" LOP to Paid if other leaves were rejected in the meantime
+                    const totalRequestedWeekdays = (item.duration_weekdays || 0) + (item.lop_days || 0);
+                    const currentBalance = profileData.total_leaves_balance || 0;
+
+                    finalPaid = Math.max(0, Math.min(totalRequestedWeekdays, currentBalance));
+                    finalLop = totalRequestedWeekdays - finalPaid;
+
+                    // Update leave record with final split and status
+                    const { error: leaveUpdateError } = await supabase
+                        .from('leaves')
+                        .update({
+                            status: dbStatus,
+                            duration_weekdays: finalPaid,
+                            lop_days: finalLop
+                        })
+                        .eq('id', item.id)
+                        .eq('org_id', orgId);
+
+                    if (leaveUpdateError) throw leaveUpdateError;
+
+                    // Update profile for deduction
+                    const newTaken = (profileData.leaves_taken_this_month || 0) + finalPaid;
+                    const newBalance = currentBalance - finalPaid;
+
+                    const { error: profileUpdateError } = await supabase
                         .from('profiles')
-                        .select('leaves_taken_this_month')
+                        .update({
+                            leaves_taken_this_month: newTaken,
+                            total_leaves_balance: newBalance
+                        })
                         .eq('id', item.employee_id)
-                        .eq('org_id', orgId)
-                        .single();
+                        .eq('org_id', orgId);
 
-                    if (profileData) {
-                        const currentTaken = profileData.leaves_taken_this_month || 0;
-                        const newTaken = Math.max(0, currentTaken - diffDays); // Prevent negative
+                    if (profileUpdateError) throw profileUpdateError;
+                    console.log(`Approved: Deducted ${finalPaid} paid days. New balance: ${newBalance}`);
 
-                        const { error: refundError } = await supabase
-                            .from('profiles')
-                            .update({ leaves_taken_this_month: newTaken })
-                            .eq('id', item.employee_id)
-                            .eq('org_id', orgId);
+                } else {
+                    // For Rejection, we just update status. 
+                    // No refund logic needed because balance was never deducted upfront.
+                    const { error: rejectError } = await supabase
+                        .from('leaves')
+                        .update({ status: dbStatus })
+                        .eq('id', item.id)
+                        .eq('org_id', orgId);
 
-                        if (refundError) console.error('Error refunding leave balance:', refundError);
-                        else console.log(`Refunded ${diffDays} days to employee ${item.employee_id}`);
-                    }
+                    if (rejectError) throw rejectError;
                 }
 
                 // Send Notification to the Employee
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user && item.employee_id) {
-                    const notificationMessage = `Your leave request for ${item.dates} has been ${action === 'Approve' ? 'Approved' : 'Rejected'}.`;
+                    const actionWord = action === 'Approve' ? 'Approved' : 'Rejected';
+                    let notificationMessage = `Your leave request for ${item.dates} has been ${actionWord}.`;
+
+                    if (action === 'Approve' && finalLop > 0) {
+                        notificationMessage += ` (Partial LOP: ${finalLop} days)`;
+                    }
 
                     await supabase.from('notifications').insert({
                         receiver_id: item.employee_id,
@@ -1186,28 +1237,7 @@ const ModulePage = ({ title, type }) => {
 
             if (error) throw error;
 
-            // Update remaining leaves if NOT loss of pay
-            if (leaveFormData.leaveType !== 'Loss of Pay') {
-                const { data: userData, error: userError } = await supabase
-                    .from('profiles')
-                    .select('monthly_leave_quota, leaves_taken_this_month')
-                    .eq('id', user.id)
-                    .eq('org_id', orgId)
-                    .single();
-
-                if (userError) throw userError;
-
-                const newTaken = (userData.leaves_taken_this_month || 0) + requestedDays;
-
-                const { error: updateError } = await supabase
-                    .from('profiles')
-                    .update({ leaves_taken_this_month: newTaken })
-                    .eq('id', user.id)
-                    .eq('org_id', orgId);
-
-                if (updateError) throw updateError;
-                setRemainingLeaves((userData.monthly_leave_quota || 0) - newTaken);
-            }
+            // Balance update REMOVED. Deduction now occurs only on Approval to prevent balance jumps.
 
             // Update local state
             if (data && data.length > 0) {
@@ -2932,6 +2962,70 @@ const ModulePage = ({ title, type }) => {
                             isLoading={isAnalyzing}
                             variant="manager"
                         />
+
+                        {/* Live Re-evaluation Preview */}
+                        {selectedLeaveRequest.status === 'Pending' && (
+                            <div style={{
+                                marginTop: '24px',
+                                padding: '24px',
+                                borderRadius: '20px',
+                                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                                border: '1px solid #bae6fd',
+                                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', color: '#0369a1' }}>
+                                    <Activity size={20} />
+                                    <h4 style={{ fontSize: '1.2rem', fontWeight: '800', margin: 0 }}>Live Approval Preview</h4>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+                                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '14px', border: '1px solid #e0f2fe' }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Current Balance</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalBalance} Days</div>
+                                    </div>
+                                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '14px', border: '1px solid #e0f2fe' }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Other Pending (Paid)</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalPendingPaid} Days</div>
+                                    </div>
+                                    <div style={{
+                                        backgroundColor: '#0369a1',
+                                        padding: '16px',
+                                        borderRadius: '14px',
+                                        color: 'white',
+                                        gridColumn: 'span 1'
+                                    }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', marginBottom: '8px' }}>Effective Balance</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800' }}>{Math.max(0, evalBalance - evalPendingPaid)} Days</div>
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    marginTop: '16px',
+                                    padding: '12px 16px',
+                                    backgroundColor: 'rgba(255,255,255,0.5)',
+                                    borderRadius: '12px',
+                                    fontSize: '0.9rem',
+                                    fontWeight: '600',
+                                    color: '#0c4a6e',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0ea5e9' }}></div>
+                                    {(() => {
+                                        const totalReq = (selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0);
+                                        const effective = Math.max(0, evalBalance - evalPendingPaid);
+                                        const willBePaid = Math.max(0, Math.min(totalReq, effective));
+                                        const willBeLop = totalReq - willBePaid;
+
+                                        if (willBeLop > 0) {
+                                            return `If approved: ${willBePaid} days will be Paid, ${willBeLop} days will be Loss of Pay.`;
+                                        }
+                                        return `If approved: All ${willBePaid} days will be Paid.`;
+                                    })()}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Tasks During Leave */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '24px' }}>

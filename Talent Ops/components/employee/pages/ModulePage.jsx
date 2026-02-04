@@ -96,13 +96,13 @@ const ModulePage = ({ title, type }) => {
                 addToast('Error fetching leaves: ' + error.message, 'error');
             } else {
                 console.log('Leaves fetched from DB:', data);
-                console.log('First leave created_at:', data?.[0]?.created_at);
                 // Map Supabase data to table format
                 const mappedLeaves = data.map(leave => {
                     const start = new Date(leave.from_date);
                     const end = new Date(leave.to_date);
-                    const diffTime = Math.abs(end - start);
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+                    // Use duration_weekdays if available in DB, else calculate on the fly
+                    const diffDays = leave.duration_weekdays || calculateWeekdayDuration(leave.from_date, leave.to_date);
 
                     let type = 'Leave';
                     let reason = leave.reason || '';
@@ -110,6 +110,10 @@ const ModulePage = ({ title, type }) => {
                         const parts = reason.split(':');
                         type = parts[0];
                     }
+
+                    // If lop_days > 0, we can mention it in the type or duration
+                    const displayDuration = diffDays === 1 ? '1 Day' : `${diffDays} Days`;
+                    const lopSuffix = leave.lop_days > 0 ? ` (+${leave.lop_days} LOP)` : '';
 
                     // Normalize status for display (capitalized)
                     const status = leave.status ? leave.status.charAt(0).toUpperCase() + leave.status.slice(1).toLowerCase() : 'Pending';
@@ -122,13 +126,15 @@ const ModulePage = ({ title, type }) => {
                         reason: leave.reason || 'No reason provided', // Include full reason from DB
                         startDate: leave.from_date,
                         endDate: leave.to_date,
-                        duration: diffDays === 1 ? '1 Day' : `${diffDays} Days`,
+                        duration: displayDuration + lopSuffix,
                         dates: start.toDateString() === end.toDateString()
                             ? start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })
                             : `${start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}`,
                         status: status,
                         appliedOn: leave.created_at ? new Date(leave.created_at).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'N/A',
-                        created_at: leave.created_at // For sorting
+                        created_at: leave.created_at, // For sorting
+                        lop_days: leave.lop_days || 0,
+                        duration_weekdays: diffDays
                     };
                 });
                 // Sort by status (Pending first) then by created_at descending
@@ -148,24 +154,41 @@ const ModulePage = ({ title, type }) => {
 
             const { data, error } = await supabase
                 .from('profiles')
-                .select('leaves_remaining, monthly_leave_quota, leaves_taken_this_month')
+                .select('total_leaves_balance, monthly_leave_quota, leaves_taken_this_month')
                 .eq('id', user.id)
                 .eq('org_id', orgId)
                 .single();
 
             if (data) {
-                // Calculate dynamically to ensure consistency
-                const quota = data.monthly_leave_quota || 0;
-                const taken = data.leaves_taken_this_month || 0;
-                // If quota is present, trust the calculation. Otherwise fallback to stored remaining.
-                const calculatedRemaining = quota > 0 ? (quota - taken) : (data.leaves_remaining || 0);
-                setRemainingLeaves(calculatedRemaining);
+                // Return total accumulated balance
+                setRemainingLeaves(data.total_leaves_balance || 0);
             }
         };
 
         fetchLeaves();
         fetchRemainingLeaves();
     }, [userId, userName, addToast, refreshTrigger, orgId]);
+
+    // Helper to check if a date is a weekday (Mon-Fri)
+    const isWeekday = (dateString) => {
+        const date = new Date(dateString);
+        const day = date.getDay();
+        return day !== 0 && day !== 6; // 0 is Sunday, 6 is Saturday
+    };
+
+    // Helper to calculate duration excluding weekends
+    const calculateWeekdayDuration = (startDate, endDate) => {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        let count = 0;
+        const cur = new Date(start);
+        while (cur <= end) {
+            const day = cur.getDay();
+            if (day !== 0 && day !== 6) count++;
+            cur.setDate(cur.getDate() + 1);
+        }
+        return count;
+    };
 
     // Fetch team members based on Current Project
     useEffect(() => {
@@ -529,14 +552,9 @@ const ModulePage = ({ title, type }) => {
         }
 
         try {
-            // Calculate duration for refund
-            const start = new Date(leaveRequest.startDate);
-            const end = new Date(leaveRequest.endDate);
-            const diffTime = Math.abs(end - start);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
-            // Check if it was NOT Loss of Pay (we need to refund the balance)
-            const isLossOfPay = leaveRequest.type === 'Loss of Pay';
+            // Calculate duration for refund (Paid days only)
+            // If the record has duration_weekdays saved, use that MINUS lop_days
+            const paidDaysToRefund = (leaveRequest.duration_weekdays || 0);
 
             // Delete the leave request
             const { error: deleteError } = await supabase
@@ -547,27 +565,8 @@ const ModulePage = ({ title, type }) => {
 
             if (deleteError) throw deleteError;
 
-            // Refund leave balance if it wasn't Loss of Pay and status was pending
-            if (!isLossOfPay && leaveRequest.status === 'Pending') {
-                const { data: userData, error: userError } = await supabase
-                    .from('profiles')
-                    .select('leaves_taken_this_month, monthly_leave_quota')
-                    .eq('id', userId)
-                    .eq('org_id', orgId)
-                    .single();
-
-                if (!userError && userData) {
-                    const newTaken = Math.max(0, (userData.leaves_taken_this_month || 0) - diffDays);
-                    await supabase
-                        .from('profiles')
-                        .update({ leaves_taken_this_month: newTaken })
-                        .eq('id', userId)
-                        .eq('org_id', orgId);
-
-                    // Update local remaining leaves state
-                    setRemainingLeaves((userData.monthly_leave_quota || 0) - newTaken);
-                }
-            }
+            // Refund logic REMOVED. Since leaves are no longer deducted on application, 
+            // no refund is needed when deleting a pending request.
 
             // Update local state
             setLeaveRequests(prev => prev.filter(l => l.id !== leaveRequest.id));
@@ -811,10 +810,40 @@ const ModulePage = ({ title, type }) => {
             const currentTeamId = profileData?.team_id || null;
             console.log('Submitting leave with team_id:', currentTeamId);
 
-            let insertError = null;
+            // Calculate total weekdays requested
+            const weekdaysRequested = useSpecificDates
+                ? datesToApply.filter(date => isWeekday(date)).length
+                : calculateWeekdayDuration(leaveFormData.startDate, leaveFormData.endDate);
+
+            // Fetch latest balance AND pending leaves to calculate effective balance
+            // This prevents over-drawing before a manager reviews pending requests
+            const { data: userData, error: userError } = await supabase
+                .from('profiles')
+                .select('total_leaves_balance, leaves_taken_this_month')
+                .eq('id', userId)
+                .eq('org_id', orgId)
+                .single();
+
+            if (userError) throw userError;
+
+            const { data: pendingLeaves, error: pendingError } = await supabase
+                .from('leaves')
+                .select('duration_weekdays')
+                .eq('employee_id', userId)
+                .eq('status', 'pending');
+
+            if (pendingError) throw pendingError;
+
+            const sumPendingPaid = pendingLeaves?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0;
+            const currentBalance = userData.total_leaves_balance || 0;
+            const effectiveBalance = Math.max(0, currentBalance - sumPendingPaid);
+
+            const paidDays = Math.max(0, Math.min(weekdaysRequested, effectiveBalance));
+            const lopDays = weekdaysRequested - paidDays;
 
             const leaveReason = `${leaveFormData.leaveType}: ${leaveFormData.reason}` +
-                (useSpecificDates ? ` (Dates: ${datesToApply.join(', ')})` : '');
+                (useSpecificDates ? ` (Dates: ${datesToApply.join(', ')})` : '') +
+                (lopDays > 0 ? ` [Loss of Pay: ${lopDays} days]` : '');
 
             const leaveRows = useSpecificDates
                 ? datesToApply.map(date => ({
@@ -824,7 +853,9 @@ const ModulePage = ({ title, type }) => {
                     from_date: date,
                     to_date: date,
                     reason: leaveReason,
-                    status: 'pending'
+                    status: 'pending',
+                    duration_weekdays: isWeekday(date) ? 1 : 0,
+                    lop_days: 0 // We'll handle LOP specifically for ranges, for specific dates it's harder to split per row unless we iterate
                 }))
                 : [{
                     employee_id: userId,
@@ -833,8 +864,25 @@ const ModulePage = ({ title, type }) => {
                     from_date: leaveFormData.startDate,
                     to_date: leaveFormData.endDate,
                     reason: leaveReason,
-                    status: 'pending'
+                    status: 'pending',
+                    duration_weekdays: paidDays,
+                    lop_days: lopDays
                 }];
+
+            // If using specific dates, we need to decide which ones are LOP
+            if (useSpecificDates) {
+                let remainingPaid = paidDays;
+                leaveRows.forEach(row => {
+                    if (row.duration_weekdays > 0) {
+                        if (remainingPaid > 0) {
+                            remainingPaid--;
+                        } else {
+                            row.lop_days = 1;
+                            row.duration_weekdays = 0;
+                        }
+                    }
+                });
+            }
 
             // Attempt 1: Try with the fetched team_id
             const { error: attempt1Error } = await supabase
@@ -843,70 +891,17 @@ const ModulePage = ({ title, type }) => {
 
             if (attempt1Error) {
                 console.warn('Attempt 1 with team_id failed:', attempt1Error);
-
-                // Check if it looks like an FK violation (409 or explicit FK message)
+                // Retrying logic... (same as original)
                 if (attempt1Error.code === '23503' || attempt1Error.code === '409' || attempt1Error.message?.includes('violates foreign key constraint')) {
-                    console.log('Retrying with team_id: null due to FK violation...');
-
-                    // Attempt 2: Retry with team_id = null
                     const fallbackRows = leaveRows.map(row => ({ ...row, team_id: null }));
-                    const { error: attempt2Error } = await supabase
-                        .from('leaves')
-                        .insert(fallbackRows);
-
-                    if (attempt2Error) {
-                        insertError = attempt2Error; // Both failed
-                    }
+                    const { error: attempt2Error } = await supabase.from('leaves').insert(fallbackRows);
+                    if (attempt2Error) throw attempt2Error;
                 } else {
-                    insertError = attempt1Error; // Not an FK error, so just fail
+                    throw attempt1Error;
                 }
             }
 
-            if (insertError) throw insertError;
-
-            // if (error) throw error; // Removed undefined variable reference
-
-            // Calculate duration for update
-            const start = new Date(leaveFormData.startDate);
-            const end = new Date(leaveFormData.endDate);
-            const diffTime = Math.abs(end - start);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-            const requestedDays = useSpecificDates ? datesToApply.length : diffDays;
-
-            // 2. Only update quota/balance if NOT 'Loss of Pay'
-            if (leaveFormData.leaveType !== 'Loss of Pay') {
-                // Fetch current user data to get leave balance and quota
-                const { data: userData, error: userError } = await supabase
-                    .from('profiles')
-                    .select('monthly_leave_quota, leaves_taken_this_month')
-                    .eq('id', userId)
-                    .eq('org_id', orgId)
-                    .single();
-
-                if (userError) throw userError;
-
-                // 3. Update 'leaves_taken_this_month' in profiles
-                // Note: 'leaves_remaining' is a GENERATED COLUMN in the DB, so we cannot update it manually.
-                // It will auto-calculate based on quota - taken.
-                const newTaken = (userData.leaves_taken_this_month || 0) + requestedDays;
-
-                // Calculate newRemaining locally for UI update
-                const quota = userData.monthly_leave_quota || 0;
-                const newRemaining = Math.max(0, quota - newTaken);
-
-                const { error: updateError } = await supabase
-                    .from('profiles')
-                    .update({
-                        leaves_taken_this_month: newTaken
-                    })
-                    .eq('id', userId)
-                    .eq('org_id', orgId);
-
-                if (updateError) throw updateError;
-
-                // Update local state for remaining leaves instantly
-                setRemainingLeaves(newRemaining);
-            }
+            // Balance update REMOVED. Deduction now occurs only on Approval to prevent balance jumps.
 
             // --- NOTIFICATION LOGIC START ---
             try {
