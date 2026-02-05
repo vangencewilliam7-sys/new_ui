@@ -16,13 +16,59 @@ const FullRankingPage = () => {
     const fetchRankings = async () => {
         try {
             setLoading(true);
-            const { data, error } = await supabase
-                .from('employee_rankings_view')
+
+            // 1. Fetch all reviews first
+            const { data: reviews, error: reviewsError } = await supabase
+                .from('employee_reviews')
                 .select('*')
                 .order('manager_score_total', { ascending: false });
 
-            if (error) throw error;
-            setRankings(data || []);
+            if (reviewsError) throw reviewsError;
+
+            if (!reviews || reviews.length === 0) {
+                setRankings([]);
+                return;
+            }
+
+            // 2. Fetch profiles for these reviews
+            const userIds = reviews.map(r => r.user_id);
+            const { data: profiles, error: profilesError } = await supabase
+                .from('profiles')
+                .select('id, full_name, job_title, department, avatar_url')
+                .in('id', userIds);
+
+            if (profilesError) throw profilesError;
+
+            // 3. Fetch departments for mapping
+            const { data: departmentsData, error: deptError } = await supabase
+                .from('departments')
+                .select('id, department_name');
+
+            if (deptError) console.error('Error fetching departments:', deptError); // Log but continue
+
+            const deptMap = {};
+            if (departmentsData) {
+                departmentsData.forEach(d => {
+                    deptMap[d.id] = d.department_name;
+                });
+            }
+
+            // 4. Merge data
+            const formattedData = reviews.map(review => {
+                const profile = profiles?.find(p => p.id === review.user_id);
+                const deptId = profile?.department;
+                const deptName = deptId ? (deptMap[deptId] || deptId) : '-'; // Fallback to ID if not found, or '-' if null
+
+                return {
+                    ...review,
+                    full_name: profile?.full_name || 'Unknown',
+                    job_title: profile?.job_title,
+                    department: deptName,
+                    avatar_url: profile?.avatar_url
+                };
+            });
+
+            setRankings(formattedData);
         } catch (error) {
             console.error('Error fetching rankings:', error);
         } finally {
@@ -128,6 +174,8 @@ const FullRankingPage = () => {
                                     <th className="p-4 font-semibold w-20 text-center">Rank</th>
                                     <th className="p-4 font-semibold">Employee</th>
                                     <th className="p-4 font-semibold hidden md:table-cell">Department</th>
+                                    <th className="p-4 font-semibold text-right">Dev Score</th>
+                                    <th className="p-4 font-semibold text-right">Soft Skill Score</th>
                                     <th className="p-4 font-semibold text-right">Total Score</th>
                                     <th className="p-4 font-semibold text-right">Percentage</th>
                                 </tr>
@@ -135,11 +183,11 @@ const FullRankingPage = () => {
                             <tbody className="divide-y divide-mist">
                                 {loading ? (
                                     <tr>
-                                        <td colSpan="5" className="p-8 text-center text-graphite-light">Loading rankings...</td>
+                                        <td colSpan="7" className="p-8 text-center text-graphite-light">Loading rankings...</td>
                                     </tr>
                                 ) : filteredRankings.length === 0 ? (
                                     <tr>
-                                        <td colSpan="5" className="p-8 text-center text-graphite-light">No rankings found.</td>
+                                        <td colSpan="7" className="p-8 text-center text-graphite-light">No rankings found.</td>
                                     </tr>
                                 ) : (
                                     filteredRankings.map((entry, index) => (
@@ -172,7 +220,15 @@ const FullRankingPage = () => {
                                                 {entry.department || '-'}
                                             </td>
                                             <td className="p-4 text-right">
-                                                <span className="font-bold text-ink">{entry.manager_score_total}</span>
+                                                <span className="font-bold text-ink">{entry.manager_score_dev || 0}</span>
+                                                <span className="text-xs text-graphite-light ml-1">/ 90</span>
+                                            </td>
+                                            <td className="p-4 text-right">
+                                                <span className="font-bold text-ink">{entry.manager_score_soft || 0}</span>
+                                                <span className="text-xs text-graphite-light ml-1">/ 100</span>
+                                            </td>
+                                            <td className="p-4 text-right">
+                                                <span className="font-bold text-ink">{entry.manager_score_total || 0}</span>
                                                 <span className="text-xs text-graphite-light ml-1">/ 190</span>
                                             </td>
                                             <td className="p-4 text-right">
