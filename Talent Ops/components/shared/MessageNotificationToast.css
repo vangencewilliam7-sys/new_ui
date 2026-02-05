@@ -2,7 +2,7 @@
 
 .notification-stack {
     position: fixed;
-    left: 16px;
+    right: 16px;
     bottom: 80px;
     z-index: 9999;
     display: flex;
@@ -22,19 +22,19 @@
     border-radius: 16px;
     padding: 0;
     overflow: hidden;
-    animation: slideInLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    animation: slideInRight 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
     box-shadow: 
         0 10px 40px rgba(0, 0, 0, 0.4),
         0 0 20px rgba(139, 92, 246, 0.15),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(20px);
     opacity: 0;
-    transform: translateX(-120%);
+    transform: translateX(120%);
 }
 
-@keyframes slideInLeft {
+@keyframes slideInRight {
     from { 
-        transform: translateX(-120%); 
+        transform: translateX(120%); 
         opacity: 0; 
     }
     to { 
@@ -43,13 +43,13 @@
     }
 }
 
-@keyframes slideOutLeft {
+@keyframes slideOutRight {
     from { 
         transform: translateX(0); 
         opacity: 1; 
     }
     to { 
-        transform: translateX(-120%); 
+        transform: translateX(120%); 
         opacity: 0; 
     }
 }

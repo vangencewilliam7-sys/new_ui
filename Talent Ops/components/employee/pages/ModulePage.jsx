@@ -16,22 +16,9 @@ import PayslipsPage from '../../shared/PayslipsPage';
 import AnnouncementsPage from '../../shared/AnnouncementsPage';
 import ProjectHierarchyDemo from '../../shared/ProjectHierarchyDemo';
 import ProjectDocuments from './ProjectDocuments';
-import AILeaveInsight from '../../shared/AILeaveInsight';
-import { analyzeLeaveRequest } from '../../../services/AILeaveAdvisor';
 
-const APPLIER_RESPONSIBILITIES = [
-    "Complete high-priority current tasks",
-    "Handover pending tasks to a teammate",
-    "Update status/progress on all active tasks",
-    "Ensure relevant documentation is accessible"
-];
 
-const APPROVER_RESPONSIBILITIES = [
-    "Review applier's workload during leave period",
-    "Check own pending tasks for bottlenecks",
-    "Coordinate task reallocation with team",
-    "Ensure project deadlines are not compromised"
-];
+
 
 const ModulePage = ({ title, type }) => {
     const { addToast } = useToast();
@@ -407,39 +394,9 @@ const ModulePage = ({ title, type }) => {
     const [selectedDates, setSelectedDates] = useState([]);
     const [dateToAdd, setDateToAdd] = useState('');
 
-    // AI Leave Analysis state
-    const [aiAnalysis, setAiAnalysis] = useState(null);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-    // AI Analysis effect - triggers when leave dates change
-    useEffect(() => {
-        const runAnalysis = async () => {
-            // Determine dates to analyze
-            const hasSpecificDates = selectedDates.length > 0;
-            const startDate = hasSpecificDates ? selectedDates[0] : leaveFormData.startDate;
-            const endDate = hasSpecificDates ? selectedDates[selectedDates.length - 1] : leaveFormData.endDate;
 
-            if (!startDate || !endDate || !userId || !orgId || !showApplyLeaveModal) {
-                setAiAnalysis(null);
-                return;
-            }
 
-            setIsAnalyzing(true);
-            try {
-                const analysis = await analyzeLeaveRequest(userId, startDate, endDate, orgId);
-                setAiAnalysis(analysis);
-            } catch (error) {
-                console.error('AI analysis error:', error);
-                setAiAnalysis(null);
-            } finally {
-                setIsAnalyzing(false);
-            }
-        };
-
-        // Debounce the analysis
-        const timer = setTimeout(runAnalysis, 500);
-        return () => clearTimeout(timer);
-    }, [leaveFormData.startDate, leaveFormData.endDate, selectedDates, userId, orgId, showApplyLeaveModal]);
 
     const addSelectedDate = (date) => {
         if (!date) return;
@@ -468,13 +425,14 @@ const ModulePage = ({ title, type }) => {
         console.log('fetchEmployeeTasks params:', { employeeId, startDate, endDate });
 
         try {
+            // Overlap logic: Task Start <= Leave End AND Task End >= Leave Start
             const { data, error } = await supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .gte('due_date', startDate)
-                .lte('due_date', endDate);
+                .lte('start_date', endDate)
+                .gte('due_date', startDate);
 
             if (error) throw error;
             console.log('fetchEmployeeTasks result:', data);
@@ -485,14 +443,20 @@ const ModulePage = ({ title, type }) => {
         }
     };
 
-    const fetchPendingTasks = async (employeeId) => {
+    const fetchPendingTasks = async (employeeId, beforeDate) => {
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .not('status', 'in', '("completed","closed")')
+                .not('status', 'in', '("completed","closed")');
+
+            if (beforeDate) {
+                query = query.lt('due_date', beforeDate);
+            }
+
+            const { data, error } = await query
                 .order('due_date', { ascending: true })
                 .limit(5);
 
@@ -519,12 +483,10 @@ const ModulePage = ({ title, type }) => {
         );
         setEmployeeTasks(tasks);
 
-        // Fetch pending tasks for the approver (current user)
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const approverTasks = await fetchPendingTasks(user.id);
-            setPendingTasks(approverTasks);
-        }
+        // Fetch pending tasks (Backlog) for the employee (current user, usually)
+        // Tasks due BEFORE the leave starts
+        const approverTasks = await fetchPendingTasks(employeeId, leaveRequest.startDate);
+        setPendingTasks(approverTasks);
 
         setShowLeaveDetailsModal(true);
     };
@@ -1753,19 +1715,7 @@ const ModulePage = ({ title, type }) => {
                                     />
                                 </div>
 
-                                {/* AI Leave Insight */}
-                                <AILeaveInsight
-                                    analysis={aiAnalysis}
-                                    isLoading={isAnalyzing}
-                                    variant="employee"
-                                    onSuggestedDateClick={(start, end) => {
-                                        setLeaveFormData(prev => ({
-                                            ...prev,
-                                            startDate: start,
-                                            endDate: end
-                                        }));
-                                    }}
-                                />
+
 
                                 <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
                                     <button
@@ -2023,20 +1973,7 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
-                        {/* Approver Responsibilities */}
-                        <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#eff6ff', borderRadius: '16px', border: '1px solid #dbeafe' }}>
-                            <h4 style={{ fontSize: '1.15rem', fontWeight: '800', marginBottom: '16px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <CheckCircle size={22} /> Approver Responsibilities
-                            </h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                {APPROVER_RESPONSIBILITIES.map((resp, idx) => (
-                                    <div key={idx} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6' }}></div>
-                                        <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e40af' }}>{resp}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+
 
                         {/* Action Buttons - Close Only */}
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>

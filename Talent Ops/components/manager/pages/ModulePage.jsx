@@ -20,8 +20,7 @@ import { AddPolicyModal } from '../../shared/AddPolicyModal';
 import { useUser } from '../context/UserContext';
 import { useProject } from '../../employee/context/ProjectContext';
 import ProjectDocuments from '../../employee/pages/ProjectDocuments';
-import AILeaveInsight from '../../shared/AILeaveInsight';
-import { analyzeLeaveRequest } from '../../../services/AILeaveAdvisor';
+
 
 const APPLIER_RESPONSIBILITIES = [
     "Complete high-priority current tasks",
@@ -30,12 +29,7 @@ const APPLIER_RESPONSIBILITIES = [
     "Ensure relevant documentation is accessible"
 ];
 
-const APPROVER_RESPONSIBILITIES = [
-    "Review applier's workload during leave period",
-    "Check own pending tasks for bottlenecks",
-    "Coordinate task reallocation with team",
-    "Ensure project deadlines are not compromised"
-];
+
 
 const ModulePage = ({ title, type }) => {
     const { addToast } = useToast();
@@ -67,8 +61,7 @@ const ModulePage = ({ title, type }) => {
     const [pendingTasks, setPendingTasks] = useState([]);
 
     // AI Leave Analysis state
-    const [aiAnalysis, setAiAnalysis] = useState(null);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
+
 
     // State for Apply Leave modal
     const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
@@ -736,14 +729,20 @@ const ModulePage = ({ title, type }) => {
         };
     }, []);
 
-    const fetchPendingTasks = async (employeeId) => {
+    const fetchPendingTasks = async (employeeId, beforeDate) => {
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .not('status', 'in', '("completed","closed")')
+                .not('status', 'in', '("completed","closed")');
+
+            if (beforeDate) {
+                query = query.lt('due_date', beforeDate);
+            }
+
+            const { data, error } = await query
                 .order('due_date', { ascending: true })
                 .limit(5);
 
@@ -757,26 +756,28 @@ const ModulePage = ({ title, type }) => {
 
     const fetchEmployeeTasks = async (employeeId, startDate, endDate) => {
         try {
+            // Overlap logic: Task Start <= Leave End AND Task End >= Leave Start
+            // We assume table has 'start_date' and 'due_date'
             const { data, error } = await supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .gte('due_date', startDate)
-                .lte('due_date', endDate);
+                .lte('start_date', endDate)  // Task starts before or on leave end
+                .gte('due_date', startDate); // Task ends after or on leave start
 
             if (error) throw error;
             return data || [];
         } catch (error) {
             console.error('Error fetching tasks:', error);
+            // Fallback to simpler check if start_date doesn't exist or errors
             return [];
         }
     };
 
     const handleViewLeave = async (leaveRequest) => {
         setSelectedLeaveRequest(leaveRequest);
-        setAiAnalysis(null);
-        setIsAnalyzing(true);
+
 
         // Fetch tasks for the employee during leave dates
         const tasks = await fetchEmployeeTasks(
@@ -786,12 +787,10 @@ const ModulePage = ({ title, type }) => {
         );
         setEmployeeTasks(tasks);
 
-        // Fetch pending tasks for the approver (Current Manager)
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const pTasks = await fetchPendingTasks(user.id);
-            setPendingTasks(pTasks);
-        }
+        // Fetch pending tasks (Backlog) for the EMPLOYEE (not the approver)
+        // These are tasks due BEFORE the leave starts
+        const pTasks = await fetchPendingTasks(leaveRequest.employee_id, leaveRequest.startDate);
+        setPendingTasks(pTasks);
 
         // Fetch live balance and other pending requests for re-evaluation preview
         const { data: profile } = await supabase
@@ -810,20 +809,7 @@ const ModulePage = ({ title, type }) => {
         setEvalBalance(profile?.total_leaves_balance || 0);
         setEvalPendingPaid(pending?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0);
 
-        // Run AI analysis for the leave request
-        try {
-            const analysis = await analyzeLeaveRequest(
-                leaveRequest.employee_id,
-                leaveRequest.startDate,
-                leaveRequest.endDate,
-                orgId
-            );
-            setAiAnalysis(analysis);
-        } catch (error) {
-            console.error('AI analysis error:', error);
-        } finally {
-            setIsAnalyzing(false);
-        }
+
 
         setShowLeaveDetailsModal(true);
     };
@@ -2956,12 +2942,7 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
-                        {/* AI Leave Analysis - Manager View */}
-                        <AILeaveInsight
-                            analysis={aiAnalysis}
-                            isLoading={isAnalyzing}
-                            variant="manager"
-                        />
+
 
                         {/* Live Re-evaluation Preview */}
                         {selectedLeaveRequest.status === 'Pending' && (
@@ -2979,14 +2960,21 @@ const ModulePage = ({ title, type }) => {
                                 </div>
 
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+                                    {/* Card 1: Current Total Leaves (Profile Balance) */}
                                     <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '14px', border: '1px solid #e0f2fe' }}>
-                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Current Balance</p>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Current Total Leaves</p>
                                         <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalBalance} Days</div>
                                     </div>
+
+                                    {/* Card 2: Leave Applied For (Total Requested) */}
                                     <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '14px', border: '1px solid #e0f2fe' }}>
-                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Other Pending (Paid)</p>
-                                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalPendingPaid} Days</div>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Leave Applied For</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>
+                                            {(selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0)} Days
+                                        </div>
                                     </div>
+
+                                    {/* Card 3: Effective Balance IF Accepted */}
                                     <div style={{
                                         backgroundColor: '#0369a1',
                                         padding: '16px',
@@ -2994,11 +2982,27 @@ const ModulePage = ({ title, type }) => {
                                         color: 'white',
                                         gridColumn: 'span 1'
                                     }}>
-                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', marginBottom: '8px' }}>Effective Balance</p>
-                                        <div style={{ fontSize: '1.5rem', fontWeight: '800' }}>{Math.max(0, evalBalance - evalPendingPaid)} Days</div>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', marginBottom: '8px' }}>Effective Balance if Accepted</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800' }}>
+                                            {(() => {
+                                                // 1. Effective BEFORE this request (Profile - Other Pending Paid)
+                                                // Note: evalPendingPaid includes ALL pending. We want to exclude specific logic if needed, but per previous logic evalPendingPaid was sum of ALL pending.
+                                                // However, `handleViewLeave` excludes CURRENT request from `pending` list query.
+                                                // So `evalPendingPaid` = "Other Pending (Paid)".
+                                                const effectiveCurrent = Math.max(0, evalBalance - evalPendingPaid);
+
+                                                // 2. How much of THIS request will be paid?
+                                                const totalRequested = (selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0);
+                                                const paidAmountForCurrent = Math.min(totalRequested, effectiveCurrent);
+
+                                                // 3. Final Balance = Effective Current - Paid Amount Used
+                                                return Math.max(0, effectiveCurrent - paidAmountForCurrent);
+                                            })()} Days
+                                        </div>
                                     </div>
                                 </div>
 
+                                {/* Dynamic Info Footer: Total Days, LOP Days */}
                                 <div style={{
                                     marginTop: '16px',
                                     padding: '12px 16px',
@@ -3013,15 +3017,12 @@ const ModulePage = ({ title, type }) => {
                                 }}>
                                     <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0ea5e9' }}></div>
                                     {(() => {
+                                        const effectiveCurrent = Math.max(0, evalBalance - evalPendingPaid);
                                         const totalReq = (selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0);
-                                        const effective = Math.max(0, evalBalance - evalPendingPaid);
-                                        const willBePaid = Math.max(0, Math.min(totalReq, effective));
+                                        const willBePaid = Math.min(totalReq, effectiveCurrent);
                                         const willBeLop = totalReq - willBePaid;
 
-                                        if (willBeLop > 0) {
-                                            return `If approved: ${willBePaid} days will be Paid, ${willBeLop} days will be Loss of Pay.`;
-                                        }
-                                        return `If approved: All ${willBePaid} days will be Paid.`;
+                                        return `Total Leave Days: ${totalReq}, Loss of Pay Days: ${willBeLop}`;
                                     })()}
                                 </div>
                             </div>
@@ -3074,7 +3075,7 @@ const ModulePage = ({ title, type }) => {
 
                             <div style={{ marginBottom: '24px' }}>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '16px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <Activity size={20} color="var(--primary)" /> Your Pending Tasks
+                                    <Activity size={20} color="var(--primary)" /> Pending Tasks
                                 </h4>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     {pendingTasks.length > 0 ? pendingTasks.map(task => (
@@ -3092,20 +3093,7 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
-                        {/* Approver Responsibilities */}
-                        <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#eff6ff', borderRadius: '16px', border: '1px solid #dbeafe' }}>
-                            <h4 style={{ fontSize: '1.15rem', fontWeight: '800', marginBottom: '16px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <CheckCircle size={22} /> Approver Responsibilities
-                            </h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                {APPROVER_RESPONSIBILITIES.map((resp, idx) => (
-                                    <div key={idx} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6' }}></div>
-                                        <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e40af' }}>{resp}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+
 
                         {/* Footer */}
                         <div style={{ display: 'flex', gap: '12px' }}>

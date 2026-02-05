@@ -22,8 +22,7 @@ import { AddPolicyModal } from '../../shared/AddPolicyModal';
 import { EditPolicyModal } from '../../shared/EditPolicyModal';
 import { useUser } from '../context/UserContext';
 import ProjectAnalytics from '../../shared/ProjectAnalytics/ProjectAnalytics';
-import AILeaveInsight from '../../shared/AILeaveInsight';
-import { analyzeLeaveRequest } from '../../../services/AILeaveAdvisor';
+
 
 
 const APPLIER_RESPONSIBILITIES = [
@@ -58,8 +57,7 @@ const ModulePage = ({ title, type }) => {
     const [employeeTasks, setEmployeeTasks] = useState([]);
     const [pendingTasks, setPendingTasks] = useState([]);
     const [remainingLeaves, setRemainingLeaves] = useState(0);
-    const [aiAnalysis, setAiAnalysis] = useState(null);
-    const [isAnalyzing, setIsAnalyzing] = useState(false);
+
     const [evalBalance, setEvalBalance] = useState(0);
     const [evalPendingPaid, setEvalPendingPaid] = useState(0);
 
@@ -528,14 +526,20 @@ const ModulePage = ({ title, type }) => {
         };
     }, [type]);
 
-    const fetchPendingTasks = async (employeeId) => {
+    const fetchPendingTasks = async (employeeId, beforeDate) => {
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .not('status', 'in', '("completed","closed")')
+                .not('status', 'in', '("completed","closed")');
+
+            if (beforeDate) {
+                query = query.lt('due_date', beforeDate);
+            }
+
+            const { data, error } = await query
                 .order('due_date', { ascending: true })
                 .limit(5);
 
@@ -549,13 +553,14 @@ const ModulePage = ({ title, type }) => {
 
     const fetchEmployeeTasks = async (employeeId, startDate, endDate) => {
         try {
+            // Overlap logic: Task Start <= Leave End AND Task End >= Leave Start
             const { data, error } = await supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .gte('due_date', startDate)
-                .lte('due_date', endDate);
+                .lte('start_date', endDate)
+                .gte('due_date', startDate);
 
             if (error) throw error;
             return data || [];
@@ -750,8 +755,7 @@ const ModulePage = ({ title, type }) => {
 
     const handleViewLeave = async (leaveRequest) => {
         setSelectedLeaveRequest(leaveRequest);
-        setAiAnalysis(null);
-        setIsAnalyzing(true);
+
 
         // Fetch tasks for the employee during leave dates
         const tasks = await fetchEmployeeTasks(
@@ -761,12 +765,9 @@ const ModulePage = ({ title, type }) => {
         );
         setEmployeeTasks(tasks);
 
-        // Fetch pending tasks for the approver (Current Executive)
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const pTasks = await fetchPendingTasks(user.id);
-            setPendingTasks(pTasks);
-        }
+        // Fetch pending tasks (Backlog) for the EMPLOYEE
+        const pTasks = await fetchPendingTasks(leaveRequest.employee_id, leaveRequest.startDate);
+        setPendingTasks(pTasks);
 
         // Fetch live balance and other pending requests for re-evaluation preview
         const { data: profile } = await supabase
@@ -785,21 +786,7 @@ const ModulePage = ({ title, type }) => {
         setEvalBalance(profile?.total_leaves_balance || 0);
         setEvalPendingPaid(pending?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0);
 
-        // Run AI analysis for the leave request
-        try {
-            const analysis = await analyzeLeaveRequest(
-                leaveRequest.employee_id,
-                leaveRequest.startDate,
-                leaveRequest.endDate,
-                leaveRequest.type,
-                orgId
-            );
-            setAiAnalysis(analysis);
-        } catch (error) {
-            console.error('Error analyzing leave request:', error);
-        } finally {
-            setIsAnalyzing(false);
-        }
+
 
         setShowLeaveDetailsModal(true);
     };
@@ -3229,12 +3216,7 @@ const ModulePage = ({ title, type }) => {
                                 </div>
                             </div>
 
-                            {/* AI Leave Analysis */}
-                            <AILeaveInsight
-                                analysis={aiAnalysis}
-                                isLoading={isAnalyzing}
-                                variant="executive"
-                            />
+
 
                             {/* Live Re-evaluation Preview */}
                             {selectedLeaveRequest.employee_id !== userId && selectedLeaveRequest.status === 'Pending' && (
