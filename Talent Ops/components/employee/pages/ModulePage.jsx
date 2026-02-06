@@ -17,19 +17,8 @@ import AnnouncementsPage from '../../shared/AnnouncementsPage';
 import ProjectHierarchyDemo from '../../shared/ProjectHierarchyDemo';
 import ProjectDocuments from './ProjectDocuments';
 
-const APPLIER_RESPONSIBILITIES = [
-    "Complete high-priority current tasks",
-    "Handover pending tasks to a teammate",
-    "Update status/progress on all active tasks",
-    "Ensure relevant documentation is accessible"
-];
 
-const APPROVER_RESPONSIBILITIES = [
-    "Review applier's workload during leave period",
-    "Check own pending tasks for bottlenecks",
-    "Coordinate task reallocation with team",
-    "Ensure project deadlines are not compromised"
-];
+
 
 const ModulePage = ({ title, type }) => {
     const { addToast } = useToast();
@@ -61,6 +50,8 @@ const ModulePage = ({ title, type }) => {
 
     // State for Policies
     const [policies, setPolicies] = useState([]);
+    const [isLoadingPolicies, setIsLoadingPolicies] = useState(false);
+    const [policyError, setPolicyError] = useState(null);
 
 
     // Fetch leaves from Supabase
@@ -68,6 +59,7 @@ const ModulePage = ({ title, type }) => {
         if (!userId) return;
 
         const fetchLeaves = async () => {
+            if (!orgId) return;
             console.log('fetchLeaves called. User ID from context:', userId);
 
             const { data: { user } } = await supabase.auth.getUser();
@@ -91,13 +83,13 @@ const ModulePage = ({ title, type }) => {
                 addToast('Error fetching leaves: ' + error.message, 'error');
             } else {
                 console.log('Leaves fetched from DB:', data);
-                console.log('First leave created_at:', data?.[0]?.created_at);
                 // Map Supabase data to table format
                 const mappedLeaves = data.map(leave => {
                     const start = new Date(leave.from_date);
                     const end = new Date(leave.to_date);
-                    const diffTime = Math.abs(end - start);
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+                    // Use duration_weekdays if available in DB, else calculate on the fly
+                    const diffDays = leave.duration_weekdays || calculateWeekdayDuration(leave.from_date, leave.to_date);
 
                     let type = 'Leave';
                     let reason = leave.reason || '';
@@ -105,6 +97,10 @@ const ModulePage = ({ title, type }) => {
                         const parts = reason.split(':');
                         type = parts[0];
                     }
+
+                    // If lop_days > 0, we can mention it in the type or duration
+                    const displayDuration = diffDays === 1 ? '1 Day' : `${diffDays} Days`;
+                    const lopSuffix = leave.lop_days > 0 ? ` (+${leave.lop_days} LOP)` : '';
 
                     // Normalize status for display (capitalized)
                     const status = leave.status ? leave.status.charAt(0).toUpperCase() + leave.status.slice(1).toLowerCase() : 'Pending';
@@ -117,13 +113,15 @@ const ModulePage = ({ title, type }) => {
                         reason: leave.reason || 'No reason provided', // Include full reason from DB
                         startDate: leave.from_date,
                         endDate: leave.to_date,
-                        duration: diffDays === 1 ? '1 Day' : `${diffDays} Days`,
+                        duration: displayDuration + lopSuffix,
                         dates: start.toDateString() === end.toDateString()
                             ? start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })
                             : `${start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}`,
                         status: status,
                         appliedOn: leave.created_at ? new Date(leave.created_at).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }) : 'N/A',
-                        created_at: leave.created_at // For sorting
+                        created_at: leave.created_at, // For sorting
+                        lop_days: leave.lop_days || 0,
+                        duration_weekdays: diffDays
                     };
                 });
                 // Sort by status (Pending first) then by created_at descending
@@ -143,24 +141,41 @@ const ModulePage = ({ title, type }) => {
 
             const { data, error } = await supabase
                 .from('profiles')
-                .select('leaves_remaining, monthly_leave_quota, leaves_taken_this_month')
+                .select('total_leaves_balance, monthly_leave_quota, leaves_taken_this_month')
                 .eq('id', user.id)
                 .eq('org_id', orgId)
                 .single();
 
             if (data) {
-                // Calculate dynamically to ensure consistency
-                const quota = data.monthly_leave_quota || 0;
-                const taken = data.leaves_taken_this_month || 0;
-                // If quota is present, trust the calculation. Otherwise fallback to stored remaining.
-                const calculatedRemaining = quota > 0 ? (quota - taken) : (data.leaves_remaining || 0);
-                setRemainingLeaves(calculatedRemaining);
+                // Return total accumulated balance
+                setRemainingLeaves(data.total_leaves_balance || 0);
             }
         };
 
         fetchLeaves();
         fetchRemainingLeaves();
-    }, [userId, userName, addToast, refreshTrigger]);
+    }, [userId, userName, addToast, refreshTrigger, orgId]);
+
+    // Helper to check if a date is a weekday (Mon-Fri)
+    const isWeekday = (dateString) => {
+        const date = new Date(dateString);
+        const day = date.getDay();
+        return day !== 0 && day !== 6; // 0 is Sunday, 6 is Saturday
+    };
+
+    // Helper to calculate duration excluding weekends
+    const calculateWeekdayDuration = (startDate, endDate) => {
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        let count = 0;
+        const cur = new Date(start);
+        while (cur <= end) {
+            const day = cur.getDay();
+            if (day !== 0 && day !== 6) count++;
+            cur.setDate(cur.getDate() + 1);
+        }
+        return count;
+    };
 
     // Fetch team members based on Current Project
     useEffect(() => {
@@ -298,7 +313,7 @@ const ModulePage = ({ title, type }) => {
         };
 
         fetchTeamMembers();
-    }, [currentProject?.id, refreshTrigger]);
+    }, [currentProject?.id, refreshTrigger, orgId]);
 
     // Realtime Subscription
     useEffect(() => {
@@ -324,9 +339,12 @@ const ModulePage = ({ title, type }) => {
     // Fetch Policies from Supabase
     useEffect(() => {
         const fetchPolicies = async () => {
-            if (type === 'policies') {
+            if (type === 'policies' && orgId) {
                 try {
                     console.log('Fetching policies from Supabase...');
+                    setIsLoadingPolicies(true);
+                    setPolicyError(null);
+
                     const { data, error } = await supabase
                         .from('policies')
                         .select('*')
@@ -336,7 +354,7 @@ const ModulePage = ({ title, type }) => {
 
                     if (error) {
                         console.error('Error fetching policies:', error);
-                        addToast('Failed to load policies', 'error');
+                        setPolicyError(error.message);
                         return;
                     }
 
@@ -353,17 +371,20 @@ const ModulePage = ({ title, type }) => {
                     }
                 } catch (err) {
                     console.error('Unexpected error fetching policies:', err);
-                    addToast('An unexpected error occurred while loading policies', 'error');
+                    setPolicyError(err.message);
+                } finally {
+                    setIsLoadingPolicies(false);
                 }
             }
         };
 
         fetchPolicies();
-    }, [type, refreshTrigger]);
+    }, [type, refreshTrigger, orgId]);
 
 
     // State for Apply Leave modal
     const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
+    const [showConfirmationModal, setShowConfirmationModal] = useState(false); // New confirmation state
     const [leaveFormData, setLeaveFormData] = useState({
         leaveType: 'Casual Leave',
         startDate: '',
@@ -372,6 +393,10 @@ const ModulePage = ({ title, type }) => {
     });
     const [selectedDates, setSelectedDates] = useState([]);
     const [dateToAdd, setDateToAdd] = useState('');
+
+
+
+
 
     const addSelectedDate = (date) => {
         if (!date) return;
@@ -400,13 +425,14 @@ const ModulePage = ({ title, type }) => {
         console.log('fetchEmployeeTasks params:', { employeeId, startDate, endDate });
 
         try {
+            // Overlap logic: Task Start <= Leave End AND Task End >= Leave Start
             const { data, error } = await supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .gte('due_date', startDate)
-                .lte('due_date', endDate);
+                .lte('start_date', endDate)
+                .gte('due_date', startDate);
 
             if (error) throw error;
             console.log('fetchEmployeeTasks result:', data);
@@ -417,14 +443,20 @@ const ModulePage = ({ title, type }) => {
         }
     };
 
-    const fetchPendingTasks = async (employeeId) => {
+    const fetchPendingTasks = async (employeeId, beforeDate) => {
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .not('status', 'in', '("completed","closed")')
+                .not('status', 'in', '("completed","closed")');
+
+            if (beforeDate) {
+                query = query.lt('due_date', beforeDate);
+            }
+
+            const { data, error } = await query
                 .order('due_date', { ascending: true })
                 .limit(5);
 
@@ -451,12 +483,10 @@ const ModulePage = ({ title, type }) => {
         );
         setEmployeeTasks(tasks);
 
-        // Fetch pending tasks for the approver (current user)
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const approverTasks = await fetchPendingTasks(user.id);
-            setPendingTasks(approverTasks);
-        }
+        // Fetch pending tasks (Backlog) for the employee (current user, usually)
+        // Tasks due BEFORE the leave starts
+        const approverTasks = await fetchPendingTasks(employeeId, leaveRequest.startDate);
+        setPendingTasks(approverTasks);
 
         setShowLeaveDetailsModal(true);
     };
@@ -484,14 +514,9 @@ const ModulePage = ({ title, type }) => {
         }
 
         try {
-            // Calculate duration for refund
-            const start = new Date(leaveRequest.startDate);
-            const end = new Date(leaveRequest.endDate);
-            const diffTime = Math.abs(end - start);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
-            // Check if it was NOT Loss of Pay (we need to refund the balance)
-            const isLossOfPay = leaveRequest.type === 'Loss of Pay';
+            // Calculate duration for refund (Paid days only)
+            // If the record has duration_weekdays saved, use that MINUS lop_days
+            const paidDaysToRefund = (leaveRequest.duration_weekdays || 0);
 
             // Delete the leave request
             const { error: deleteError } = await supabase
@@ -502,27 +527,8 @@ const ModulePage = ({ title, type }) => {
 
             if (deleteError) throw deleteError;
 
-            // Refund leave balance if it wasn't Loss of Pay and status was pending
-            if (!isLossOfPay && leaveRequest.status === 'Pending') {
-                const { data: userData, error: userError } = await supabase
-                    .from('profiles')
-                    .select('leaves_taken_this_month, monthly_leave_quota')
-                    .eq('id', userId)
-                    .eq('org_id', orgId)
-                    .single();
-
-                if (!userError && userData) {
-                    const newTaken = Math.max(0, (userData.leaves_taken_this_month || 0) - diffDays);
-                    await supabase
-                        .from('profiles')
-                        .update({ leaves_taken_this_month: newTaken })
-                        .eq('id', userId)
-                        .eq('org_id', orgId);
-
-                    // Update local remaining leaves state
-                    setRemainingLeaves((userData.monthly_leave_quota || 0) - newTaken);
-                }
-            }
+            // Refund logic REMOVED. Since leaves are no longer deducted on application, 
+            // no refund is needed when deleting a pending request.
 
             // Update local state
             setLeaveRequests(prev => prev.filter(l => l.id !== leaveRequest.id));
@@ -726,8 +732,9 @@ const ModulePage = ({ title, type }) => {
         }
     };
 
-    const handleApplyLeave = async (e) => {
-        e.preventDefault();
+    const submitLeaveRequest = async () => {
+        // Renamed from handleApplyLeave to submitLeaveRequest
+        // e.preventDefault(); // Moved to handleApplyLeave wrapper
 
         if (!userId) {
             addToast('User ID not found. Please log in again.', 'error');
@@ -765,10 +772,40 @@ const ModulePage = ({ title, type }) => {
             const currentTeamId = profileData?.team_id || null;
             console.log('Submitting leave with team_id:', currentTeamId);
 
-            let insertError = null;
+            // Calculate total weekdays requested
+            const weekdaysRequested = useSpecificDates
+                ? datesToApply.filter(date => isWeekday(date)).length
+                : calculateWeekdayDuration(leaveFormData.startDate, leaveFormData.endDate);
+
+            // Fetch latest balance AND pending leaves to calculate effective balance
+            // This prevents over-drawing before a manager reviews pending requests
+            const { data: userData, error: userError } = await supabase
+                .from('profiles')
+                .select('total_leaves_balance, leaves_taken_this_month')
+                .eq('id', userId)
+                .eq('org_id', orgId)
+                .single();
+
+            if (userError) throw userError;
+
+            const { data: pendingLeaves, error: pendingError } = await supabase
+                .from('leaves')
+                .select('duration_weekdays')
+                .eq('employee_id', userId)
+                .eq('status', 'pending');
+
+            if (pendingError) throw pendingError;
+
+            const sumPendingPaid = pendingLeaves?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0;
+            const currentBalance = userData.total_leaves_balance || 0;
+            const effectiveBalance = Math.max(0, currentBalance - sumPendingPaid);
+
+            const paidDays = Math.max(0, Math.min(weekdaysRequested, effectiveBalance));
+            const lopDays = weekdaysRequested - paidDays;
 
             const leaveReason = `${leaveFormData.leaveType}: ${leaveFormData.reason}` +
-                (useSpecificDates ? ` (Dates: ${datesToApply.join(', ')})` : '');
+                (useSpecificDates ? ` (Dates: ${datesToApply.join(', ')})` : '') +
+                (lopDays > 0 ? ` [Loss of Pay: ${lopDays} days]` : '');
 
             const leaveRows = useSpecificDates
                 ? datesToApply.map(date => ({
@@ -778,7 +815,9 @@ const ModulePage = ({ title, type }) => {
                     from_date: date,
                     to_date: date,
                     reason: leaveReason,
-                    status: 'pending'
+                    status: 'pending',
+                    duration_weekdays: isWeekday(date) ? 1 : 0,
+                    lop_days: 0 // We'll handle LOP specifically for ranges, for specific dates it's harder to split per row unless we iterate
                 }))
                 : [{
                     employee_id: userId,
@@ -787,8 +826,25 @@ const ModulePage = ({ title, type }) => {
                     from_date: leaveFormData.startDate,
                     to_date: leaveFormData.endDate,
                     reason: leaveReason,
-                    status: 'pending'
+                    status: 'pending',
+                    duration_weekdays: paidDays,
+                    lop_days: lopDays
                 }];
+
+            // If using specific dates, we need to decide which ones are LOP
+            if (useSpecificDates) {
+                let remainingPaid = paidDays;
+                leaveRows.forEach(row => {
+                    if (row.duration_weekdays > 0) {
+                        if (remainingPaid > 0) {
+                            remainingPaid--;
+                        } else {
+                            row.lop_days = 1;
+                            row.duration_weekdays = 0;
+                        }
+                    }
+                });
+            }
 
             // Attempt 1: Try with the fetched team_id
             const { error: attempt1Error } = await supabase
@@ -797,70 +853,17 @@ const ModulePage = ({ title, type }) => {
 
             if (attempt1Error) {
                 console.warn('Attempt 1 with team_id failed:', attempt1Error);
-
-                // Check if it looks like an FK violation (409 or explicit FK message)
+                // Retrying logic... (same as original)
                 if (attempt1Error.code === '23503' || attempt1Error.code === '409' || attempt1Error.message?.includes('violates foreign key constraint')) {
-                    console.log('Retrying with team_id: null due to FK violation...');
-
-                    // Attempt 2: Retry with team_id = null
                     const fallbackRows = leaveRows.map(row => ({ ...row, team_id: null }));
-                    const { error: attempt2Error } = await supabase
-                        .from('leaves')
-                        .insert(fallbackRows);
-
-                    if (attempt2Error) {
-                        insertError = attempt2Error; // Both failed
-                    }
+                    const { error: attempt2Error } = await supabase.from('leaves').insert(fallbackRows);
+                    if (attempt2Error) throw attempt2Error;
                 } else {
-                    insertError = attempt1Error; // Not an FK error, so just fail
+                    throw attempt1Error;
                 }
             }
 
-            if (insertError) throw insertError;
-
-            // if (error) throw error; // Removed undefined variable reference
-
-            // Calculate duration for update
-            const start = new Date(leaveFormData.startDate);
-            const end = new Date(leaveFormData.endDate);
-            const diffTime = Math.abs(end - start);
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-            const requestedDays = useSpecificDates ? datesToApply.length : diffDays;
-
-            // 2. Only update quota/balance if NOT 'Loss of Pay'
-            if (leaveFormData.leaveType !== 'Loss of Pay') {
-                // Fetch current user data to get leave balance and quota
-                const { data: userData, error: userError } = await supabase
-                    .from('profiles')
-                    .select('monthly_leave_quota, leaves_taken_this_month')
-                    .eq('id', userId)
-                    .eq('org_id', orgId)
-                    .single();
-
-                if (userError) throw userError;
-
-                // 3. Update 'leaves_taken_this_month' in profiles
-                // Note: 'leaves_remaining' is a GENERATED COLUMN in the DB, so we cannot update it manually.
-                // It will auto-calculate based on quota - taken.
-                const newTaken = (userData.leaves_taken_this_month || 0) + requestedDays;
-
-                // Calculate newRemaining locally for UI update
-                const quota = userData.monthly_leave_quota || 0;
-                const newRemaining = Math.max(0, quota - newTaken);
-
-                const { error: updateError } = await supabase
-                    .from('profiles')
-                    .update({
-                        leaves_taken_this_month: newTaken
-                    })
-                    .eq('id', userId)
-                    .eq('org_id', orgId);
-
-                if (updateError) throw updateError;
-
-                // Update local state for remaining leaves instantly
-                setRemainingLeaves(newRemaining);
-            }
+            // Balance update REMOVED. Deduction now occurs only on Approval to prevent balance jumps.
 
             // --- NOTIFICATION LOGIC START ---
             try {
@@ -980,6 +983,33 @@ const ModulePage = ({ title, type }) => {
             console.error('Error submitting leave:', error);
             addToast('Failed to submit leave request: ' + error.message, 'error');
         }
+    };
+
+    const handleApplyLeave = (e) => {
+        e.preventDefault();
+
+        if (!userId) {
+            addToast('User ID not found. Please log in again.', 'error');
+            return;
+        }
+
+        const useSpecificDates = selectedDates.length > 0;
+        const datesToApply = useSpecificDates
+            ? Array.from(new Set(selectedDates)).sort()
+            : [];
+
+        if (useSpecificDates && datesToApply.length === 0) {
+            addToast('Please select at least one leave date.', 'error');
+            return;
+        }
+
+        if (!useSpecificDates && (!leaveFormData.startDate || !leaveFormData.endDate || leaveFormData.endDate < leaveFormData.startDate)) {
+            addToast('End date must be the same or after the start date.', 'error');
+            return;
+        }
+
+        // Show confirmation modal instead of submitting directly
+        setShowConfirmationModal(true);
     };
 
     // Render specific demos for certain types
@@ -1576,7 +1606,7 @@ const ModulePage = ({ title, type }) => {
             {
                 showApplyLeaveModal && (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-                        <div className="no-scrollbar" style={{ backgroundColor: 'var(--surface)', padding: '40px', borderRadius: '32px', width: '1000px', maxWidth: '95%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '1px solid var(--border)', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
+                        <div className="no-scrollbar" style={{ backgroundColor: 'var(--surface)', padding: '40px', borderRadius: '32px', width: '650px', maxWidth: '95%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '1px solid var(--border)', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
                             {/* Modal Close Button */}
                             <button
                                 onClick={() => setShowApplyLeaveModal(false)}
@@ -1590,163 +1620,225 @@ const ModulePage = ({ title, type }) => {
                                 <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', fontWeight: '500' }}>Submit your leave details for approval</p>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '48px' }}>
-                                <form onSubmit={handleApplyLeave} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Leave Type</label>
-                                        <div style={{ position: 'relative' }}>
-                                            <select
-                                                value={leaveFormData.leaveType}
-                                                onChange={(e) => setLeaveFormData({ ...leaveFormData, leaveType: e.target.value })}
-                                                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', transition: 'all 0.2s', outline: 'none', appearance: 'none' }}
-                                                required
-                                                disabled={remainingLeaves <= 0}
-                                            >
-                                                <option value="Casual Leave">Casual Leave</option>
-                                                <option value="Sick Leave">Sick Leave</option>
-                                                <option value="Vacation">Vacation</option>
-                                                <option value="Personal Leave">Personal Leave</option>
-                                                <option value="Loss of Pay">Loss of Pay</option>
-                                            </select>
-                                            <div style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5 }}>
-                                                <Briefcase size={18} />
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Start Date</label>
-                                            <input
-                                                type="date"
-                                                value={leaveFormData.startDate}
-                                                onChange={(e) => {
-                                                    const nextStart = e.target.value;
-                                                    setLeaveFormData(prev => ({
-                                                        ...prev,
-                                                        startDate: nextStart,
-                                                        endDate: prev.endDate && prev.endDate >= nextStart ? prev.endDate : nextStart
-                                                    }));
-                                                }}
-                                                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
-                                                required={selectedDates.length === 0}
-                                            />
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>End Date</label>
-                                            <input
-                                                type="date"
-                                                value={leaveFormData.endDate}
-                                                onChange={(e) => setLeaveFormData({ ...leaveFormData, endDate: e.target.value })}
-                                                min={leaveFormData.startDate}
-                                                style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
-                                                required={selectedDates.length === 0}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Specific Dates (Optional)</label>
-                                        <div style={{ display: 'flex', gap: '12px' }}>
-                                            <input
-                                                type="date"
-                                                value={dateToAdd}
-                                                onChange={(e) => setDateToAdd(e.target.value)}
-                                                style={{ flex: 1, padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => { addSelectedDate(dateToAdd); setDateToAdd(''); }}
-                                                style={{ padding: '0 24px', borderRadius: '12px', border: 'none', backgroundColor: '#0f172a', color: 'white', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s' }}
-                                            >
-                                                Add
-                                            </button>
-                                        </div>
-                                        {selectedDates.length > 0 && (
-                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
-                                                {selectedDates.map(date => (
-                                                    <div key={date} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', backgroundColor: 'var(--background)', border: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: '700' }}>
-                                                        {date}
-                                                        <X size={14} style={{ cursor: 'pointer' }} onClick={() => removeSelectedDate(date)} />
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div>
-                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reason</label>
-                                        <textarea
-                                            value={leaveFormData.reason}
-                                            onChange={(e) => setLeaveFormData({ ...leaveFormData, reason: e.target.value })}
-                                            placeholder="Please provide a valid reason for your leave request..."
-                                            rows="4"
-                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', resize: 'none', outline: 'none', lineHeight: '1.5' }}
+                            <form onSubmit={handleApplyLeave} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Leave Type</label>
+                                    <div style={{ position: 'relative' }}>
+                                        <select
+                                            value={leaveFormData.leaveType}
+                                            onChange={(e) => setLeaveFormData({ ...leaveFormData, leaveType: e.target.value })}
+                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', transition: 'all 0.2s', outline: 'none', appearance: 'none' }}
                                             required
-                                        />
-                                    </div>
-
-                                    <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowApplyLeaveModal(false)}
-                                            style={{ flex: 1, padding: '16px', borderRadius: '12px', fontWeight: '700', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text-primary)', cursor: 'pointer' }}
+                                            disabled={remainingLeaves <= 0}
                                         >
-                                            Cancel
-                                        </button>
-                                        <button
-                                            type="submit"
-                                            style={{ flex: 1, padding: '16px', borderRadius: '12px', fontWeight: '700', backgroundColor: 'var(--primary)', color: 'white', border: 'none', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(56, 189, 248, 0.4)' }}
-                                        >
-                                            Submit Request
-                                        </button>
-                                    </div>
-                                </form>
-
-                                {/* Right Side - Tasks & Responsibilities */}
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                                    <div>
-                                        <h4 style={{ fontSize: '1.25rem', fontWeight: '800', marginBottom: '20px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <Briefcase size={22} color="var(--primary)" /> Your Pending Tasks
-                                        </h4>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                            {pendingTasks.length > 0 ? pendingTasks.map(task => (
-                                                <div key={task.id} style={{ padding: '16px', borderRadius: '16px', background: 'var(--background)', border: '1px solid var(--border)', transition: 'all 0.2s' }}>
-                                                    <div style={{ fontWeight: '800', fontSize: '0.95rem', marginBottom: '8px', color: 'var(--text-primary)' }}>{task.title}</div>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                        <span style={{ fontSize: '0.8rem', fontWeight: '600', color: 'var(--text-secondary)' }}>Due: {new Date(task.due_date).toLocaleDateString()}</span>
-                                                        <span style={{ fontSize: '0.75rem', fontWeight: '800', color: task.priority === 'High' ? '#ef4444' : 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{task.priority || 'Medium'}</span>
-                                                    </div>
-                                                </div>
-                                            )) : (
-                                                <div style={{ padding: '32px', textAlign: 'center', borderRadius: '16px', background: 'var(--background)', border: '1px dashed var(--border)', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
-                                                    No pending tasks!
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <h4 style={{ fontSize: '1.25rem', fontWeight: '800', marginBottom: '20px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <Calendar size={22} color="var(--primary)" /> Pre-Leave Responsibilities
-                                        </h4>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                                            {APPLIER_RESPONSIBILITIES.map((resp, idx) => (
-                                                <div key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                                                    <div style={{ marginTop: '2px', minWidth: '20px', height: '20px', borderRadius: '6px', backgroundColor: '#0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                        <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'white' }}></div>
-                                                    </div>
-                                                    <span style={{ fontSize: '0.95rem', fontWeight: '600', color: 'var(--text-secondary)', lineHeight: '1.5' }}>{resp}</span>
-                                                </div>
-                                            ))}
+                                            <option value="Casual Leave">Casual Leave</option>
+                                            <option value="Sick Leave">Sick Leave</option>
+                                            <option value="Vacation">Vacation</option>
+                                            <option value="Personal Leave">Personal Leave</option>
+                                            <option value="Loss of Pay">Loss of Pay</option>
+                                        </select>
+                                        <div style={{ position: 'absolute', right: '16px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', opacity: 0.5 }}>
+                                            <Briefcase size={18} />
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Start Date</label>
+                                        <input
+                                            type="date"
+                                            value={leaveFormData.startDate}
+                                            onChange={(e) => {
+                                                const nextStart = e.target.value;
+                                                setLeaveFormData(prev => ({
+                                                    ...prev,
+                                                    startDate: nextStart,
+                                                    endDate: prev.endDate && prev.endDate >= nextStart ? prev.endDate : nextStart
+                                                }));
+                                            }}
+                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
+                                            required={selectedDates.length === 0}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>End Date</label>
+                                        <input
+                                            type="date"
+                                            value={leaveFormData.endDate}
+                                            onChange={(e) => setLeaveFormData({ ...leaveFormData, endDate: e.target.value })}
+                                            min={leaveFormData.startDate}
+                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
+                                            required={selectedDates.length === 0}
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Specific Dates (Optional)</label>
+                                    <div style={{ display: 'flex', gap: '12px' }}>
+                                        <input
+                                            type="date"
+                                            value={dateToAdd}
+                                            onChange={(e) => setDateToAdd(e.target.value)}
+                                            style={{ flex: 1, padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => { addSelectedDate(dateToAdd); setDateToAdd(''); }}
+                                            style={{ padding: '0 24px', borderRadius: '12px', border: 'none', backgroundColor: '#0f172a', color: 'white', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s' }}
+                                        >
+                                            Add
+                                        </button>
+                                    </div>
+                                    {selectedDates.length > 0 && (
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '12px' }}>
+                                            {selectedDates.map(date => (
+                                                <div key={date} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '8px', backgroundColor: 'var(--background)', border: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: '700' }}>
+                                                    {date}
+                                                    <X size={14} style={{ cursor: 'pointer' }} onClick={() => removeSelectedDate(date)} />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div>
+                                    <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: '800', marginBottom: '8px', color: 'var(--text-primary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reason</label>
+                                    <textarea
+                                        value={leaveFormData.reason}
+                                        onChange={(e) => setLeaveFormData({ ...leaveFormData, reason: e.target.value })}
+                                        placeholder="Please provide a valid reason for your leave request..."
+                                        rows="4"
+                                        style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', resize: 'none', outline: 'none', lineHeight: '1.5' }}
+                                        required
+                                    />
+                                </div>
+
+
+
+                                <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowApplyLeaveModal(false)}
+                                        style={{ flex: 1, padding: '16px', borderRadius: '12px', fontWeight: '700', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text-primary)', cursor: 'pointer' }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        style={{ flex: 1, padding: '16px', borderRadius: '12px', fontWeight: '700', backgroundColor: 'var(--primary)', color: 'white', border: 'none', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(56, 189, 248, 0.4)' }}
+                                    >
+                                        Submit Request
+                                    </button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 )
             }
+
+            {/* Leave Confirmation Modal */}
+            {showConfirmationModal && (
+                <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(4px)' }}>
+                    <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', width: '600px', maxWidth: '90%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+                        <div style={{ marginBottom: '24px' }}>
+                            <h3 style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px' }}>Confirm Leave Request</h3>
+                            <p style={{ color: 'var(--text-secondary)', lineHeight: '1.5' }}>
+                                You have {pendingTasks.length} pending tasks. Please ensure you have planned your handover before proceeding.
+                            </p>
+                        </div>
+
+                        {/* Pending Tasks List */}
+                        <div style={{ backgroundColor: '#f8fafc', borderRadius: '16px', padding: '20px', marginBottom: '24px', border: '1px solid #e2e8f0' }}>
+                            <h4 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '16px', color: '#334155', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <Briefcase size={18} color="#64748b" /> Your Pending Tasks
+                            </h4>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '200px', overflowY: 'auto', paddingRight: '4px' }}>
+                                {pendingTasks.length > 0 ? pendingTasks.map(task => (
+                                    <div key={task.id} style={{
+                                        padding: '12px',
+                                        borderRadius: '12px',
+                                        backgroundColor: 'white',
+                                        border: '1px solid #e2e8f0',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        gap: '8px'
+                                    }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div style={{ fontWeight: '600', fontSize: '0.9rem', color: '#1e293b' }}>{task.title}</div>
+                                            <span style={{
+                                                fontSize: '0.7rem',
+                                                fontWeight: '700',
+                                                padding: '2px 8px',
+                                                borderRadius: '6px',
+                                                backgroundColor: task.priority === 'High' ? '#fee2e2' : '#f1f5f9',
+                                                color: task.priority === 'High' ? '#ef4444' : '#64748b'
+                                            }}>
+                                                {task.priority || 'Medium'}
+                                            </span>
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                <span style={{
+                                                    padding: '2px 8px',
+                                                    borderRadius: '6px',
+                                                    backgroundColor: task.status === 'Completed' ? '#dcfce7' : '#e0f2fe',
+                                                    color: task.status === 'Completed' ? '#166534' : '#0369a1',
+                                                    fontWeight: 600,
+                                                    fontSize: '0.75rem'
+                                                }}>
+                                                    {task.status || 'Pending'}
+                                                </span>
+                                            </div>
+                                            {task.due_date && (
+                                                <span style={{ color: '#64748b' }}>
+                                                    Due: <strong style={{ color: '#475569' }}>{new Date(task.due_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</strong>
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div style={{ textAlign: 'center', color: '#94a3b8', fontStyle: 'italic', padding: '10px' }}>
+                                        No pending tasks found.
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '16px' }}>
+                            <button
+                                onClick={() => setShowConfirmationModal(false)}
+                                style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: '700', border: '1px solid #cbd5e1', backgroundColor: 'white', color: '#475569', cursor: 'pointer' }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    submitLeaveRequest();
+                                    setShowConfirmationModal(false);
+                                }}
+                                style={{
+                                    flex: 1,
+                                    padding: '14px',
+                                    borderRadius: '12px',
+                                    fontWeight: '700',
+                                    backgroundColor: '#0f172a',
+                                    color: 'white',
+                                    border: 'none',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px'
+                                }}
+                            >
+                                Agree & Proceed
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Leave Details Modal (Read Only) */}
             {showLeaveDetailsModal && selectedLeaveRequest && (
@@ -1881,20 +1973,7 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
-                        {/* Approver Responsibilities */}
-                        <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#eff6ff', borderRadius: '16px', border: '1px solid #dbeafe' }}>
-                            <h4 style={{ fontSize: '1.15rem', fontWeight: '800', marginBottom: '16px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <CheckCircle size={22} /> Approver Responsibilities
-                            </h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                {APPROVER_RESPONSIBILITIES.map((resp, idx) => (
-                                    <div key={idx} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6' }}></div>
-                                        <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e40af' }}>{resp}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+
 
                         {/* Action Buttons - Close Only */}
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>

@@ -164,6 +164,7 @@ export const AddPolicyModal = ({ isOpen, onClose, onSuccess, orgId }) => {
                     {
                         title: formData.title,
                         category: formData.category === 'Other' ? customCategory : formData.category,
+                        effective_date: formData.effective_date,
                         status: formData.status,
                         file_url: publicUrl,
                         org_id: orgId

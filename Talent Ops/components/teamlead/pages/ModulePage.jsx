@@ -29,6 +29,7 @@ import PayslipsPage from '../../shared/PayslipsPage';
 import AnnouncementsPage from '../../shared/AnnouncementsPage';
 import ProjectHierarchyDemo from '../../shared/ProjectHierarchyDemo';
 
+
 const ModulePage = ({ title, type }) => {
     const { addToast } = useToast();
     const { currentTeam, userName, userId, teamId, orgId, userRole } = useUser();
@@ -42,6 +43,11 @@ const ModulePage = ({ title, type }) => {
     const [showLeaveDetailsModal, setShowLeaveDetailsModal] = useState(false);
     const [employeeTasks, setEmployeeTasks] = useState([]);
     const [pendingTasks, setPendingTasks] = useState([]);
+    const [evalBalance, setEvalBalance] = useState(0);
+    const [evalPendingPaid, setEvalPendingPaid] = useState(0);
+
+    // AI Leave Analysis state
+
 
     // State for team members
     const [teamMembers, setTeamMembers] = useState([]);
@@ -51,10 +57,12 @@ const ModulePage = ({ title, type }) => {
 
     // State for Policies
     const [policies, setPolicies] = useState([]);
+    const [isLoadingPolicies, setIsLoadingPolicies] = useState(false);
+    const [policyError, setPolicyError] = useState(null);
 
 
     const fetchLeaves = async () => {
-        if (type !== 'leaves') return;
+        if (type !== 'leaves' || !orgId) return;
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -104,6 +112,8 @@ const ModulePage = ({ title, type }) => {
                         startDate: leave.from_date,
                         endDate: leave.to_date,
                         duration: diffDays === 1 ? '1 Day' : `${diffDays} Days`,
+                        duration_weekdays: leave.duration_weekdays, // Critical for approval calculation
+                        lop_days: leave.lop_days, // Critical for approval calculation
                         dates: start.toDateString() === end.toDateString()
                             ? start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })
                             : `${start.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: '2-digit' })}`,
@@ -130,18 +140,18 @@ const ModulePage = ({ title, type }) => {
 
             const { data } = await supabase
                 .from('profiles')
-                .select('leaves_remaining')
+                .select('total_leaves_balance')
                 .eq('id', user.id)
                 .eq('org_id', orgId)
                 .single();
 
             if (data) {
-                setRemainingLeaves(data.leaves_remaining || 0);
+                setRemainingLeaves(data.total_leaves_balance || 0);
             }
         };
 
         fetchRemainingLeaves();
-    }, [userId, teamId, addToast, type]);
+    }, [userId, teamId, addToast, type, orgId]);
 
     // Fetch team members
     useEffect(() => {
@@ -254,7 +264,7 @@ const ModulePage = ({ title, type }) => {
         };
 
         fetchTeamMembers();
-    }, [teamId, type]);
+    }, [teamId, type, orgId]);
 
     // Fetch team status
     useEffect(() => {
@@ -409,14 +419,17 @@ const ModulePage = ({ title, type }) => {
         };
 
         fetchTeamStatus();
-    }, [teamId, type]);
+    }, [teamId, type, orgId]);
 
     // Fetch Policies from Supabase
     useEffect(() => {
         const fetchPolicies = async () => {
-            if (type === 'policies') {
+            if (type === 'policies' && orgId) {
                 try {
                     console.log('Fetching policies from Supabase...');
+                    setIsLoadingPolicies(true);
+                    setPolicyError(null);
+
                     const { data, error } = await supabase
                         .from('policies')
                         .select('*')
@@ -426,7 +439,7 @@ const ModulePage = ({ title, type }) => {
 
                     if (error) {
                         console.error('Error fetching policies:', error);
-                        addToast('Failed to load policies', 'error');
+                        setPolicyError(error.message);
                         return;
                     }
 
@@ -443,13 +456,15 @@ const ModulePage = ({ title, type }) => {
                     }
                 } catch (err) {
                     console.error('Unexpected error fetching policies:', err);
-                    addToast('An unexpected error occurred while loading policies', 'error');
+                    setPolicyError(err.message);
+                } finally {
+                    setIsLoadingPolicies(false);
                 }
             }
         };
 
         fetchPolicies();
-    }, [type]);
+    }, [type, orgId]);
 
 
     // State for Apply Leave modal
@@ -525,6 +540,7 @@ const ModulePage = ({ title, type }) => {
     const handleViewLeave = async (leaveRequest) => {
         setSelectedLeaveRequest(leaveRequest);
 
+
         // Fetch tasks for the employee during leave dates
         const tasks = await fetchEmployeeTasks(
             leaveRequest.employee_id,
@@ -539,6 +555,25 @@ const ModulePage = ({ title, type }) => {
             const pTasks = await fetchPendingTasks(user.id);
             setPendingTasks(pTasks);
         }
+
+        // Fetch live balance and other pending requests for re-evaluation preview
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('total_leaves_balance')
+            .eq('id', leaveRequest.employee_id)
+            .single();
+
+        const { data: pending } = await supabase
+            .from('leaves')
+            .select('duration_weekdays')
+            .eq('employee_id', leaveRequest.employee_id)
+            .eq('status', 'pending')
+            .neq('id', leaveRequest.id);
+
+        setEvalBalance(profile?.total_leaves_balance || 0);
+        setEvalPendingPaid(pending?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0);
+
+
 
         setShowLeaveDetailsModal(true);
     };
@@ -583,26 +618,8 @@ const ModulePage = ({ title, type }) => {
 
             if (deleteError) throw deleteError;
 
-            // Refund leave balance if it wasn't Loss of Pay and status was pending
-            if (!isLossOfPay && leaveRequest.status === 'Pending') {
-                const { data: userData, error: userError } = await supabase
-                    .from('profiles')
-                    .select('leaves_taken_this_month, monthly_leave_quota')
-                    .eq('id', user.id)
-                    .eq('org_id', orgId)
-                    .single();
-
-                if (!userError && userData) {
-                    const newTaken = Math.max(0, (userData.leaves_taken_this_month || 0) - diffDays);
-                    await supabase
-                        .from('profiles')
-                        .update({ leaves_taken_this_month: newTaken })
-                        .eq('id', user.id)
-                        .eq('org_id', orgId);
-
-                    setRemainingLeaves((userData.monthly_leave_quota || 0) - newTaken);
-                }
-            }
+            // Refund logic REMOVED. Since leaves are no longer deducted on application,
+            // no refund is needed when deleting a pending request.
 
             // Update local state
             setLeaveRequests(prev => prev.filter(l => l.id !== leaveRequest.id));
@@ -735,44 +752,58 @@ const ModulePage = ({ title, type }) => {
             // DB Update
             const updateDb = async () => {
                 try {
+                    let finalPaid = item.duration_weekdays || 0;
+                    let finalLop = item.lop_days || 0;
+
+                    if (action === 'Approve') {
+                        // Fetch latest balance for re-evaluation
+                        const { data: profileData } = await supabase
+                            .from('profiles')
+                            .select('total_leaves_balance')
+                            .eq('id', item.employee_id)
+                            .single();
+
+                        if (profileData) {
+                            const currentBalance = profileData.total_leaves_balance || 0;
+                            const totalRequested = (item.duration_weekdays || 0) + (item.lop_days || 0);
+
+                            // Dynamic Re-evaluation: Use all available balance
+                            finalPaid = Math.min(totalRequested, currentBalance);
+                            finalLop = totalRequested - finalPaid;
+
+                            if (finalPaid > 0) {
+                                const { error: profileError } = await supabase
+                                    .from('profiles')
+                                    .update({
+                                        total_leaves_balance: currentBalance - finalPaid
+                                    })
+                                    .eq('id', item.employee_id);
+
+                                if (profileError) throw profileError;
+                            }
+                        }
+                    }
+
+                    // Update leave request status and final split
                     const { error } = await supabase
                         .from('leaves')
-                        .update({ status: dbStatus })
+                        .update({
+                            status: dbStatus,
+                            duration_weekdays: finalPaid,
+                            lop_days: finalLop
+                        })
                         .eq('id', item.id)
                         .eq('org_id', orgId);
 
                     if (error) throw error;
 
-                    // Refund Logic if Rejected
-                    if (action === 'Reject' && item.type !== 'Loss of Pay' && item.employee_id) {
-                        const start = new Date(item.startDate);
-                        const end = new Date(item.endDate);
-                        const diffTime = Math.abs(end - start);
-                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
-                        const { data: profileData } = await supabase
-                            .from('profiles')
-                            .select('leaves_taken_this_month')
-                            .eq('id', item.employee_id)
-                            .eq('org_id', orgId)
-                            .single();
-
-                        if (profileData) {
-                            const currentTaken = profileData.leaves_taken_this_month || 0;
-                            const newTaken = Math.max(0, currentTaken - diffDays);
-
-                            await supabase
-                                .from('profiles')
-                                .update({ leaves_taken_this_month: newTaken })
-                                .eq('id', item.employee_id)
-                                .eq('org_id', orgId);
-                        }
-                    }
-
                     // Send Notification to the Employee
                     const { data: { user } } = await supabase.auth.getUser();
                     if (user && item.employee_id) {
-                        const notificationMessage = `Your leave request for ${item.dates} has been ${action === 'Approve' ? 'Approved' : 'Rejected'}.`;
+                        let notificationMessage = `Your leave request for ${item.dates} has been ${action === 'Approve' ? 'Approved' : 'Rejected'}.`;
+                        if (action === 'Approve' && finalLop > 0) {
+                            notificationMessage += ` Note: ${finalLop} days were processed as Loss of Pay due to insufficient balance.`;
+                        }
 
                         await supabase.from('notifications').insert({
                             receiver_id: item.employee_id,
@@ -787,6 +818,7 @@ const ModulePage = ({ title, type }) => {
                     }
 
                     addToast(`Leave request ${action.toLowerCase()}d`, 'success');
+                    fetchLeaves(); // Refresh list to show updated split
                 } catch (error) {
                     console.error('Error updating leave:', error);
                     addToast('Failed to update leave', 'error');
@@ -860,58 +892,61 @@ const ModulePage = ({ title, type }) => {
             const leaveReason = `${leaveFormData.leaveType}: ${leaveFormData.reason}` +
                 (useSpecificDates ? ` (Dates: ${datesToApply.join(', ')})` : '');
 
-            const leaveRows = useSpecificDates
-                ? datesToApply.map(date => ({
-                    employee_id: user.id,
-                    org_id: orgId,
-                    team_id: teamId,
-                    from_date: date,
-                    to_date: date,
-                    reason: leaveReason,
-                    status: 'pending'
-                }))
-                : [{
-                    employee_id: user.id,
-                    org_id: orgId,
-                    team_id: teamId, // Assuming teamId is available from context
-                    from_date: leaveFormData.startDate,
-                    to_date: leaveFormData.endDate,
-                    reason: leaveReason,
-                    status: 'pending'
-                }];
 
             // Insert leave request(s)
+            // Calculate initial Paid/LOP split for application record
+            // This is just an estimate; final split happens on approval
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('total_leaves_balance')
+                .eq('id', user.id)
+                .single();
+
+            const { data: pendingLeaves } = await supabase
+                .from('leaves')
+                .select('duration_weekdays')
+                .eq('employee_id', user.id)
+                .eq('status', 'pending');
+
+            const pendingPaid = pendingLeaves?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0;
+            const effectiveBalance = Math.max(0, (profile?.total_leaves_balance || 0) - pendingPaid);
+
+            const leaveRows = useSpecificDates
+                ? datesToApply.map((date, idx) => {
+                    const isPaid = idx < effectiveBalance;
+                    return {
+                        employee_id: user.id,
+                        org_id: orgId,
+                        team_id: teamId,
+                        from_date: date,
+                        to_date: date,
+                        reason: leaveReason,
+                        status: 'pending',
+                        duration_weekdays: isPaid ? 1 : 0,
+                        lop_days: isPaid ? 0 : 1
+                    };
+                })
+                : (() => {
+                    const paidDays = Math.min(requestedDays, effectiveBalance);
+                    const lopDays = requestedDays - paidDays;
+                    return [{
+                        employee_id: user.id,
+                        org_id: orgId,
+                        team_id: teamId,
+                        from_date: leaveFormData.startDate,
+                        to_date: leaveFormData.endDate,
+                        reason: leaveReason,
+                        status: 'pending',
+                        duration_weekdays: paidDays,
+                        lop_days: lopDays
+                    }];
+                })();
+
             const { error: insertError } = await supabase
                 .from('leaves')
                 .insert(leaveRows);
 
             if (insertError) throw insertError;
-
-            // Only update quota/balance if NOT 'Loss of Pay'
-            if (leaveFormData.leaveType !== 'Loss of Pay') {
-                // Fetch profile to update quota
-                const { data: userData, error: userError } = await supabase
-                    .from('profiles')
-                    .select('monthly_leave_quota, leaves_taken_this_month')
-                    .eq('id', user.id)
-                    .eq('org_id', orgId)
-                    .single();
-
-                if (userError) throw userError;
-
-                const newTaken = (userData.leaves_taken_this_month || 0) + requestedDays;
-
-                // Update profile
-                const { error: updateError } = await supabase
-                    .from('profiles')
-                    .update({ leaves_taken_this_month: newTaken })
-                    .eq('id', user.id)
-                    .eq('org_id', orgId);
-
-                if (updateError) throw updateError;
-
-                setRemainingLeaves((userData.monthly_leave_quota || 0) - newTaken);
-            }
 
             addToast('Leave application submitted successfully', 'success');
             setShowApplyLeaveModal(false);
@@ -919,8 +954,10 @@ const ModulePage = ({ title, type }) => {
             setSelectedDates([]);
             setDateToAdd('');
 
-            // Refresh the leave requests list
+            // Balance deduction and profile update deferred to APPROVAL stage
+            // Refresh list
             fetchLeaves();
+            fetchRemainingLeaves();
 
         } catch (error) {
             console.error('Error applying leave:', JSON.stringify(error, null, 2));
@@ -1993,8 +2030,74 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
+
+
+                        {/* Live Re-evaluation Preview */}
+                        {selectedLeaveRequest.employee_id !== userId && selectedLeaveRequest.status === 'Pending' && (
+                            <div style={{
+                                marginTop: '24px',
+                                padding: '24px',
+                                borderRadius: '20px',
+                                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                                border: '1px solid #bae6fd',
+                                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', color: '#0369a1' }}>
+                                    <Activity size={20} />
+                                    <h4 style={{ fontSize: '1.2rem', fontWeight: '800', margin: 0 }}>Live Approval Preview</h4>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+                                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '14px', border: '1px solid #e0f2fe' }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Current Balance</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalBalance} Days</div>
+                                    </div>
+                                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '14px', border: '1px solid #e0f2fe' }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Other Pending (Paid)</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalPendingPaid} Days</div>
+                                    </div>
+                                    <div style={{
+                                        backgroundColor: '#0369a1',
+                                        padding: '16px',
+                                        borderRadius: '14px',
+                                        color: 'white',
+                                        gridColumn: 'span 1'
+                                    }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', marginBottom: '8px' }}>Effective Balance</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800' }}>{Math.max(0, evalBalance - evalPendingPaid)} Days</div>
+                                    </div>
+                                </div>
+
+                                <div style={{
+                                    marginTop: '16px',
+                                    padding: '12px 16px',
+                                    backgroundColor: 'rgba(255,255,255,0.5)',
+                                    borderRadius: '12px',
+                                    fontSize: '0.9rem',
+                                    fontWeight: '600',
+                                    color: '#0c4a6e',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0ea5e9' }}></div>
+                                    {(() => {
+                                        const totalReq = (selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0);
+                                        const effective = Math.max(0, evalBalance - evalPendingPaid);
+                                        const willBePaid = Math.max(0, Math.min(totalReq, effective));
+                                        const willBeLop = totalReq - willBePaid;
+
+                                        if (willBeLop > 0) {
+                                            return `If approved: ${willBePaid} days will be Paid, ${willBeLop} days will be Loss of Pay.`;
+                                        }
+                                        return `If approved: All ${willBePaid} days will be Paid.`;
+                                    })()}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Tasks Section for Approver View */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '24px' }}>
                             <div style={{ marginBottom: '24px' }}>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '16px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <Briefcase size={20} color="var(--primary)" /> Tasks During Leave Period

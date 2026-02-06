@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bell, Check, Trash2, X, CheckCheck } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 
-const NotificationDropdown = ({ isOpen, onClose, dropdownRef }) => {
+const NotificationDropdown = ({ isOpen, onClose, dropdownRef, onNotificationUpdate }) => {
     const [notifications, setNotifications] = useState([]);
     const [loading, setLoading] = useState(true);
     const [currentUserId, setCurrentUserId] = useState(null);
@@ -24,7 +24,7 @@ const NotificationDropdown = ({ isOpen, onClose, dropdownRef }) => {
         if (!currentUserId) return;
 
         const channel = supabase
-            .channel('realtime-notifications')
+            .channel(`notification-dropdown-${currentUserId}`)
             .on(
                 'postgres_changes',
                 {
@@ -36,8 +36,7 @@ const NotificationDropdown = ({ isOpen, onClose, dropdownRef }) => {
                 (payload) => {
                     console.log('New notification received:', payload.new);
                     setNotifications((prev) => [payload.new, ...prev]);
-
-                    // Optional: Play a sound or show a system notification here
+                    if (onNotificationUpdate) onNotificationUpdate();
                 }
             )
             .subscribe();
@@ -96,6 +95,8 @@ const NotificationDropdown = ({ isOpen, onClose, dropdownRef }) => {
                     notif.id === notificationId ? { ...notif, is_read: true } : notif
                 )
             );
+
+            if (onNotificationUpdate) onNotificationUpdate();
         } catch (err) {
             console.error('Error marking as read:', err);
         }
@@ -110,6 +111,8 @@ const NotificationDropdown = ({ isOpen, onClose, dropdownRef }) => {
                 .eq('id', notificationId);
 
             setNotifications(prev => prev.filter(notif => notif.id !== notificationId));
+
+            if (onNotificationUpdate) onNotificationUpdate();
         } catch (err) {
             console.error('Error deleting notification:', err);
         }
@@ -129,6 +132,8 @@ const NotificationDropdown = ({ isOpen, onClose, dropdownRef }) => {
             setNotifications(prev =>
                 prev.map(notif => ({ ...notif, is_read: true }))
             );
+
+            if (onNotificationUpdate) onNotificationUpdate();
         } catch (err) {
             console.error('Error marking all as read:', err);
         }

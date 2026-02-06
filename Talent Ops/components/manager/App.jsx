@@ -22,6 +22,7 @@ function App() {
               <Route path="/dashboard" element={<DashboardHome />} />
               <Route path="/analytics" element={<ModulePage title="Analytics" type="analytics" />} />
               <Route path="/employees" element={<ModulePage title="Employees" type="workforce" />} />
+              <Route path="/project-members" element={<ModulePage title="Project Team Members" type="project-members" />} />
               <Route path="/tasks" element={<ManagerAllTasksPage />} />
               <Route path="/leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
               <Route path="/my-leaves" element={<MyLeavesPage />} />

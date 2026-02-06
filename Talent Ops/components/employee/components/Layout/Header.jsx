@@ -8,10 +8,16 @@ import { supabase } from '../../../../lib/supabaseClient';
 import { useTheme } from '../../../shared/context/ThemeContext';
 // TimerWidget removed per requirement
 
+import { useBrowserNotification } from '../../../../hooks/useBrowserNotification';
+
 const Header = () => {
     const { addToast } = useToast();
     const navigate = useNavigate();
     const { userRole, userId, orgId } = useUser();
+
+    // Enable browser notifications - moved down
+    // useBrowserNotification(userId);
+
     const { theme, toggleTheme } = useTheme();
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
@@ -142,25 +148,43 @@ const Header = () => {
         setShowResults(false);
     };
 
+    // Handle new notification (update count + show toast)
+    const handleNotificationUpdate = async (newNotification) => {
+        console.log('[Header] handleNotificationUpdate called with:', newNotification);
+        // Update unread count
+        fetchUnreadCount();
+
+        // Show toast if notification data is present
+        if (newNotification) {
+            console.log('[Header] Calling addToast with:', newNotification.message);
+            addToast(newNotification.message, 'info');
+        } else {
+            console.warn('[Header] newNotification is missing/empty');
+        }
+    };
+
     // Fetch unread notification count
+    const fetchUnreadCount = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            const { count } = await supabase
+                .from('notifications')
+                .select('*', { count: 'exact', head: true })
+                .eq('receiver_id', user.id)
+                .eq('is_read', false);
+
+            setUnreadCount(count || 0);
+        }
+    };
+
     useEffect(() => {
-        const fetchUnreadCount = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { count } = await supabase
-                    .from('notifications')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('receiver_id', user.id)
-                    .eq('is_read', false);
-
-                setUnreadCount(count || 0);
-            }
-        };
-
         fetchUnreadCount();
         const interval = setInterval(fetchUnreadCount, 30000);
         return () => clearInterval(interval);
     }, []);
+
+    // Enable browser notifications with wrapper callback
+    useBrowserNotification(userId, handleNotificationUpdate);
 
     // Close dropdowns when clicking outside
     useEffect(() => {
@@ -322,6 +346,7 @@ const Header = () => {
                             isOpen={showNotifications}
                             onClose={() => setShowNotifications(false)}
                             dropdownRef={notificationRef}
+                            onNotificationUpdate={fetchUnreadCount}
                         />
                     </div>
                 </div>

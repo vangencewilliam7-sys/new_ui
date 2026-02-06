@@ -12,7 +12,7 @@ interface EditEmployeeModalProps {
 
 interface Team {
     id: string;
-    name: string;
+    team_name: string;
 }
 
 interface Project {
@@ -47,6 +47,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
         custom_change_reason: '',
         effective_from: new Date().toISOString().split('T')[0],
         joinDate: '',
+        total_leaves_balance: 0,
     });
     const [projectRole, setProjectRole] = useState('employee');
     const [originalSalary, setOriginalSalary] = useState<any>(null);
@@ -77,6 +78,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
                 custom_change_reason: '',
                 effective_from: new Date().toISOString().split('T')[0],
                 joinDate: '',
+                total_leaves_balance: employee.total_leaves_balance || 0,
             });
         }
     }, [isOpen, employee, orgId]);
@@ -102,7 +104,7 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
         try {
             const { data: profile, error } = await supabase
                 .from('profiles')
-                .select('department, join_date, job_title, employment_type, monthly_leave_quota')
+                .select('department, team_id, join_date, job_title, employment_type, monthly_leave_quota, total_leaves_balance')
                 .eq('id', employee.id)
                 .eq('org_id', orgId)
                 .single();
@@ -114,7 +116,8 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
                     job_title: profile.job_title || '',
                     employment_type: profile.employment_type || 'full_time',
                     joinDate: profile.join_date || '',
-                    monthly_leave_quota: profile.monthly_leave_quota || 3
+                    monthly_leave_quota: profile.monthly_leave_quota || 3,
+                    total_leaves_balance: profile.total_leaves_balance || 0,
                 }));
             }
         } catch (err) {
@@ -264,9 +267,11 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
                     department: formData.department_id || null,
                     monthly_leave_quota: formData.monthly_leave_quota,
                     join_date: formData.joinDate,
+                    total_leaves_balance: formData.total_leaves_balance,
+                    org_id: orgId,
+                    team_id: selectedProjects[0] || null,
                 })
-                .eq('id', employee.id)
-                .eq('org_id', orgId);
+                .eq('id', employee.id);
 
             if (updateError) {
                 console.error('Update error details:', updateError);
@@ -592,27 +597,16 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
 
                         {/* Department */}
                         <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 500 }}>
-                                Department
-                            </label>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 500 }}>Department</label>
                             <select
                                 value={formData.department_id}
                                 onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--border)',
-                                    backgroundColor: 'var(--background)',
-                                    color: 'var(--text-primary)',
-                                }}
+                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
                             >
                                 <option value="">Select Department</option>
                                 <option value="">No Department</option>
                                 {departments.map((dept) => (
-                                    <option key={dept.id} value={dept.id}>
-                                        {dept.department_name}
-                                    </option>
+                                    <option key={dept.id} value={dept.id}>{dept.department_name}</option>
                                 ))}
                             </select>
                         </div>
@@ -797,6 +791,30 @@ export const EditEmployeeModal: React.FC<EditEmployeeModalProps> = ({ isOpen, on
                                     color: 'var(--text-primary)',
                                 }}
                             />
+                        </div>
+
+                        {/* Total Leave Balance */}
+                        <div>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 500 }}>
+                                Total Leave Balance (Cumulative)
+                            </label>
+                            <input
+                                type="number"
+                                min={0}
+                                value={formData.total_leaves_balance}
+                                onChange={(e) => setFormData({ ...formData, total_leaves_balance: parseInt(e.target.value) })}
+                                style={{
+                                    width: '100%',
+                                    padding: '10px',
+                                    borderRadius: '8px',
+                                    border: '1px solid var(--border)',
+                                    backgroundColor: 'var(--background)',
+                                    color: 'var(--text-primary)',
+                                }}
+                            />
+                            <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                This is the employee's current accumulated leave balance.
+                            </p>
                         </div>
 
                         {/* Compensation Details Section - Role-based visibility */}

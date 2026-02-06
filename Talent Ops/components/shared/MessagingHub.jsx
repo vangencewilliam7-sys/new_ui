@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { MessageCircle, Users, Building2, Search, Paperclip, Send, X, Plus, User, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { MessageCircle, Users, Building2, Search, Paperclip, Send, X, Plus, User, Trash2, Settings, UserPlus, Edit2, Shield, UserMinus, Reply, Smile, BarChart2, CheckCircle2, Info } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import {
     getConversationsByCategory,
@@ -11,7 +11,23 @@ import {
     getOrgUsers,
     createDMConversation,
     createTeamConversation,
-    getOrCreateOrgConversation
+    getOrCreateOrgConversation,
+    isConversationAdmin,
+    getConversationMembers,
+    addMemberToConversation,
+    removeMemberFromConversation,
+    promoteMemberToAdmin,
+    demoteMemberFromAdmin,
+    renameConversation,
+    deleteConversation,
+    leaveConversation,
+    sendMessageWithReply,
+    toggleReaction,
+    getReactionSummary,
+    uploadAttachment,
+    sendPoll,
+    voteInPoll,
+    getPollVotes
 } from '../../services/messageService';
 import { sendNotification } from '../../services/notificationService';
 import { useMessages } from './context/MessageContext';
@@ -39,43 +55,145 @@ const MessagingHub = () => {
     const [selectedTeamMembers, setSelectedTeamMembers] = useState([]);
     const [teamName, setTeamName] = useState('');
     const [authLoading, setAuthLoading] = useState(true);
-    const { markAsRead, lastReadTimes } = useMessages();
+    const { markAsRead, lastReadTimes, lastIncomingMessage } = useMessages();
     const [showMembersModal, setShowMembersModal] = useState(false);
     const [currentMembers, setCurrentMembers] = useState([]);
     const [hoveredMessageId, setHoveredMessageId] = useState(null);
+    const textareaRef = useRef(null);
+    const [isCurrentUserAdmin, setIsCurrentUserAdmin] = useState(false); // Admin functions
+    const [showGroupSettings, setShowGroupSettings] = useState(false);
+    const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+    const [showRenameModal, setShowRenameModal] = useState(false);
+    const [newGroupName, setNewGroupName] = useState('');
+    const [showSearch, setShowSearch] = useState(false);
+    const [messageSearchQuery, setMessageSearchQuery] = useState('');
 
-    // Helper to render message content with clickable links
+    // Reply & Reaction state
+    const [replyingTo, setReplyingTo] = useState(null);
+    const [showReactionPicker, setShowReactionPicker] = useState(null);
+    const [viewingReactionsFor, setViewingReactionsFor] = useState(null);
+    const [messageReactions, setMessageReactions] = useState({});
+
+
+    // Poll state
+    const [showPollModal, setShowPollModal] = useState(false);
+    const [pollQuestion, setPollQuestion] = useState('');
+    const [pollOptions, setPollOptions] = useState(['', '']);
+    const [allowMultiplePoll, setAllowMultiplePoll] = useState(false);
+    const [allPollVotes, setAllPollVotes] = useState({}); // { messageId: [votes] }
+    const [showVoteDetails, setShowVoteDetails] = useState(null); // messageId
+    const isReacting = useRef(false);
+
+    // Helper Component for Poll Messages
+    const PollContent = ({ msg, votes, onVote, currentUserId, onViewVotes }) => {
+        const totalVotes = votes.length;
+        const optionVotes = msg.poll_options.map((option, idx) => {
+            const votesForOption = votes.filter(v => v.option_index === idx);
+            return {
+                text: option,
+                count: votesForOption.length,
+                percentage: totalVotes > 0 ? (votesForOption.length / totalVotes) * 100 : 0,
+                voters: votesForOption.map(v => ({
+                    id: v.user_id,
+                    name: v.profiles?.full_name || v.profiles?.email || 'Unknown',
+                    avatar: v.profiles?.avatar_url
+                })),
+                isVoted: votesForOption.some(v => v.user_id === currentUserId)
+            };
+        });
+
+        return (
+            <div className="poll-container">
+                <div className="poll-question">{msg.poll_question}</div>
+                <div className="poll-info">
+                    <BarChart2 size={14} />
+                    {totalVotes} {totalVotes === 1 ? 'vote' : 'votes'} • {msg.allow_multiple_answers ? 'Multiple answers' : 'Select one'}
+                </div>
+                <div className="poll-options-list">
+                    {optionVotes.map((opt, idx) => (
+                        <div
+                            key={idx}
+                            className="poll-option-item"
+                            onClick={() => onVote(idx)}
+                        >
+                            <div className="poll-option-header">
+                                <div className="poll-option-text">
+                                    {opt.isVoted ? <CheckCircle2 size={16} color="#3b82f6" /> : <div style={{ width: 16, height: 16, border: '1px solid #94a3b8', borderRadius: '50%' }} />}
+                                    {opt.text}
+                                </div>
+                                <div className="poll-option-stats">
+                                    <div className="voter-avatars">
+                                        {opt.voters.slice(0, 3).map((voter, i) => (
+                                            <div key={i} className="voter-avatar-mini" title={voter.name}>
+                                                {voter.avatar ? <img src={voter.avatar} alt={voter.name} /> : (voter.name[0] || '?').toUpperCase()}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="vote-count-badge">{opt.count}</div>
+                                </div>
+                            </div>
+                            <div className="poll-progress-container">
+                                <div
+                                    className="poll-progress-fill"
+                                    style={{ width: `${opt.percentage}%` }}
+                                />
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <button className="poll-view-votes-btn" onClick={onViewVotes}>
+                    View votes
+                </button>
+            </div>
+        );
+    };
+
+    // Auto-resize textarea as user types
+    const handleTextareaChange = (e) => {
+        setMessageInput(e.target.value);
+        if (textareaRef.current) {
+            textareaRef.current.style.height = 'auto';
+            textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+        }
+    };
+
+    // Helper to render message content with clickable links and newlines
     const renderMessageContent = (content) => {
         if (!content) return null;
 
         // URL regex pattern
         const urlPattern = /(https?:\/\/[^\s]+)/g;
 
-        // Split content by URL pattern
-        const parts = content.split(urlPattern);
+        // Split content by newlines first
+        const lines = content.split('\n');
 
-        return parts.map((part, i) => {
-            if (part.match(urlPattern)) {
-                return (
-                    <a
-                        key={i}
-                        href={part}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="message-link"
-                        style={{
-                            color: '#3b82f6', // Clear blue color as requested
-                            textDecoration: 'underline',
-                            fontWeight: '500',
-                            wordBreak: 'break-all'
-                        }}
-                    >
-                        {part}
-                    </a>
-                );
-            }
-            return part;
-        });
+        return lines.map((line, lineIndex) => (
+            <React.Fragment key={lineIndex}>
+                {line.split(urlPattern).map((part, i) => {
+                    if (part.match(urlPattern)) {
+                        return (
+                            <a
+                                key={i}
+                                href={part}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="message-link"
+                                style={{
+                                    color: '#3b82f6', // Clear blue color as requested
+                                    textDecoration: 'underline',
+                                    fontWeight: '500',
+                                    wordBreak: 'break-all'
+                                }}
+                            >
+                                {part}
+                            </a>
+                        );
+                    }
+                    return part;
+                })}
+                {lineIndex < lines.length - 1 && <br />}
+            </React.Fragment>
+        ));
     };
 
     const getSenderName = (senderId) => {
@@ -87,25 +205,20 @@ const MessagingHub = () => {
         if (!selectedConversation) return;
 
         if (selectedConversation.type === 'everyone') {
-            setCurrentMembers(orgUsers);
+            setCurrentMembers(orgUsers.map(u => ({ ...u, is_admin: false })));
             setShowMembersModal(true);
             return;
         }
 
         try {
-            const { data } = await supabase
-                .from('conversation_members')
-                .select('user_id')
-                .eq('conversation_id', selectedConversation.id);
-
-            if (data) {
-                const memberIds = data.map(m => m.user_id);
-                const members = orgUsers.filter(u => memberIds.includes(u.id));
-                setCurrentMembers(members);
-                setShowMembersModal(true);
-            }
+            console.log('Fetching members for conversation:', selectedConversation.id);
+            const members = await getConversationMembers(selectedConversation.id);
+            console.log('Fetched members:', members);
+            setCurrentMembers(members);
+            setShowMembersModal(true);
         } catch (err) {
             console.error('Error fetching members:', err);
+            alert('Error loading members: ' + err.message);
         }
     };
 
@@ -128,6 +241,20 @@ const MessagingHub = () => {
             });
         }
     };
+
+    // Reload conversations when a new message arrives globally (to update sorting)
+    useEffect(() => {
+        if (lastIncomingMessage && currentUserId) {
+            console.log('New message received globally, refreshing conversation list...');
+            // Invalidate cache for current category to force refresh
+            setConversationCache(prev => {
+                const newCache = { ...prev };
+                delete newCache[activeCategory];
+                return newCache;
+            });
+            loadConversations();
+        }
+    }, [lastIncomingMessage]);
 
     // Get current user from Supabase auth
     useEffect(() => {
@@ -185,10 +312,16 @@ const MessagingHub = () => {
         try {
             console.log('Loading all users for messaging...');
 
-            const { data, error } = await supabase
+            let query = supabase
                 .from('profiles')
                 .select('id, email, full_name, avatar_url, role')
                 .order('full_name', { ascending: true, nullsFirst: false });
+
+            if (orgId) {
+                query = query.eq('org_id', orgId);
+            }
+
+            const { data, error } = await query;
 
             if (error) {
                 console.error('Error fetching users:', error);
@@ -213,18 +346,109 @@ const MessagingHub = () => {
         let subscription = null;
 
         if (selectedConversation) {
-            subscription = subscribeToConversation(selectedConversation.id, (newMessage) => {
-                // Prevent duplicate messages by checking if message already exists
-                setMessages(prev => {
-                    const messageExists = prev.some(msg => msg.id === newMessage.id);
-                    if (messageExists) {
-                        return prev; // Don't add duplicate
-                    }
-                    return [...prev, newMessage];
-                });
+            subscription = subscribeToConversation(selectedConversation.id, {
+                onMessage: async (newMessage) => {
+                    // Fetch full message details including relationships
+                    try {
+                        const { data: fullMsg, error } = await supabase
+                            .from('messages')
+                            .select(`
+                                *,
+                                replied_to:messages!reply_to (
+                                    id,
+                                    content,
+                                    sender_id:sender_user_id
+                                ),
+                                attachments(*),
+                                message_reactions (
+                                    id,
+                                    reaction,
+                                    user_id
+                                )
+                            `)
+                            .eq('id', newMessage.id)
+                            .single();
 
-                // Mark as read immediately since we are viewing it
-                markAsRead(selectedConversation.id);
+                        if (fullMsg && !error) {
+                            setMessages(prev => {
+                                const messageExists = prev.some(msg => msg.id === fullMsg.id);
+                                if (messageExists) return prev;
+                                return [...prev, fullMsg];
+                            });
+
+                            // Update sidebar conversation preview
+                            setConversations(prevConvs => {
+                                const updated = prevConvs.map(c => {
+                                    if (c.id === selectedConversation.id) {
+                                        return {
+                                            ...c,
+                                            conversation_indexes: [{
+                                                last_message: fullMsg.content || '📎 Attachment',
+                                                last_message_at: fullMsg.created_at
+                                            }]
+                                        };
+                                    }
+                                    return c;
+                                });
+
+                                // Sort by latest message
+                                return updated.sort((a, b) => {
+                                    const tAStr = a.conversation_indexes?.[0]?.last_message_at;
+                                    const tBStr = b.conversation_indexes?.[0]?.last_message_at;
+
+                                    if (!tAStr && !tBStr) return 0;
+                                    if (!tAStr) return 1;
+                                    if (!tBStr) return -1;
+
+                                    return new Date(tBStr).getTime() - new Date(tAStr).getTime();
+                                });
+                            });
+
+                            markAsRead(selectedConversation.id);
+                        }
+                    } catch (err) {
+                        console.error('Error handling realtime message:', err);
+                    }
+                },
+                onReaction: async (payload) => {
+                    // console.log('Received reaction payload:', payload);
+                    const msgId = payload?.message_id;
+                    const userId = payload?.user_id;
+
+                    // Ignore if this is OUR reaction and we are currently performing the local action
+                    if (userId === currentUserId && isReacting.current) {
+                        console.log('Ignoring self-reaction echo (lock active)');
+                        return;
+                    }
+
+                    if (msgId) {
+                        try {
+                            // Fetch immediately without delay for faster updates
+                            // The DB event means it's committed, so we should be able to read it.
+                            const summary = await getReactionSummary(msgId);
+
+                            setMessageReactions(prev => ({
+                                ...prev,
+                                [msgId]: summary
+                            }));
+                        } catch (err) {
+                            console.error('Error handling realtime reaction:', err);
+                        }
+                    } else {
+                        // Fallback for deletions if REPLICA IDENTITY FULL isn't on
+                        if (selectedConversation?.id) {
+                            // We could try to reload, but let's be less aggressive if we can't identify the message
+                            // loadMessages(selectedConversation);
+                            console.warn('Received reaction event without message_id');
+                        }
+                    }
+                },
+                onPollUpdate: async (payload) => {
+                    const msgId = payload.message_id;
+                    if (msgId) {
+                        fetchPollVotes(msgId);
+                    }
+                }
             });
         }
 
@@ -233,7 +457,18 @@ const MessagingHub = () => {
                 unsubscribeFromConversation(subscription);
             }
         };
-    }, [selectedConversation]);
+    }, [selectedConversation, currentUserId]);
+
+    // Auto-scroll to bottom
+    const messagesEndRef = useRef(null);
+
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages, selectedConversation]);
 
     const loadConversations = async () => {
         if (!currentUserId) {
@@ -313,6 +548,39 @@ const MessagingHub = () => {
         try {
             const msgs = await getConversationMessages(conversation.id);
             setMessages(msgs);
+
+            // Fetch votes for all poll messages
+            msgs.filter(m => m.is_poll).forEach(m => fetchPollVotes(m.id));
+
+            // Process initial reactions
+            const reactionsMap = {};
+            msgs.forEach(msg => {
+                if (msg.message_reactions && msg.message_reactions.length > 0) {
+                    const summary = {};
+                    msg.message_reactions.forEach(r => {
+                        if (!summary[r.reaction]) {
+                            summary[r.reaction] = { count: 0, users: [] };
+                        }
+                        summary[r.reaction].count++;
+
+                        // Look up user name from local state instead of potentially failing backend join
+                        const user = orgUsers.find(u => u.id === r.user_id);
+                        const name = user?.full_name || user?.email || 'Unknown User';
+
+                        summary[r.reaction].users.push({ user_id: r.user_id, name });
+                    });
+                    reactionsMap[msg.id] = summary;
+                }
+            });
+            setMessageReactions(reactionsMap);
+
+            // Check if current user is admin for team conversations
+            if (conversation.type === 'team' && currentUserId) {
+                const adminStatus = await isConversationAdmin(conversation.id, currentUserId);
+                setIsCurrentUserAdmin(adminStatus);
+            } else {
+                setIsCurrentUserAdmin(false);
+            }
         } catch (error) {
             console.error('Error loading messages:', error);
             // Show empty messages instead of crashing
@@ -390,100 +658,248 @@ const MessagingHub = () => {
         }
     };
 
-    const handleSendMessage = async () => {
-        if (!messageInput.trim() && attachments.length === 0) return;
-        if (!selectedConversation) return;
+    const fetchPollVotes = async (messageId) => {
+        try {
+            const votes = await getPollVotes(messageId);
+            setAllPollVotes(prev => ({
+                ...prev,
+                [messageId]: votes
+            }));
+        } catch (error) {
+            console.error('Error fetching poll votes:', error);
+        }
+    };
+
+    const handleSendPoll = async () => {
+        if (!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2) {
+            alert('Please enter a question and at least two options');
+            return;
+        }
 
         try {
-            let conversationId = selectedConversation.id;
-
-            // If this is a temporary conversation, create a real one first
-            if (selectedConversation.temp && selectedConversation.otherUser) {
-                console.log('Creating real conversation for temp chat...');
-                const realConversation = await createDMConversation(
-                    currentUserId,
-                    selectedConversation.otherUser.id,
-                    currentUserOrgId
-                );
-                conversationId = realConversation.id;
-
-                // Update the selected conversation to the real one
-                setSelectedConversation({
-                    ...realConversation,
-                    name: selectedConversation.otherUser.full_name || selectedConversation.otherUser.email
-                });
-            }
-
-            const newMessage = await sendMessage(
-                conversationId,
+            setLoading(true);
+            const validOptions = pollOptions.filter(o => o.trim());
+            const newMessage = await sendPoll(
+                selectedConversation.id,
                 currentUserId,
-                messageInput,
-                attachments
+                pollQuestion.trim(),
+                validOptions,
+                allowMultiplePoll
             );
 
-            // Optimistically add message to state to fix "No messages yet" glitch
-            setMessages(prev => {
-                const exists = prev.some(m => m.id === newMessage.id);
-                if (exists) return prev;
-                return [...prev, newMessage];
-            });
+            setShowPollModal(false);
+            setPollQuestion('');
+            setPollOptions(['', '']);
+            setAllowMultiplePoll(false);
 
-            setMessageInput('');
-            setAttachments([]);
-            setErrorMessage(null);
+            // Optimistic update
+            setMessages(prev => [...prev, newMessage]);
 
-            // Send notifications to other conversation members
+            // Trigger Sidebar update
+            loadConversations();
+        } catch (error) {
+            console.error('Error sending poll:', error);
+            alert('Failed to send poll: ' + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleVote = async (messageId, optionIndex, allowMultiple) => {
+        try {
+            await voteInPoll(messageId, currentUserId, optionIndex, allowMultiple);
+            // Realtime subscription will fetch updated votes, but let's do it manually too for speed
+            fetchPollVotes(messageId);
+        } catch (error) {
+            console.error('Error voting:', error);
+        }
+    };
+
+    const handleSendMessage = async () => {
+        if (!messageInput.trim() && attachments.length === 0) return;
+        if (!selectedConversation || !currentUserId) return;
+
+        try {
+            let targetConversationId = selectedConversation.id;
+
+            // Handle temporary conversation (new DM)
+            if (selectedConversation.temp) {
+                try {
+                    console.log('Creating new conversation for temporary DM...');
+                    const newConv = await createDMConversation(
+                        currentUserId,
+                        selectedConversation.otherUser.id,
+                        currentUserOrgId
+                    );
+                    targetConversationId = newConv.id;
+
+                    // Update selected conversation to be real and not temp
+                    // We need to fetch the other user details again or preserve them because createDMConversation just returns the row
+                    // We used selectedConversation.otherUser for the name/avatar so let's keep it
+                    setSelectedConversation({
+                        ...newConv,
+                        name: selectedConversation.name,
+                        avatar_url: selectedConversation.avatar_url,
+                        otherUser: selectedConversation.otherUser,
+                        type: 'dm',
+                        temp: false
+                    });
+
+                } catch (err) {
+                    console.error('Error creating conversation:', err);
+                    setErrorMessage('Failed to create conversation. Please try again.');
+                    return;
+                }
+            }
+
+            // Send with optional reply (Snapshot storage approach)
+            const newMessage = await sendMessageWithReply(
+                targetConversationId,
+                messageInput.trim(),
+                currentUserId,
+                replyingTo?.id || null,
+                replyingTo?.content || null,
+                replyingTo?.sender_name || null
+            );
+
+            // Handle attachments (Upload and save metadata)
+            if (attachments.length > 0) {
+                try {
+                    const uploadPromises = attachments.map(file =>
+                        uploadAttachment(file, targetConversationId, newMessage.id)
+                    );
+                    await Promise.all(uploadPromises);
+                    console.log('Successfully uploaded all attachments');
+                } catch (attachmentError) {
+                    console.error('Error uploading attachments:', attachmentError);
+                    // We don't block the message if attachments fail, but log it
+                }
+            }
+
+            // Send notification to other members
             try {
-                // Get current user's name
-                const { data: senderProfile } = await supabase
-                    .from('profiles')
-                    .select('full_name')
-                    .eq('id', currentUserId)
-                    .single();
+                if (currentMembers.length > 0) {
+                    const currentProfile = orgUsers.find(u => u.id === currentUserId);
+                    const senderName = currentProfile?.full_name || 'Someone';
 
-                const senderName = senderProfile?.full_name || 'Someone';
+                    const recipients = currentMembers
+                        .filter(m => (m.id || m.user_id) !== currentUserId)
+                        .map(m => m.id || m.user_id);
 
-                // Get all members of the conversation except current user
-                const { data: members } = await supabase
-                    .from('conversation_members')
-                    .select('user_id')
-                    .eq('conversation_id', conversationId)
-                    .neq('user_id', currentUserId);
-
-                // Send notification to each member
-                if (members && members.length > 0) {
-                    for (const member of members) {
-                        await sendNotification(
-                            member.user_id,
-                            currentUserId,
-                            senderName,
-                            messageInput || 'Sent an attachment', // Send actual content
-                            'message'
+                    if (recipients.length > 0) {
+                        sendNotification(
+                            recipients,
+                            `New message in ${selectedConversation.name || 'chat'}`,
+                            `${senderName}: ${messageInput.substring(0, 50)}${messageInput.length > 50 ? '...' : ''}`,
+                            '/messages',
+                            { conversationId: targetConversationId }
                         );
                     }
                 }
             } catch (notifError) {
-                console.error('Error sending message notifications:', notifError);
-                // Don't fail the whole message send if notifications fail
+                console.error('Error sending notifications:', notifError);
             }
 
-            // Invalidate cache and reload conversations to show the new message
+            setMessageInput('');
+            setAttachments([]);
+            setReplyingTo(null);
+
+            if (textareaRef.current) {
+                textareaRef.current.style.height = 'auto';
+            }
+
+            // Optimistically update UI
+            setMessages(prev => [...prev, newMessage]);
+
+            // Invalidate cache only (don't reload messages to avoid flicker)
             setConversationCache(prev => {
                 const newCache = { ...prev };
                 delete newCache[activeCategory];
                 return newCache;
             });
-            loadConversations();
+            // We used to call loadConversations() here, but since we might have just created a new conversation
+            // loadConversations will actually help put it in the list.
+            await loadConversations();
+
         } catch (error) {
             console.error('Error sending message:', error);
-            // Check for specific errors
-            if (error.code === '42P01' || error.message?.includes('does not exist')) {
-                setErrorMessage('Messaging tables not set up. Please run the SQL setup script in Supabase.');
-            } else if (error.code === '22P02') {
-                setErrorMessage('Invalid conversation. Please try starting a new chat.');
-            } else {
-                setErrorMessage(`Failed to send message: ${error.message || 'Unknown error'}`);
+            setErrorMessage(`Failed to send message: ${error.message || 'Unknown error'}`);
+        }
+    };
+
+    const handleReaction = async (messageId, reaction) => {
+        if (!currentUserId) return;
+
+        // Close picker immediately
+        setShowReactionPicker(null);
+
+        // Set lock to ignore incoming realtime events for this action
+        isReacting.current = true;
+
+        // 1. Optimistic Update
+        setMessageReactions(prev => {
+            const currentSummary = prev[messageId] || {};
+
+            // Find if user already reacted with ANY emoji
+            let oldReactionEmoji = null;
+            Object.entries(currentSummary).forEach(([emoji, data]) => {
+                if (data.users.some(u => u.user_id === currentUserId)) {
+                    oldReactionEmoji = emoji;
+                }
+            });
+
+            // Create deep copy of summary for mutation
+            const newSummary = JSON.parse(JSON.stringify(currentSummary));
+
+            // If user had a reaction, remove it first
+            if (oldReactionEmoji) {
+                if (newSummary[oldReactionEmoji]) {
+                    newSummary[oldReactionEmoji].users = newSummary[oldReactionEmoji].users.filter(u => u.user_id !== currentUserId);
+                    newSummary[oldReactionEmoji].count = Math.max(0, newSummary[oldReactionEmoji].count - 1);
+                    if (newSummary[oldReactionEmoji].count === 0) {
+                        delete newSummary[oldReactionEmoji];
+                    }
+                }
             }
+
+            // If the new reaction is DIFFERENT from the old one, OR if there was no old one, ADD it.
+            if (oldReactionEmoji !== reaction) {
+                if (!newSummary[reaction]) {
+                    newSummary[reaction] = { count: 0, users: [] };
+                }
+                newSummary[reaction].users.push({
+                    user_id: currentUserId,
+                    name: 'You'
+                });
+                newSummary[reaction].count += 1;
+            }
+
+            return {
+                ...prev,
+                [messageId]: newSummary
+            };
+        });
+
+        try {
+            // 2. Perform actual server action
+            await toggleReaction(messageId, currentUserId, reaction);
+
+            // We rely on the optimistic update and the anti-flicker lock in onReaction.
+            // No need to re-fetch authoritative state immediately as it can cause flicker.
+
+        } catch (error) {
+            console.error('Error toggling reaction:', error);
+            // Revert on error would go here, maybe reload messages/summary
+            const summary = await getReactionSummary(messageId);
+            setMessageReactions(prev => ({
+                ...prev,
+                [messageId]: summary
+            }));
+        } finally {
+            // Release lock after a short delay to ensure all realtime echoes are cleared
+            setTimeout(() => {
+                isReacting.current = false;
+            }, 1000);
         }
     };
 
@@ -639,6 +1055,140 @@ const MessagingHub = () => {
                 ? prev.filter(id => id !== userId)
                 : [...prev, userId]
         );
+    };
+
+    // ============================================
+    // ADMIN ACTION HANDLERS
+    // ============================================
+
+    const handleAddMember = async (userId) => {
+        try {
+            await addMemberToConversation(selectedConversation.id, userId, currentUserId);
+            setShowAddMemberModal(false);
+            setErrorMessage(null);
+            // Refresh members list
+            await fetchConversationMembers();
+            alert('Member added successfully!');
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to add member');
+        }
+    };
+
+    const handleRemoveMember = async (userId, userName) => {
+        if (!confirm(`Remove ${userName} from this group?`)) return;
+
+        try {
+            await removeMemberFromConversation(selectedConversation.id, userId, currentUserId);
+            setErrorMessage(null);
+            // Refresh members list
+            await fetchConversationMembers();
+            alert('Member removed successfully!');
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to remove member');
+        }
+    };
+
+    const handlePromoteToAdmin = async (userId, userName) => {
+        if (!confirm(`Make ${userName} an admin of this group?`)) return;
+
+        try {
+            await promoteMemberToAdmin(selectedConversation.id, userId, currentUserId);
+            setErrorMessage(null);
+            // Refresh members list
+            await fetchConversationMembers();
+            alert(`${userName} is now an admin!`);
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to promote member');
+        }
+    };
+
+    const handleDemoteFromAdmin = async (userId, userName) => {
+        if (!confirm(`Remove admin privileges from ${userName}?`)) return;
+
+        try {
+            await demoteMemberFromAdmin(selectedConversation.id, userId, currentUserId);
+            setErrorMessage(null);
+            // Refresh members list
+            await fetchConversationMembers();
+            alert(`${userName} is no longer an admin`);
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to demote admin');
+        }
+    };
+
+    const handleRenameGroup = async () => {
+        if (!newGroupName.trim()) {
+            setErrorMessage('Group name cannot be empty');
+            return;
+        }
+
+        try {
+            await renameConversation(selectedConversation.id, newGroupName, currentUserId);
+            setShowRenameModal(false);
+            setNewGroupName('');
+            setErrorMessage(null);
+
+            // Update local state
+            setSelectedConversation(prev => ({ ...prev, name: newGroupName }));
+
+            // Refresh conversations list
+            setConversationCache(prev => {
+                const newCache = { ...prev };
+                delete newCache[activeCategory];
+                return newCache;
+            });
+            loadConversations();
+
+            alert('Group renamed successfully!');
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to rename group');
+        }
+    };
+
+    const handleDeleteGroup = async () => {
+        if (!confirm('Are you sure you want to delete this group? This action cannot be undone and all messages will be lost.')) return;
+
+        try {
+            await deleteConversation(selectedConversation.id, currentUserId);
+            setSelectedConversation(null);
+            setMessages([]);
+            setErrorMessage(null);
+
+            // Refresh conversations list
+            setConversationCache(prev => {
+                const newCache = { ...prev };
+                delete newCache[activeCategory];
+                return newCache;
+            });
+            loadConversations();
+
+            alert('Group deleted successfully');
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to delete group');
+        }
+    };
+
+    const handleLeaveGroup = async () => {
+        if (!confirm('Are you sure you want to leave this group?')) return;
+
+        try {
+            await leaveConversation(selectedConversation.id, currentUserId);
+            setSelectedConversation(null);
+            setMessages([]);
+            setErrorMessage(null);
+
+            // Refresh conversations list
+            setConversationCache(prev => {
+                const newCache = { ...prev };
+                delete newCache[activeCategory];
+                return newCache;
+            });
+            loadConversations();
+
+            alert('You have left the group');
+        } catch (error) {
+            setErrorMessage(error.message || 'Failed to leave group');
+        }
     };
 
     const filteredConversations = conversations.filter(conv => {
@@ -929,11 +1479,19 @@ const MessagingHub = () => {
                                 <span className="thread-type">
                                     {selectedConversation.type === 'dm' ? 'Direct Message' :
                                         selectedConversation.type === 'team' ? 'Team Chat' : 'Organization'}
+                                    {isCurrentUserAdmin && selectedConversation.type === 'team' && (
+                                        <span style={{ marginLeft: '8px', color: '#3b82f6', fontSize: '11px' }}>
+                                            • Admin
+                                        </span>
+                                    )}
                                 </span>
                             </div>
-                            {(selectedConversation.type === 'team' || selectedConversation.type === 'everyone') && (
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                 <button
-                                    onClick={fetchConversationMembers}
+                                    onClick={() => {
+                                        setShowSearch(!showSearch);
+                                        if (showSearch) setMessageSearchQuery('');
+                                    }}
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
@@ -941,18 +1499,195 @@ const MessagingHub = () => {
                                         padding: '6px 12px',
                                         borderRadius: '6px',
                                         border: '1px solid #e5e7eb',
-                                        background: 'white',
+                                        background: showSearch ? '#f3f4f6' : 'white',
                                         cursor: 'pointer',
                                         fontSize: '12px',
                                         color: '#374151',
-                                        fontWeight: 500
+                                        fontWeight: 500,
+                                        transition: 'all 0.2s'
                                     }}
                                 >
-                                    <Users size={14} />
-                                    View Members
+                                    <Search size={14} />
+                                    {showSearch ? 'Close Search' : 'Search'}
                                 </button>
-                            )}
+                                {(selectedConversation.type === 'team' || selectedConversation.type === 'everyone') && (
+                                    <button
+                                        onClick={fetchConversationMembers}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            padding: '6px 12px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #e5e7eb',
+                                            background: 'white',
+                                            cursor: 'pointer',
+                                            fontSize: '12px',
+                                            color: '#374151',
+                                            fontWeight: 500
+                                        }}
+                                    >
+                                        <Users size={14} />
+                                        Members
+                                    </button>
+                                )}
+                                {isCurrentUserAdmin && selectedConversation.type === 'team' && (
+                                    <button
+                                        onClick={() => setShowGroupSettings(!showGroupSettings)}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            padding: '6px 12px',
+                                            borderRadius: '6px',
+                                            border: '1px solid #3b82f6',
+                                            background: showGroupSettings ? '#eff6ff' : 'white',
+                                            cursor: 'pointer',
+                                            fontSize: '12px',
+                                            color: '#3b82f6',
+                                            fontWeight: 600
+                                        }}
+                                    >
+                                        <Settings size={14} />
+                                        Settings
+                                    </button>
+                                )}
+                            </div>
                         </div>
+
+                        {/* Message Search Bar */}
+                        {showSearch && (
+                            <div style={{
+                                padding: '12px 20px',
+                                background: '#f9fafb',
+                                borderBottom: '1px solid #e5e7eb',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '10px'
+                            }}>
+                                <div style={{
+                                    flex: 1,
+                                    position: 'relative',
+                                    display: 'flex',
+                                    alignItems: 'center'
+                                }}>
+                                    <Search size={16} style={{ position: 'absolute', left: '12px', color: '#9ca3af' }} />
+                                    <input
+                                        type="text"
+                                        placeholder="Search in this conversation..."
+                                        value={messageSearchQuery}
+                                        onChange={(e) => setMessageSearchQuery(e.target.value)}
+                                        style={{
+                                            width: '100%',
+                                            padding: '8px 12px 8px 36px',
+                                            borderRadius: '8px',
+                                            border: '1px solid #d1d5db',
+                                            fontSize: '14px',
+                                            outline: 'none',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+                                        }}
+                                        autoFocus
+                                    />
+                                    {messageSearchQuery && (
+                                        <button
+                                            onClick={() => setMessageSearchQuery('')}
+                                            style={{
+                                                position: 'absolute',
+                                                right: '8px',
+                                                background: 'none',
+                                                border: 'none',
+                                                cursor: 'pointer',
+                                                color: '#9ca3af'
+                                            }}
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    )}
+                                </div>
+                                <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                                    {messages.filter(m =>
+                                        m.content?.toLowerCase().includes(messageSearchQuery.toLowerCase()) ||
+                                        m.poll_question?.toLowerCase().includes(messageSearchQuery.toLowerCase())
+                                    ).length} results
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Group Settings Panel (Admin Only) */}
+                        {showGroupSettings && isCurrentUserAdmin && selectedConversation.type === 'team' && (
+                            <div style={{
+                                padding: '16px 20px',
+                                background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                                borderBottom: '1px solid #3b82f6',
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: '8px'
+                            }}>
+                                <button
+                                    onClick={() => setShowAddMemberModal(true)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '8px 14px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        background: 'white',
+                                        cursor: 'pointer',
+                                        fontSize: '13px',
+                                        color: '#059669',
+                                        fontWeight: 600,
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                    }}
+                                >
+                                    <UserPlus size={16} />
+                                    Add Member
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setNewGroupName(selectedConversation.name);
+                                        setShowRenameModal(true);
+                                    }}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '8px 14px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        background: 'white',
+                                        cursor: 'pointer',
+                                        fontSize: '13px',
+                                        color: '#3b82f6',
+                                        fontWeight: 600,
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                    }}
+                                >
+                                    <Edit2 size={16} />
+                                    Rename Group
+                                </button>
+                                <button
+                                    onClick={handleDeleteGroup}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        padding: '8px 14px',
+                                        borderRadius: '8px',
+                                        border: 'none',
+                                        background: 'white',
+                                        cursor: 'pointer',
+                                        fontSize: '13px',
+                                        color: '#dc2626',
+                                        fontWeight: 600,
+                                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                                    }}
+                                >
+                                    <Trash2 size={16} />
+                                    Delete Group
+                                </button>
+                            </div>
+                        )}
 
                         <div className="messages-container">
                             {selectedConversation.temp ? (
@@ -971,116 +1706,328 @@ const MessagingHub = () => {
                                     <p>No messages yet. Start the conversation!</p>
                                 </div>
                             ) : (
-                                messages.map((msg, index) => {
-                                    const prevMsg = messages[index - 1];
-                                    const prevDate = prevMsg ? new Date(prevMsg.created_at).toDateString() : null;
-                                    const currDate = new Date(msg.created_at).toDateString();
-                                    const isNewDay = currDate !== prevDate;
+                                (() => {
+                                    const filtered = messages.filter(msg => {
+                                        if (!messageSearchQuery) return true;
+                                        const query = messageSearchQuery.toLowerCase();
+                                        const content = (msg.content || '').toLowerCase();
+                                        const pollQuestion = (msg.poll_question || '').toLowerCase();
+                                        const pollOptions = (msg.poll_options || []).join(' ').toLowerCase();
+                                        return content.includes(query) || pollQuestion.includes(query) || pollOptions.includes(query);
+                                    });
 
-                                    return (
-                                        <React.Fragment key={msg.id}>
-                                            {isNewDay && (
-                                                <div className="date-divider" style={{
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    margin: '24px 0 12px 0',
-                                                    position: 'relative'
-                                                }}>
-                                                    <div style={{ height: '1px', background: '#e5e7eb', width: '100%', position: 'absolute' }}></div>
-                                                    <span style={{
-                                                        background: '#f9fafb',
-                                                        padding: '0 16px',
-                                                        fontSize: '11px',
-                                                        color: '#6b7280',
-                                                        fontWeight: 600,
-                                                        zIndex: 1,
-                                                        textTransform: 'uppercase',
-                                                        letterSpacing: '0.05em'
+                                    if (filtered.length === 0 && messageSearchQuery) {
+                                        return (
+                                            <div style={{ textAlign: 'center', padding: '3rem 2rem', color: '#6b7280' }}>
+                                                <Search size={48} style={{ marginBottom: '1rem', opacity: 0.2 }} />
+                                                <p style={{ fontSize: '15px' }}>No messages found matching "<strong>{messageSearchQuery}</strong>"</p>
+                                                <button
+                                                    onClick={() => setMessageSearchQuery('')}
+                                                    style={{
+                                                        marginTop: '1rem',
+                                                        background: 'none',
+                                                        border: '1px solid #d1d5db',
+                                                        padding: '6px 16px',
+                                                        borderRadius: '20px',
+                                                        cursor: 'pointer',
+                                                        fontSize: '13px'
+                                                    }}
+                                                >
+                                                    Clear Search
+                                                </button>
+                                            </div>
+                                        );
+                                    }
+
+                                    return filtered.map((msg, index, filteredArray) => {
+                                        const prevMsg = filteredArray[index - 1];
+                                        const prevDate = prevMsg ? new Date(prevMsg.created_at).toDateString() : null;
+                                        const currDate = new Date(msg.created_at).toDateString();
+                                        const isNewDay = currDate !== prevDate;
+
+                                        return (
+                                            <React.Fragment key={msg.id}>
+                                                {isNewDay && (
+                                                    <div className="date-divider" style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        margin: '24px 0 12px 0',
+                                                        position: 'relative'
                                                     }}>
-                                                        {formatDividerDate(msg.created_at)}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            <div
-                                                className={`message ${msg.sender_user_id === currentUserId ? 'sent' : 'received'}`}
-                                                style={{ position: 'relative', group: 'message-group' }}
-                                                onMouseEnter={() => setHoveredMessageId(msg.id)}
-                                                onMouseLeave={() => setHoveredMessageId(null)}
-                                            >
-                                                <div className="message-bubble">
-                                                    {/* Sender Name for Group Chats */}
-                                                    {(selectedConversation.type === 'team' || selectedConversation.type === 'everyone') && msg.sender_user_id !== currentUserId && (
-                                                        <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px', marginLeft: '2px', fontWeight: 600 }}>
-                                                            {getSenderName(msg.sender_user_id)}
-                                                        </div>
-                                                    )}
-                                                    {/* Delete Actions (Only for Sender, within 5 minutes) */}
-                                                    {msg.sender_user_id === currentUserId && !msg.is_deleted && (new Date() - new Date(msg.created_at)) < 5 * 60 * 1000 && hoveredMessageId === msg.id && (
-                                                        <div
-                                                            style={{
+                                                        <div style={{ height: '1px', background: '#e5e7eb', width: '100%', position: 'absolute' }}></div>
+                                                        <span style={{
+                                                            background: '#f9fafb',
+                                                            padding: '0 16px',
+                                                            fontSize: '11px',
+                                                            color: '#6b7280',
+                                                            fontWeight: 600,
+                                                            zIndex: 1,
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.05em'
+                                                        }}>
+                                                            {formatDividerDate(msg.created_at)}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                <div
+                                                    className={`message ${msg.sender_user_id === currentUserId ? 'sent' : 'received'}`}
+                                                    style={{ position: 'relative', marginBottom: '8px' }}
+                                                    onMouseEnter={() => setHoveredMessageId(msg.id)}
+                                                    onMouseLeave={() => setHoveredMessageId(null)}
+                                                >
+                                                    <div className="message-bubble" style={{ position: 'relative' }}>
+                                                        {/* Sender Name for Group Chats */}
+                                                        {(selectedConversation.type === 'team' || selectedConversation.type === 'everyone') && msg.sender_user_id !== currentUserId && (
+                                                            <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '2px', marginLeft: '2px', fontWeight: 600 }}>
+                                                                {getSenderName(msg.sender_user_id)}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Replied Message Context (Snapshot Approach) */}
+                                                        {msg.replied_message_content && (
+                                                            <div style={{
+                                                                padding: '6px 10px',
+                                                                background: 'rgba(0,0,0,0.04)',
+                                                                borderLeft: '3px solid #cbd5e1',
+                                                                marginBottom: '6px',
+                                                                borderRadius: '4px',
+                                                                fontSize: '12px'
+                                                            }}>
+                                                                <div style={{ color: '#64748b', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 500 }}>
+                                                                    <Reply size={10} />
+                                                                    {msg.replied_message_sender_name || 'User'}
+                                                                </div>
+                                                                <div style={{ color: '#475569', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '100%' }}>
+                                                                    {msg.replied_message_content}
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Message Actions Hover (Unified Action Bar) */}
+                                                        {hoveredMessageId === msg.id && !msg.is_deleted && (
+                                                            <div style={{
                                                                 position: 'absolute',
-                                                                top: '-35px',
-                                                                right: '0',
+                                                                top: '-32px',
+                                                                right: msg.sender_user_id === currentUserId ? '4px' : 'auto',
+                                                                left: msg.sender_user_id !== currentUserId ? '4px' : 'auto',
                                                                 background: 'white',
-                                                                borderRadius: '8px',
-                                                                padding: '4px',
-                                                                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                                                                borderRadius: '24px',
+                                                                padding: '4px 8px',
+                                                                boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                                                                display: 'flex',
+                                                                alignItems: 'center',
+                                                                gap: '2px',
+                                                                zIndex: 100,
+                                                                border: '1px solid #e5e7eb'
+                                                            }}>
+                                                                <button
+                                                                    onClick={() => setReplyingTo({
+                                                                        id: msg.id,
+                                                                        content: msg.content,
+                                                                        sender_name: msg.sender_user_id === currentUserId ? 'You' : (getSenderName(msg.sender_user_id) || 'User')
+                                                                    })}
+                                                                    title="Reply"
+                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', borderRadius: '50%', transition: 'all 0.2s' }}
+                                                                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#3b82f6'; }}
+                                                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
+                                                                >
+                                                                    <Reply size={16} />
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setShowReactionPicker(showReactionPicker === msg.id ? null : msg.id)}
+                                                                    title="React"
+                                                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', borderRadius: '50%', transition: 'all 0.2s' }}
+                                                                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#eab308'; }}
+                                                                    onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
+                                                                >
+                                                                    <Smile size={16} />
+                                                                </button>
+                                                                {messageReactions[msg.id] && Object.keys(messageReactions[msg.id]).length > 0 && (
+                                                                    <button
+                                                                        onClick={() => setViewingReactionsFor(msg.id)}
+                                                                        title="View Reactions"
+                                                                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', borderRadius: '50%', transition: 'all 0.2s' }}
+                                                                        onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#3b82f6'; }}
+                                                                        onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
+                                                                    >
+                                                                        <Info size={16} />
+                                                                    </button>
+                                                                )}
+
+                                                                {/* Delete Actions (Sender only, within 5 mins) */}
+                                                                {msg.sender_user_id === currentUserId && (new Date() - new Date(msg.created_at)) < 5 * 60 * 1000 && (
+                                                                    <>
+                                                                        <div style={{ width: '1px', height: '18px', background: '#e2e8f0', margin: '0 6px' }} />
+                                                                        <button
+                                                                            onClick={() => deleteMessageForMe(msg.id)}
+                                                                            title="Delete for me"
+                                                                            style={{ background: 'none', border: 'none', padding: '4px 8px', cursor: 'pointer', color: '#64748b', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '12px', transition: 'all 0.2s' }}
+                                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#f1f5f9'; e.currentTarget.style.color = '#1e293b'; }}
+                                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; }}
+                                                                        >
+                                                                            <Trash2 size={13} /> Me
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => deleteMessageForEveryone(msg.id)}
+                                                                            title="Delete for everyone"
+                                                                            style={{ background: 'none', border: 'none', padding: '4px 8px', cursor: 'pointer', color: '#ef4444', fontSize: '11px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', borderRadius: '12px', transition: 'all 0.2s' }}
+                                                                            onMouseEnter={(e) => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#b91c1c'; }}
+                                                                            onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#ef4444'; }}
+                                                                        >
+                                                                            <Trash2 size={13} /> All
+                                                                        </button>
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Reaction Picker Popup */}
+                                                        {showReactionPicker === msg.id && (
+                                                            <div style={{
+                                                                position: 'absolute',
+                                                                bottom: '100%',
+                                                                right: msg.sender_user_id === currentUserId ? '0' : 'auto',
+                                                                left: msg.sender_user_id !== currentUserId ? '0' : 'auto',
+                                                                background: 'white',
+                                                                border: '1px solid #e5e7eb',
+                                                                borderRadius: '12px',
+                                                                padding: '8px',
                                                                 display: 'flex',
                                                                 gap: '4px',
-                                                                zIndex: 10,
-                                                                border: '1px solid #e2e8f0',
-                                                                animation: 'fadeIn 0.2s ease'
-                                                            }}
-                                                        >
-                                                            <button
-                                                                onClick={() => deleteMessageForMe(msg.id)}
-                                                                title="Delete for me"
-                                                                style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '4px', cursor: 'pointer', color: '#64748b' }}
-                                                            >
-                                                                <Trash2 size={12} /> Me
-                                                            </button>
-                                                            <button
-                                                                onClick={() => deleteMessageForEveryone(msg.id)}
-                                                                title="Delete for everyone"
-                                                                style={{ background: 'white', border: '1px solid #e2e8f0', borderRadius: '4px', padding: '4px', cursor: 'pointer', color: '#ef4444' }}
-                                                            >
-                                                                <Trash2 size={12} /> All
-                                                            </button>
-                                                        </div>
-                                                    )}
+                                                                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                                                                zIndex: 100,
+                                                                marginBottom: '8px'
+                                                            }}>
+                                                                {['👍', '❤️', '😂', '😮', '😢', '🎉', '🔥', '👏'].map(emoji => (
+                                                                    <button
+                                                                        key={emoji}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleReaction(msg.id, emoji);
+                                                                        }}
+                                                                        style={{
+                                                                            padding: '8px',
+                                                                            background: 'none',
+                                                                            border: 'none',
+                                                                            fontSize: '20px',
+                                                                            cursor: 'pointer',
+                                                                            borderRadius: '8px',
+                                                                            transition: 'transform 0.1s'
+                                                                        }}
+                                                                        onMouseEnter={(e) => e.target.style.transform = 'scale(1.2)'}
+                                                                        onMouseLeave={(e) => e.target.style.transform = 'scale(1)'}
+                                                                    >
+                                                                        {emoji}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
 
-                                                    <div className="message-content" style={{ fontStyle: msg.is_deleted ? 'italic' : 'normal', color: msg.is_deleted ? '#94a3b8' : 'inherit' }}>
-                                                        {msg.is_deleted && <Trash2 size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />}
-                                                        {msg.is_deleted ? msg.content : renderMessageContent(msg.content)}
-                                                    </div>
-                                                    {msg.attachments && msg.attachments.length > 0 && (
-                                                        <div className="message-attachments">
-                                                            {msg.attachments.map(att => (
-                                                                <a
-                                                                    key={att.id}
-                                                                    href={att.url}
-                                                                    target="_blank"
-                                                                    rel="noopener noreferrer"
-                                                                    className="attachment-link"
-                                                                >
-                                                                    📎 {att.file_name}
-                                                                </a>
-                                                            ))}
+                                                        <div className="message-content" style={{ fontStyle: msg.is_deleted ? 'italic' : 'normal', color: msg.is_deleted ? '#94a3b8' : 'inherit' }}>
+                                                            {msg.is_deleted && <Trash2 size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />}
+                                                            {msg.is_deleted ? msg.content : (
+                                                                msg.is_poll ? (
+                                                                    <PollContent
+                                                                        msg={msg}
+                                                                        votes={allPollVotes[msg.id] || []}
+                                                                        onVote={(idx) => handleVote(msg.id, idx, msg.allow_multiple_answers)}
+                                                                        currentUserId={currentUserId}
+                                                                        onViewVotes={() => setShowVoteDetails(msg.id)}
+                                                                    />
+                                                                ) : renderMessageContent(msg.content)
+                                                            )}
                                                         </div>
-                                                    )}
-                                                    <div className="message-time">
-                                                        {new Date(msg.created_at).toLocaleTimeString([], {
-                                                            hour: '2-digit',
-                                                            minute: '2-digit'
-                                                        })}
+                                                        {msg.attachments && msg.attachments.length > 0 && (
+                                                            <div className="message-attachments">
+                                                                {msg.attachments.map(att => (
+                                                                    <a
+                                                                        key={att.id}
+                                                                        href={att.url}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="attachment-link"
+                                                                    >
+                                                                        📎 {att.file_name}
+                                                                    </a>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* Reactions Display */}
+                                                        {!msg.is_deleted && messageReactions[msg.id] && Object.keys(messageReactions[msg.id]).length > 0 && (
+                                                            <div style={{
+                                                                display: 'flex',
+                                                                gap: '6px',
+                                                                marginTop: '6px',
+                                                                flexWrap: 'wrap',
+                                                                justifyContent: msg.sender_user_id === currentUserId ? 'flex-end' : 'flex-start',
+                                                                padding: '0 4px'
+                                                            }}>
+                                                                {Object.entries(messageReactions[msg.id]).map(([emoji, data]) => {
+                                                                    const isSelf = data.users.some(u => u.user_id === currentUserId);
+                                                                    return (
+                                                                        <div
+                                                                            key={emoji}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleReaction(msg.id, emoji);
+                                                                            }}
+                                                                            title={data.users.map(u => u.name).join(', ')}
+                                                                            style={{
+                                                                                display: 'inline-flex',
+                                                                                alignItems: 'center',
+                                                                                padding: data.count > 1 ? '3px 10px' : '3px 8px',
+                                                                                background: isSelf ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+                                                                                backdropFilter: 'blur(4px)',
+                                                                                border: isSelf ? '1.5px solid #3b82f6' : '1px solid #e2e8f0',
+                                                                                borderRadius: '20px',
+                                                                                fontSize: '14px',
+                                                                                cursor: 'pointer',
+                                                                                boxShadow: '0 2px 4px rgba(0,0,0,0.04)',
+                                                                                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                                                                                transform: 'translateY(0)',
+                                                                            }}
+                                                                            onMouseEnter={(e) => {
+                                                                                e.currentTarget.style.transform = 'translateY(-1px)';
+                                                                                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0,0,0,0.06)';
+                                                                            }}
+                                                                            onMouseLeave={(e) => {
+                                                                                e.currentTarget.style.transform = 'translateY(0)';
+                                                                                e.currentTarget.style.boxShadow = '0 2px 4px rgba(0,0,0,0.04)';
+                                                                            }}
+                                                                        >
+                                                                            <span style={{ transform: 'scale(1.1)', display: 'inline-block' }}>{emoji}</span>
+                                                                            {data.count > 1 && (
+                                                                                <span style={{
+                                                                                    fontSize: '11px',
+                                                                                    color: isSelf ? '#1d4ed8' : '#64748b',
+                                                                                    fontWeight: 700,
+                                                                                    marginLeft: '4px'
+                                                                                }}>
+                                                                                    {data.count}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        )}
+
+                                                        <div className="message-time">
+                                                            {new Date(msg.created_at).toLocaleTimeString([], {
+                                                                hour: '2-digit',
+                                                                minute: '2-digit'
+                                                            })}
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        </React.Fragment>
-                                    );
-                                })
+                                            </React.Fragment>
+                                        );
+                                    })
+                                })()
                             )}
+                            <div ref={messagesEndRef} />
                         </div>
 
                         <div className="message-input-container">
@@ -1102,6 +2049,40 @@ const MessagingHub = () => {
                                     <button
                                         onClick={() => setErrorMessage(null)}
                                         style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                                    >
+                                        <X size={16} />
+                                    </button>
+                                </div>
+                            )}
+
+                            {replyingTo && (
+                                <div style={{
+                                    padding: '0.75rem 1rem',
+                                    background: '#f3f4f6',
+                                    borderLeft: '3px solid #3b82f6',
+                                    margin: '0.5rem 0',
+                                    borderRadius: '4px',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center'
+                                }}>
+                                    <div>
+                                        <div style={{ fontSize: '12px', color: '#6b7280', marginBottom: '4px' }}>
+                                            Replying to {replyingTo.sender_name}
+                                        </div>
+                                        <div style={{ fontSize: '14px', color: '#1f2937' }}>
+                                            {replyingTo.content.substring(0, 50)}{replyingTo.content.length > 50 ? '...' : ''}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setReplyingTo(null)}
+                                        style={{
+                                            background: 'none',
+                                            border: 'none',
+                                            cursor: 'pointer',
+                                            color: '#6b7280',
+                                            padding: '4px'
+                                        }}
                                     >
                                         <X size={16} />
                                     </button>
@@ -1130,13 +2111,28 @@ const MessagingHub = () => {
                                         style={{ display: 'none' }}
                                     />
                                 </label>
-                                <input
-                                    type="text"
-                                    placeholder="Type a message... (Paste images directly)"
+                                <button
+                                    className="attachment-button"
+                                    onClick={() => setShowPollModal(true)}
+                                    title="Create Poll"
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                    <BarChart2 size={20} />
+                                </button>
+                                <textarea
+                                    ref={textareaRef}
+                                    placeholder="Type a message..."
                                     value={messageInput}
-                                    onChange={(e) => setMessageInput(e.target.value)}
-                                    onKeyPress={handleKeyPress}
+                                    onChange={handleTextareaChange}
+                                    onKeyDown={handleKeyPress}
                                     onPaste={handlePaste}
+                                    rows={1}
+                                    style={{
+                                        resize: 'none',
+                                        minHeight: '40px',
+                                        maxHeight: '120px',
+                                        overflowY: 'auto'
+                                    }}
                                 />
                                 <button
                                     className="send-button"
@@ -1487,7 +2483,7 @@ const MessagingHub = () => {
                     <div className="modal-overlay" onClick={() => setShowMembersModal(false)}>
                         <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', width: '90%', maxHeight: '80vh', background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
                             <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                                <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Group Members</h2>
+                                <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Group Members ({currentMembers.length})</h2>
                                 <button onClick={() => setShowMembersModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
                                     <X size={20} />
                                 </button>
@@ -1495,26 +2491,27 @@ const MessagingHub = () => {
                             <div className="user-list" style={{ maxHeight: '400px', overflowY: 'auto' }}>
                                 {currentMembers.map(user => (
                                     <div
-                                        key={user.id}
+                                        key={user.id || user.user_id}
                                         style={{
                                             display: 'flex',
                                             alignItems: 'center',
                                             gap: '12px',
                                             padding: '12px',
-                                            borderBottom: '1px solid #f3f4f6'
+                                            borderBottom: '1px solid #f3f4f6',
+                                            background: user.is_admin ? '#eff6ff' : 'transparent'
                                         }}
                                     >
                                         <div className="user-avatar" style={{
                                             width: '40px',
                                             height: '40px',
                                             borderRadius: '50%',
-                                            background: '#e5e7eb',
+                                            background: user.is_admin ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : '#e5e7eb',
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
                                             fontSize: '16px',
                                             fontWeight: 'bold',
-                                            color: '#6366f1'
+                                            color: user.is_admin ? 'white' : '#6366f1'
                                         }}>
                                             {user.avatar_url ? (
                                                 <img src={user.avatar_url} alt={user.full_name} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
@@ -1523,19 +2520,620 @@ const MessagingHub = () => {
                                             )}
                                         </div>
                                         <div className="user-info" style={{ flex: 1 }}>
-                                            <div className="user-name" style={{ fontWeight: '500', color: '#1f2937' }}>
-                                                {user.full_name || user.email} {user.id === currentUserId && '(You)'}
+                                            <div className="user-name" style={{ fontWeight: '500', color: '#1f2937', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <span>{user.full_name || user.email}</span>
+                                                {(user.id === currentUserId || user.user_id === currentUserId) && <span style={{ fontSize: '11px', color: '#6b7280' }}>(You)</span>}
+                                                {user.is_admin && (
+                                                    <span style={{
+                                                        fontSize: '10px',
+                                                        padding: '2px 6px',
+                                                        background: '#3b82f6',
+                                                        color: 'white',
+                                                        borderRadius: '4px',
+                                                        fontWeight: '600',
+                                                        display: 'inline-flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}>
+                                                        <Shield size={10} /> ADMIN
+                                                    </span>
+                                                )}
                                             </div>
                                             <div className="user-role" style={{ fontSize: '12px', color: '#6b7280', textTransform: 'capitalize' }}>
                                                 {user.role}
                                             </div>
                                         </div>
+
+                                        {/* Admin Controls */}
+                                        {isCurrentUserAdmin && selectedConversation?.type === 'team' && (user.id !== currentUserId && user.user_id !== currentUserId) && (
+                                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                                                {user.is_admin ? (
+                                                    <button
+                                                        onClick={() => handleDemoteFromAdmin(user.id || user.user_id, user.full_name || user.email)}
+                                                        title="Remove admin"
+                                                        style={{
+                                                            padding: '6px 10px',
+                                                            borderRadius: '6px',
+                                                            border: '1px solid #f59e0b',
+                                                            background: 'white',
+                                                            cursor: 'pointer',
+                                                            fontSize: '11px',
+                                                            color: '#f59e0b',
+                                                            fontWeight: '600',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}
+                                                    >
+                                                        <UserMinus size={12} /> Demote
+                                                    </button>
+                                                ) : (
+                                                    <button
+                                                        onClick={() => handlePromoteToAdmin(user.id || user.user_id, user.full_name || user.email)}
+                                                        title="Make admin"
+                                                        style={{
+                                                            padding: '6px 10px',
+                                                            borderRadius: '6px',
+                                                            border: '1px solid #3b82f6',
+                                                            background: 'white',
+                                                            cursor: 'pointer',
+                                                            fontSize: '11px',
+                                                            color: '#3b82f6',
+                                                            fontWeight: '600',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '4px'
+                                                        }}
+                                                    >
+                                                        <Shield size={12} /> Admin
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleRemoveMember(user.id || user.user_id, user.full_name || user.email)}
+                                                    title="Remove from group"
+                                                    style={{
+                                                        padding: '6px 10px',
+                                                        borderRadius: '6px',
+                                                        border: '1px solid #dc2626',
+                                                        background: 'white',
+                                                        cursor: 'pointer',
+                                                        fontSize: '11px',
+                                                        color: '#dc2626',
+                                                        fontWeight: '600',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '4px'
+                                                    }}
+                                                >
+                                                    <UserMinus size={12} /> Remove
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
+
+                            {/* Leave Group Button */}
+                            {selectedConversation?.type === 'team' && !isCurrentUserAdmin && (
+                                <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
+                                    <button
+                                        onClick={handleLeaveGroup}
+                                        style={{
+                                            width: '100%',
+                                            padding: '10px',
+                                            borderRadius: '8px',
+                                            border: '1px solid #dc2626',
+                                            background: 'white',
+                                            cursor: 'pointer',
+                                            fontSize: '14px',
+                                            color: '#dc2626',
+                                            fontWeight: '600'
+                                        }}
+                                    >
+                                        Leave Group
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
-                )}
+                )
+            }
+
+            {/* Add Member Modal */}
+            {
+                showAddMemberModal && (
+                    <div className="modal-overlay" onClick={() => setShowAddMemberModal(false)}>
+                        <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ minWidth: '400px', maxWidth: '500px' }}>
+                            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#1f2937' }}>Add Member to Group</h3>
+                                <button
+                                    onClick={() => setShowAddMemberModal(false)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="modal-body">
+                                {errorMessage && (
+                                    <div style={{
+                                        padding: '0.75rem 1rem',
+                                        marginBottom: '1rem',
+                                        background: '#fee2e2',
+                                        border: '1px solid #fca5a5',
+                                        borderRadius: '8px',
+                                        color: '#b91c1c',
+                                        fontSize: '14px'
+                                    }}>
+                                        {errorMessage}
+                                    </div>
+                                )}
+                                <p style={{ marginBottom: '1rem', color: '#6b7280', fontSize: '14px' }}>
+                                    Select a user to add to this group
+                                </p>
+                                <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                                    {orgUsers
+                                        .filter(u => !currentMembers.some(m => (m.id || m.user_id) === u.id))
+                                        .length === 0 ? (
+                                        <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
+                                            All organization members are already in this group
+                                        </div>
+                                    ) : (
+                                        orgUsers
+                                            .filter(u => !currentMembers.some(m => (m.id || m.user_id) === u.id))
+                                            .map(user => (
+                                                <div
+                                                    key={user.id}
+                                                    onClick={() => handleAddMember(user.id)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        gap: '12px',
+                                                        padding: '12px',
+                                                        cursor: 'pointer',
+                                                        borderBottom: '1px solid #f3f4f6',
+                                                        transition: 'background 0.2s',
+                                                        background: 'white'
+                                                    }}
+                                                    onMouseEnter={(e) => e.currentTarget.style.background = '#f9fafb'}
+                                                    onMouseLeave={(e) => e.currentTarget.style.background = 'white'}
+                                                >
+                                                    <div style={{
+                                                        width: '40px',
+                                                        height: '40px',
+                                                        borderRadius: '50%',
+                                                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        color: 'white',
+                                                        fontWeight: '600',
+                                                        fontSize: '16px'
+                                                    }}>
+                                                        {(user.full_name?.[0] || user.email?.[0] || '?').toUpperCase()}
+                                                    </div>
+                                                    <div style={{ flex: 1 }}>
+                                                        <div style={{ fontWeight: '500', color: '#1f2937' }}>
+                                                            {user.full_name || user.email}
+                                                        </div>
+                                                        <div style={{ fontSize: '12px', color: '#6b7280', textTransform: 'capitalize' }}>
+                                                            {user.role}
+                                                        </div>
+                                                    </div>
+                                                    <UserPlus size={18} style={{ color: '#3b82f6' }} />
+                                                </div>
+                                            ))
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Rename Group Modal */}
+            {
+                showRenameModal && (
+                    <div className="modal-overlay" onClick={() => setShowRenameModal(false)}>
+                        <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ minWidth: '400px', maxWidth: '500px' }}>
+                            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                                <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#1f2937' }}>Rename Group</h3>
+                                <button
+                                    onClick={() => {
+                                        setShowRenameModal(false);
+                                        setErrorMessage(null);
+                                    }}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                                >
+                                    <X size={20} />
+                                </button>
+                            </div>
+                            <div className="modal-body">
+                                {errorMessage && (
+                                    <div style={{
+                                        padding: '0.75rem 1rem',
+                                        marginBottom: '1rem',
+                                        background: '#fee2e2',
+                                        border: '1px solid #fca5a5',
+                                        borderRadius: '8px',
+                                        color: '#b91c1c',
+                                        fontSize: '14px'
+                                    }}>
+                                        {errorMessage}
+                                    </div>
+                                )}
+                                <div style={{ marginBottom: '1.5rem' }}>
+                                    <label style={{
+                                        display: 'block',
+                                        marginBottom: '0.5rem',
+                                        fontWeight: '500',
+                                        color: '#374151',
+                                        fontSize: '14px'
+                                    }}>
+                                        Group Name
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={newGroupName}
+                                        onChange={(e) => setNewGroupName(e.target.value)}
+                                        onKeyPress={(e) => {
+                                            if (e.key === 'Enter' && newGroupName.trim()) {
+                                                handleRenameGroup();
+                                            }
+                                        }}
+                                        placeholder="Enter new group name"
+                                        style={{
+                                            width: '100%',
+                                            padding: '0.75rem',
+                                            border: '1px solid #e5e7eb',
+                                            borderRadius: '8px',
+                                            fontSize: '14px',
+                                            outline: 'none',
+                                            transition: 'border-color 0.2s'
+                                        }}
+                                        onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                                        onBlur={(e) => e.target.style.borderColor = '#e5e7eb'}
+                                        autoFocus
+                                    />
+                                    <p style={{
+                                        marginTop: '0.5rem',
+                                        fontSize: '12px',
+                                        color: '#6b7280'
+                                    }}>
+                                        Press Enter to save
+                                    </p>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                        onClick={() => {
+                                            setShowRenameModal(false);
+                                            setErrorMessage(null);
+                                        }}
+                                        style={{
+                                            flex: 1,
+                                            padding: '0.75rem',
+                                            background: 'white',
+                                            color: '#6b7280',
+                                            border: '1px solid #e5e7eb',
+                                            borderRadius: '8px',
+                                            cursor: 'pointer',
+                                            fontWeight: '600',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleRenameGroup}
+                                        disabled={!newGroupName.trim()}
+                                        style={{
+                                            flex: 1,
+                                            padding: '0.75rem',
+                                            background: !newGroupName.trim() ? '#d1d5db' : '#3b82f6',
+                                            color: 'white',
+                                            border: 'none',
+                                            borderRadius: '8px',
+                                            cursor: !newGroupName.trim() ? 'not-allowed' : 'pointer',
+                                            fontWeight: '600',
+                                            fontSize: '14px'
+                                        }}
+                                    >
+                                        Rename Group
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
+
+            {/* Create Poll Modal */}
+            {showPollModal && (
+                <div className="modal-overlay" onClick={() => setShowPollModal(false)}>
+                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '450px' }}>
+                        <div className="modal-header">
+                            <h3>Create Poll</h3>
+                            <button onClick={() => setShowPollModal(false)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body">
+                            <div style={{ marginBottom: '1.5rem' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#1e293b' }}>Question</label>
+                                <textarea
+                                    className="poll-option-input"
+                                    placeholder="Ask a question..."
+                                    value={pollQuestion}
+                                    onChange={(e) => setPollQuestion(e.target.value)}
+                                    style={{ minHeight: '80px', width: '100%', resize: 'none' }}
+                                />
+                            </div>
+                            <div style={{ marginBottom: '1.5rem' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', fontWeight: '600', color: '#1e293b' }}>Options</label>
+                                <div className="poll-modal-options">
+                                    {pollOptions.map((opt, idx) => (
+                                        <div key={idx} className="poll-option-input-container">
+                                            <input
+                                                className="poll-option-input"
+                                                placeholder={`Option ${idx + 1}`}
+                                                value={opt}
+                                                onChange={(e) => {
+                                                    const newOpts = [...pollOptions];
+                                                    newOpts[idx] = e.target.value;
+                                                    setPollOptions(newOpts);
+                                                }}
+                                            />
+                                            {pollOptions.length > 2 && (
+                                                <button
+                                                    onClick={() => setPollOptions(pollOptions.filter((_, i) => i !== idx))}
+                                                    style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer' }}
+                                                >
+                                                    <Trash2 size={18} />
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                                <button
+                                    className="add-option-btn"
+                                    onClick={() => setPollOptions([...pollOptions, ''])}
+                                >
+                                    <Plus size={16} /> Add option
+                                </button>
+                            </div>
+                            <div className="poll-toggle-container">
+                                <span className="poll-toggle-label">Allow multiple answers</span>
+                                <label className="switch">
+                                    <input
+                                        type="checkbox"
+                                        checked={allowMultiplePoll}
+                                        onChange={(e) => setAllowMultiplePoll(e.target.checked)}
+                                    />
+                                    <span className="slider round"></span>
+                                </label>
+                            </div>
+                        </div>
+                        <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '12px' }}>
+                            <button
+                                style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0', background: 'white', fontWeight: '600', cursor: 'pointer' }}
+                                onClick={() => setShowPollModal(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: '#3b82f6', color: 'white', fontWeight: '700', cursor: 'pointer' }}
+                                onClick={handleSendPoll}
+                                disabled={!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2}
+                            >
+                                Create Poll
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Reaction Details Modal */}
+            {viewingReactionsFor && (
+                <ReactionDetailsModal
+                    messageId={viewingReactionsFor}
+                    reactions={messageReactions[viewingReactionsFor]}
+                    onClose={() => setViewingReactionsFor(null)}
+                    currentUserId={currentUserId}
+                />
+            )}
+
+            {/* Vote Details Modal */}
+            {showVoteDetails && (
+                <div className="modal-overlay" onClick={() => setShowVoteDetails(null)}>
+                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+                        <div className="modal-header">
+                            <h3>Poll Details</h3>
+                            <button onClick={() => setShowVoteDetails(null)}>
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="modal-body" style={{ maxHeight: '60vh' }}>
+                            {(() => {
+                                const msg = messages.find(m => m.id === showVoteDetails);
+                                if (!msg) return null;
+                                const votes = allPollVotes[showVoteDetails] || [];
+
+                                return msg.poll_options.map((option, idx) => {
+                                    const optionVoters = votes.filter(v => v.option_index === idx);
+                                    return (
+                                        <div key={idx} style={{ marginBottom: '20px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px' }}>
+                                                <div style={{ fontWeight: '700', fontSize: '15px' }}>{option}</div>
+                                                <div style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '12px', fontSize: '12px', fontWeight: '600' }}>
+                                                    {optionVoters.length} {optionVoters.length === 1 ? 'vote' : 'votes'}
+                                                </div>
+                                            </div>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                {optionVoters.length === 0 ? (
+                                                    <div style={{ fontSize: '12px', color: '#94a3b8', fontStyle: 'italic' }}>No votes yet</div>
+                                                ) : (
+                                                    optionVoters.map(voter => (
+                                                        <div key={voter.id} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <div className="user-avatar" style={{ width: '28px', height: '28px' }}>
+                                                                {voter.profiles?.avatar_url ? (
+                                                                    <img src={voter.profiles.avatar_url} alt="" />
+                                                                ) : (
+                                                                    <div className="avatar-placeholder" style={{ fontSize: '10px' }}>
+                                                                        {(voter.profiles?.full_name?.[0] || voter.profiles?.email?.[0] || '?').toUpperCase()}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div style={{ fontSize: '14px', fontWeight: '500' }}>
+                                                                {voter.profiles?.full_name || voter.profiles?.email}
+                                                            </div>
+                                                        </div>
+                                                    ))
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                });
+                            })()}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+
+    );
+};
+
+// Reaction Details Modal Component
+const ReactionDetailsModal = ({ messageId, reactions, onClose, currentUserId }) => {
+    const [activeTab, setActiveTab] = useState('All');
+
+    if (!reactions || Object.keys(reactions).length === 0) return null;
+
+    const allReactions = Object.entries(reactions).flatMap(([emoji, data]) =>
+        data.users.map(u => ({ ...u, emoji }))
+    );
+
+    const tabs = ['All', ...Object.keys(reactions)];
+
+    const displayedUsers = activeTab === 'All'
+        ? allReactions
+        : reactions[activeTab]?.users.map(u => ({ ...u, emoji: activeTab })) || [];
+
+    return (
+        <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 10000
+        }} onClick={onClose}>
+            <div style={{
+                background: 'white',
+                borderRadius: '12px',
+                width: '400px',
+                maxWidth: '90%',
+                maxHeight: '80vh',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.2)'
+            }} onClick={e => e.stopPropagation()}>
+                <div style={{
+                    padding: '16px',
+                    borderBottom: '1px solid #e5e7eb',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                }}>
+                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600 }}>Message Reactions</h3>
+                    <button
+                        onClick={onClose}
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}
+                    >
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div style={{
+                    display: 'flex',
+                    gap: '8px',
+                    padding: '12px 16px',
+                    borderBottom: '1px solid #e5e7eb',
+                    overflowX: 'auto'
+                }}>
+                    {tabs.map(tab => (
+                        <button
+                            key={tab}
+                            onClick={() => setActiveTab(tab)}
+                            style={{
+                                padding: '6px 12px',
+                                borderRadius: '16px',
+                                border: 'none',
+                                background: activeTab === tab ? '#eff6ff' : 'transparent',
+                                color: activeTab === tab ? '#2563eb' : '#64748b',
+                                fontWeight: 500,
+                                fontSize: '13px',
+                                cursor: 'pointer',
+                                whiteSpace: 'nowrap'
+                            }}
+                        >
+                            {tab === 'All' ? `All ${allReactions.length}` : `${tab} ${reactions[tab].count}`}
+                        </button>
+                    ))}
+                </div>
+
+                <div style={{
+                    padding: '16px',
+                    overflowY: 'auto',
+                    flex: 1
+                }}>
+                    {displayedUsers.map((user, idx) => (
+                        <div key={`${user.user_id}-${idx}`} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '12px',
+                            padding: '8px 0',
+                            borderBottom: idx < displayedUsers.length - 1 ? '1px solid #f1f5f9' : 'none'
+                        }}>
+                            <div style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: '#e2e8f0',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                color: '#64748b',
+                                overflow: 'hidden'
+                            }}>
+                                {user.avatar_url ? (
+                                    <img src={user.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                ) : (
+                                    (user.name || 'U').charAt(0).toUpperCase()
+                                )}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: '14px', fontWeight: 500, color: '#1e293b' }}>
+                                    {user.user_id === currentUserId ? 'You' : user.name}
+                                </div>
+                            </div>
+                            <div style={{ fontSize: '20px' }}>
+                                {user.emoji}
+                            </div>
+                        </div>
+                    ))}
+                    {displayedUsers.length === 0 && (
+                        <div style={{ textAlign: 'center', color: '#64748b', padding: '20px' }}>
+                            No reactions yet.
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 };

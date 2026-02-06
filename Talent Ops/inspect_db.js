@@ -51,6 +51,33 @@ async function inspect() {
     } else {
         console.log('Cannot verify columns of task_submissions because table is empty or unreadable.');
     }
+
+    console.log('\n--- Inspecting leave_ai_analysis details ---');
+    // Get the definition by inserting a row and then reading it back?
+    // Or just select * limit 1 (even if empty, it gives structure? No, Supabase/PostgREST returns [] if empty).
+    // Better: Query the information_schema via SQL? No, can't run SQL from JS easily without RPC.
+
+    // Workaround: We inserted a dummy row in the previous step (if it wasn't rolled back).
+    // Actually, inspect_db.js logic: insert error was checked.
+    // Let's try to SELECT the dummy row we just inserted (if it persisted) or just insert another one and return it.
+
+    const payload = {
+        risk_score: 99,
+        primary_warning: 'Schema Check',
+        updated_at: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase.from('leave_ai_analysis').insert(payload).select();
+
+    if (error) {
+        console.error('Insert Error:', error);
+    } else if (data && data.length > 0) {
+        console.log('Successfully inserted and retrieved row. Columns found:');
+        console.log(Object.keys(data[0]).join(', '));
+
+        // Clean up
+        await supabase.from('leave_ai_analysis').delete().eq('id', data[0].id);
+    }
 }
 
 inspect();

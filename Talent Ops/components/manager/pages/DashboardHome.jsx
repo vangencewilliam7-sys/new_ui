@@ -588,28 +588,7 @@ const DashboardHome = () => {
                         <h2 style={{ fontSize: '1.75rem', fontWeight: '800', color: 'white', letterSpacing: '0.05em', lineHeight: 1 }}>
                             {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
                         </h2>
-                        <button
-                            onClick={() => setShowAddEventModal(true)}
-                            style={{
-                                marginTop: '16px',
-                                padding: '12px 24px',
-                                borderRadius: '16px',
-                                background: 'linear-gradient(to right, #0ea5e9, #6366f1)',
-                                color: 'white',
-                                border: 'none',
-                                fontWeight: '800',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                transition: 'all 0.3s ease',
-                                boxShadow: '0 10px 20px rgba(99, 102, 241, 0.2)'
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 15px 25px rgba(99, 102, 241, 0.3)'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 10px 20px rgba(99, 102, 241, 0.2)'; }}
-                        >
-                            <Plus size={20} /> Plan New Event
-                        </button>
+
                     </div>
                 </div>
             </div>

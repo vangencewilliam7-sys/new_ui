@@ -43,9 +43,9 @@ export const getConversationsByCategory = async (userId, category, orgId) => {
             .select('*')
             .in('id', conversationIds);
 
-        // Filter by org_id, but also include conversations with NULL org_id (legacy conversations)
+        // Filter by org_id strictly
         if (orgId) {
-            query = query.or(`org_id.eq.${orgId},org_id.is.null`);
+            query = query.eq('org_id', orgId);
         }
 
         // Filter by conversation type based on category
@@ -87,6 +87,18 @@ export const getConversationsByCategory = async (userId, category, orgId) => {
                 ...conv,
                 conversation_indexes: index ? [index] : []
             };
+        });
+
+        // Step 4.5: Sort by last_message_at (most recent first)
+        conversationsWithIndexes.sort((a, b) => {
+            const aTime = a.conversation_indexes?.[0]?.last_message_at;
+            const bTime = b.conversation_indexes?.[0]?.last_message_at;
+
+            if (!aTime && !bTime) return 0;
+            if (!aTime) return 1;  // No message goes to bottom
+            if (!bTime) return -1;
+
+            return new Date(bTime) - new Date(aTime); // Newest first
         });
 
         // Step 5: Self-healing for missing message previews
@@ -138,10 +150,24 @@ export const getConversationMessages = async (conversationId) => {
             .from('messages')
             .select(`
                 *,
-                attachments(*)
+                replied_to:messages!reply_to (
+                    id,
+                    content,
+                    sender_id:sender_user_id
+                ),
+                attachments(*),
+                message_reactions (
+                    id,
+                    reaction,
+                    user_id
+                )
             `)
             .eq('conversation_id', conversationId)
             .order('created_at', { ascending: true });
+
+        // We also need to fetch profile names for the reactions and replied sender
+        // Doing this client-side or via separate query might be cleaner than deep nested joins if RLS is tricky
+        // But let's try to infer sender names from the already loaded conversation members if possible
 
         if (error) throw error;
         return data || [];
@@ -353,13 +379,14 @@ export const createDMConversation = async (userId1, userId2, orgId) => {
  */
 export const createTeamConversation = async (creatorId, memberIds, teamName, orgId) => {
     try {
-        // Create team conversation
+        // Create team conversation with creator tracking
         const { data: conversation, error: convError } = await supabase
             .from('conversations')
             .insert({
                 org_id: orgId,
                 type: 'team',
                 name: teamName,
+                created_by: creatorId,
                 created_at: new Date().toISOString()
             })
             .select()
@@ -371,7 +398,8 @@ export const createTeamConversation = async (creatorId, memberIds, teamName, org
         const allMembers = [...new Set([creatorId, ...memberIds])];
         const memberInserts = allMembers.map(userId => ({
             conversation_id: conversation.id,
-            user_id: userId
+            user_id: userId,
+            is_admin: userId === creatorId // Creator is automatically admin
         }));
 
         const { error: membersError } = await supabase
@@ -453,7 +481,11 @@ export const getOrCreateOrgConversation = async (userId, orgId) => {
  * @param {Function} callback - Callback function for new messages
  * @returns {Object} Subscription object
  */
-export const subscribeToConversation = (conversationId, callback) => {
+export const subscribeToConversation = (conversationId, callbacks) => {
+    const { onMessage, onReaction } = typeof callbacks === 'function'
+        ? { onMessage: callbacks } // Backward compatibility
+        : callbacks;
+
     const subscription = supabase
         .channel(`conversation:${conversationId}`)
         .on(
@@ -465,7 +497,30 @@ export const subscribeToConversation = (conversationId, callback) => {
                 filter: `conversation_id=eq.${conversationId}`
             },
             (payload) => {
-                callback(payload.new);
+                if (onMessage) onMessage(payload.new);
+            }
+        )
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'message_reactions'
+            },
+            (payload) => {
+                console.log('Realtime reaction event (raw):', payload);
+                if (onReaction) onReaction(payload.new || payload.old);
+            }
+        )
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'poll_votes'
+            },
+            (payload) => {
+                if (callbacks.onPollUpdate) callbacks.onPollUpdate(payload.new || payload.old);
             }
         )
         .subscribe();
@@ -521,6 +576,756 @@ export const getOrgUsers = async (orgId) => {
         return data || [];
     } catch (error) {
         console.error('Error fetching org users:', error);
+        return [];
+    }
+};
+
+/**
+ * ============================================
+ * GROUP ADMIN FUNCTIONS
+ * ============================================
+ */
+
+/**
+ * Check if a user is an admin of a conversation
+ * @param {string} conversationId - Conversation ID
+ * @param {string} userId - User ID to check
+ * @returns {Promise<boolean>} True if user is admin
+ */
+export const isConversationAdmin = async (conversationId, userId) => {
+    try {
+        const { data, error } = await supabase
+            .from('conversation_members')
+            .select('is_admin')
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId)
+            .single();
+
+        if (error) throw error;
+        return data?.is_admin || false;
+    } catch (error) {
+        console.error('Error checking admin status:', error);
+        return false;
+    }
+};
+
+/**
+ * Get all members of a conversation with their admin status
+ * @param {string} conversationId - Conversation ID
+ * @returns {Promise<Array>} List of members with admin status
+ */
+export const getConversationMembers = async (conversationId) => {
+    try {
+        console.log('🔍 Fetching members for conversation:', conversationId);
+
+        // First, get the conversation members
+        const { data: memberData, error: memberError } = await supabase
+            .from('conversation_members')
+            .select('user_id, is_admin')
+            .eq('conversation_id', conversationId);
+
+        if (memberError) {
+            console.error('❌ Error fetching conversation_members:', memberError);
+            throw memberError;
+        }
+
+        console.log('✅ Found conversation_members:', memberData);
+
+        if (!memberData || memberData.length === 0) {
+            console.warn('⚠️ No members found for this conversation');
+            return [];
+        }
+
+        // Then, get the profile details for each member
+        const userIds = memberData.map(m => m.user_id);
+        const { data: profileData, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, email, full_name, avatar_url, role')
+            .in('id', userIds);
+
+        if (profileError) {
+            console.error('❌ Error fetching profiles:', profileError);
+            throw profileError;
+        }
+
+        console.log('✅ Found profiles:', profileData);
+
+        // Combine the data
+        const members = memberData.map(member => {
+            const profile = profileData.find(p => p.id === member.user_id) || {};
+            return {
+                id: member.user_id,
+                user_id: member.user_id,
+                is_admin: member.is_admin || false,
+                email: profile.email || '',
+                full_name: profile.full_name || 'Unknown User',
+                avatar_url: profile.avatar_url || null,
+                role: profile.role || ''
+            };
+        });
+
+        console.log('✅ Final processed members:', members);
+        return members;
+
+    } catch (error) {
+        console.error('❌ Error in getConversationMembers:', error);
+        return [];
+    }
+};
+
+/**
+ * Add a new member to a team conversation (admin only)
+ * @param {string} conversationId - Conversation ID
+ * @param {string} userId - User ID to add
+ * @param {string} adminId - Admin user ID performing the action
+ * @returns {Promise<Object>} Added member data
+ */
+export const addMemberToConversation = async (conversationId, userId, adminId) => {
+    try {
+        // Verify admin status
+        const isAdmin = await isConversationAdmin(conversationId, adminId);
+        if (!isAdmin) {
+            throw new Error('Only admins can add members to this conversation');
+        }
+
+        // Check if user is already a member
+        const { data: existing } = await supabase
+            .from('conversation_members')
+            .select('id')
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId)
+            .maybeSingle();
+
+        if (existing) {
+            throw new Error('User is already a member of this conversation');
+        }
+
+        // Add the member
+        const { data, error } = await supabase
+            .from('conversation_members')
+            .insert({
+                conversation_id: conversationId,
+                user_id: userId,
+                is_admin: false
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('Error adding member:', error);
+        throw error;
+    }
+};
+
+/**
+ * Remove a member from a team conversation (admin only)
+ * @param {string} conversationId - Conversation ID
+ * @param {string} userIdToRemove - User ID to remove
+ * @param {string} adminId - Admin user ID performing the action
+ * @returns {Promise<void>}
+ */
+export const removeMemberFromConversation = async (conversationId, userIdToRemove, adminId) => {
+    try {
+        // Verify admin status
+        const isAdmin = await isConversationAdmin(conversationId, adminId);
+        if (!isAdmin) {
+            throw new Error('Only admins can remove members from this conversation');
+        }
+
+        // Prevent removing yourself if you're the last admin
+        if (userIdToRemove === adminId) {
+            const { data: admins } = await supabase
+                .from('conversation_members')
+                .select('user_id')
+                .eq('conversation_id', conversationId)
+                .eq('is_admin', true);
+
+            if (admins && admins.length === 1) {
+                throw new Error('Cannot remove yourself as the last admin. Promote another member first or delete the group.');
+            }
+        }
+
+        const { error } = await supabase
+            .from('conversation_members')
+            .delete()
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userIdToRemove);
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error removing member:', error);
+        throw error;
+    }
+};
+
+/**
+ * Promote a member to admin (admin only)
+ * @param {string} conversationId - Conversation ID
+ * @param {string} userIdToPromote - User ID to promote
+ * @param {string} adminId - Admin user ID performing the action
+ * @returns {Promise<void>}
+ */
+export const promoteMemberToAdmin = async (conversationId, userIdToPromote, adminId) => {
+    try {
+        // Verify admin status
+        const isAdmin = await isConversationAdmin(conversationId, adminId);
+        if (!isAdmin) {
+            throw new Error('Only admins can promote members to admin');
+        }
+
+        const { error } = await supabase
+            .from('conversation_members')
+            .update({ is_admin: true })
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userIdToPromote);
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error promoting member:', error);
+        throw error;
+    }
+};
+
+/**
+ * Demote an admin to regular member (admin only)
+ * @param {string} conversationId - Conversation ID
+ * @param {string} userIdToDemote - User ID to demote
+ * @param {string} adminId - Admin user ID performing the action
+ * @returns {Promise<void>}
+ */
+export const demoteMemberFromAdmin = async (conversationId, userIdToDemote, adminId) => {
+    try {
+        // Verify admin status
+        const isAdmin = await isConversationAdmin(conversationId, adminId);
+        if (!isAdmin) {
+            throw new Error('Only admins can demote other admins');
+        }
+
+        // Prevent demoting yourself if you're the last admin
+        if (userIdToDemote === adminId) {
+            const { data: admins } = await supabase
+                .from('conversation_members')
+                .select('user_id')
+                .eq('conversation_id', conversationId)
+                .eq('is_admin', true);
+
+            if (admins && admins.length === 1) {
+                throw new Error('Cannot demote yourself as the last admin');
+            }
+        }
+
+        const { error } = await supabase
+            .from('conversation_members')
+            .update({ is_admin: false })
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userIdToDemote);
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error demoting member:', error);
+        throw error;
+    }
+};
+
+/**
+ * Rename a team conversation (admin only)
+ * @param {string} conversationId - Conversation ID
+ * @param {string} newName - New conversation name
+ * @param {string} adminId - Admin user ID performing the action
+ * @returns {Promise<void>}
+ */
+export const renameConversation = async (conversationId, newName, adminId) => {
+    try {
+        // Verify admin status
+        const isAdmin = await isConversationAdmin(conversationId, adminId);
+        if (!isAdmin) {
+            throw new Error('Only admins can rename this conversation');
+        }
+
+        if (!newName || newName.trim().length === 0) {
+            throw new Error('Conversation name cannot be empty');
+        }
+
+        const { error } = await supabase
+            .from('conversations')
+            .update({ name: newName.trim() })
+            .eq('id', conversationId);
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error renaming conversation:', error);
+        throw error;
+    }
+};
+
+/**
+ * Delete a team conversation (admin only)
+ * @param {string} conversationId - Conversation ID
+ * @param {string} adminId - Admin user ID performing the action
+ * @returns {Promise<void>}
+ */
+export const deleteConversation = async (conversationId, adminId) => {
+    try {
+        console.log('🗑️ Starting cleanup for conversation deletion:', conversationId);
+
+        // 1. Verify admin status
+        const isAdmin = await isConversationAdmin(conversationId, adminId);
+        if (!isAdmin) {
+            throw new Error('Only admins can delete this conversation');
+        }
+
+        // 2. Fetch all message IDs in this conversation to clean up their children
+        const { data: messages, error: msgFetchError } = await supabase
+            .from('messages')
+            .select('id')
+            .eq('conversation_id', conversationId);
+
+        if (msgFetchError) throw msgFetchError;
+
+        const messageIds = messages?.map(m => m.id) || [];
+        console.log(`💬 Found ${messageIds.length} messages to clean up`);
+
+        if (messageIds.length > 0) {
+            // 3. Delete poll votes
+            const { error: pollError } = await supabase
+                .from('poll_votes')
+                .delete()
+                .in('message_id', messageIds);
+            if (pollError) console.warn('Non-fatal error deleting poll votes:', pollError);
+
+            // 4. Delete message reactions
+            const { error: reactionError } = await supabase
+                .from('message_reactions')
+                .delete()
+                .in('message_id', messageIds);
+            if (reactionError) console.warn('Non-fatal error deleting reactions:', reactionError);
+
+            // 5. Delete attachments
+            const { error: attachError } = await supabase
+                .from('attachments')
+                .delete()
+                .in('message_id', messageIds);
+            if (attachError) console.warn('Non-fatal error deleting attachments:', attachError);
+
+            // 6. Nullify reply references to avoid self-reference FK issues during batch delete
+            const { error: replyError } = await supabase
+                .from('messages')
+                .update({ reply_to: null })
+                .in('id', messageIds);
+            if (replyError) console.warn('Non-fatal error nullifying replies:', replyError);
+
+            // 7. Finally delete the messages
+            const { error: msgsDeleteError } = await supabase
+                .from('messages')
+                .delete()
+                .eq('conversation_id', conversationId);
+            if (msgsDeleteError) throw msgsDeleteError;
+        }
+
+        // 8. Delete conversation members
+        const { error: membersError } = await supabase
+            .from('conversation_members')
+            .delete()
+            .eq('conversation_id', conversationId);
+        if (membersError) throw membersError;
+
+        // 9. Delete conversation index
+        const { error: indexError } = await supabase
+            .from('conversation_indexes')
+            .delete()
+            .eq('conversation_id', conversationId);
+        if (indexError) {
+            // Sometimes it might not exist, ignore if so
+            console.log('Note: Index delete might have failed or not existed');
+        }
+
+        // 10. Finally delete the conversation itself
+        const { error: convDeleteError } = await supabase
+            .from('conversations')
+            .delete()
+            .eq('id', conversationId);
+
+        if (convDeleteError) throw convDeleteError;
+
+        console.log('✅ Conversation and all related data deleted successfully');
+    } catch (error) {
+        console.error('❌ Error in deleteConversation:', error);
+        throw error;
+    }
+};
+
+/**
+ * Leave a conversation (any member)
+ * @param {string} conversationId - Conversation ID
+ * @param {string} userId - User ID leaving
+ * @returns {Promise<void>}
+ */
+export const leaveConversation = async (conversationId, userId) => {
+    try {
+        // Check if user is the last admin
+        const isAdmin = await isConversationAdmin(conversationId, userId);
+
+        if (isAdmin) {
+            const { data: admins } = await supabase
+                .from('conversation_members')
+                .select('user_id')
+                .eq('conversation_id', conversationId)
+                .eq('is_admin', true);
+
+            if (admins && admins.length === 1) {
+                throw new Error('You are the last admin. Promote another member to admin before leaving, or delete the group.');
+            }
+        }
+
+        const { error } = await supabase
+            .from('conversation_members')
+            .delete()
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId);
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error leaving conversation:', error);
+        throw error;
+    }
+};
+
+/**
+ * ============================================
+ * MESSAGE REPLIES & REACTIONS FUNCTIONS
+ * ============================================
+ */
+
+/**
+ * Send a message with optional reply
+ * @param {string} conversationId - Conversation ID
+ * @param {string} content - Message content
+ * @param {string} senderId - Sender user ID
+ * @param {string} replyToId - Optional: ID of message being replied to
+ * @returns {Promise<Object>} Created message
+ */
+export const sendMessageWithReply = async (conversationId, content, senderId, replyToId = null, repliedContent = null, repliedSender = null) => {
+    try {
+        const { data, error } = await supabase
+            .from('messages')
+            .insert([{
+                conversation_id: conversationId,
+                content: content,
+                sender_user_id: senderId,
+                reply_to: replyToId,
+                replied_message_content: repliedContent,
+                replied_message_sender_name: repliedSender
+            }])
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Update conversation index to ensure sorting works
+        await updateConversationIndex(conversationId, content);
+
+        return data;
+    } catch (error) {
+        console.error('Error sending message with reply:', error);
+        throw error;
+    }
+};
+
+/**
+ * Mark a conversation as read in the database
+ */
+export const markAsReadInDB = async (conversationId, userId) => {
+    try {
+        const { error } = await supabase
+            .from('conversation_members')
+            .update({ last_read_at: new Date().toISOString() })
+            .eq('conversation_id', conversationId)
+            .eq('user_id', userId);
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error marking conversation as read in DB:', error);
+    }
+};
+
+/**
+ * Get message with reply context
+ * @param {string} messageId - Message ID
+ * @returns {Promise<Object>} Message with replied message details
+ */
+export const getMessageWithReply = async (messageId) => {
+    try {
+        const { data, error } = await supabase
+            .rpc('get_message_with_reply', { message_id: messageId });
+
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('Error fetching message with reply:', error);
+        return null;
+    }
+};
+
+/**
+ * Add a reaction to a message
+ * @param {string} messageId - Message ID
+ * @param {string} userId - User ID
+ * @param {string} reaction - Emoji reaction (e.g., '👍', '❤️')
+ * @returns {Promise<Object>} Created reaction
+ */
+export const addReaction = async (messageId, userId, reaction) => {
+    try {
+        const { data, error } = await supabase
+            .from('message_reactions')
+            .insert([{
+                message_id: messageId,
+                user_id: userId,
+                reaction: reaction
+            }])
+            .select()
+            .single();
+
+        if (error) {
+            // If it's a unique constraint violation, the user already reacted with this emoji
+            if (error.code === '23505') {
+                console.log('User already reacted with this emoji');
+                return null;
+            }
+            throw error;
+        }
+        return data;
+    } catch (error) {
+        console.error('Error adding reaction:', error);
+        throw error;
+    }
+};
+
+/**
+ * Remove a reaction from a message
+ * @param {string} messageId - Message ID
+ * @param {string} userId - User ID
+ * @param {string} reaction - Emoji reaction to remove
+ * @returns {Promise<void>}
+ */
+export const removeReaction = async (messageId, userId, reaction) => {
+    try {
+        const { error } = await supabase
+            .from('message_reactions')
+            .delete()
+            .eq('message_id', messageId)
+            .eq('user_id', userId)
+            .eq('reaction', reaction);
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error removing reaction:', error);
+        throw error;
+    }
+};
+
+/**
+ * Toggle a reaction (add if not exists, remove if exists)
+ * @param {string} messageId - Message ID
+ * @param {string} userId - User ID
+ * @param {string} reaction - Emoji reaction
+ * @returns {Promise<boolean>} True if added, false if removed
+ */
+export const toggleReaction = async (messageId, userId, reaction) => {
+    try {
+        const { error } = await supabase.rpc('toggle_reaction', {
+            p_message_id: messageId,
+            p_user_id: userId,
+            p_reaction: reaction
+        });
+
+        if (error) throw error;
+        return true;
+    } catch (error) {
+        console.error('Error toggling reaction:', error);
+        throw error;
+    }
+};
+
+
+/**
+ * Get all reactions for a message
+ * @param {string} messageId - Message ID
+ * @returns {Promise<Array>} Array of reactions with user details
+ */
+export const getMessageReactions = async (messageId) => {
+    try {
+        const { data, error } = await supabase
+            .from('message_reactions')
+            .select(`
+                id,
+                reaction,
+                user_id,
+                created_at,
+                profiles:user_id (
+                    full_name,
+                    email,
+                    avatar_url
+                )
+            `)
+            .eq('message_id', messageId)
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('Error fetching message reactions:', error);
+        return [];
+    }
+};
+
+/**
+ * Get reaction summary for a message (grouped by reaction type)
+ * @param {string} messageId - Message ID
+ * @returns {Promise<Object>} Object with reaction counts and user lists
+ */
+export const getReactionSummary = async (messageId) => {
+    try {
+        const reactions = await getMessageReactions(messageId);
+
+        // Group by reaction type
+        const summary = {};
+        reactions.forEach(r => {
+            if (!summary[r.reaction]) {
+                summary[r.reaction] = {
+                    count: 0,
+                    users: []
+                };
+            }
+            summary[r.reaction].count++;
+            summary[r.reaction].users.push({
+                user_id: r.user_id,
+                name: r.profiles?.full_name || r.profiles?.email || 'Unknown'
+            });
+        });
+
+        return summary;
+    } catch (error) {
+        console.error('Error getting reaction summary:', error);
+        return {};
+    }
+};
+
+
+/**
+ * Send a poll message
+ * @param {string} conversationId - Conversation ID
+ * @param {string} senderId - Sender user ID
+ * @param {string} question - Poll question
+ * @param {Array} options - Array of string options
+ * @param {boolean} allowMultiple - Whether multiple answers are allowed
+ * @returns {Promise<Object>} Created message
+ */
+export const sendPoll = async (conversationId, senderId, question, options, allowMultiple = false) => {
+    try {
+        const { data, error } = await supabase
+            .from('messages')
+            .insert([{
+                conversation_id: conversationId,
+                sender_user_id: senderId,
+                content: question, // Content doubles as question for preview
+                message_type: 'poll',
+                is_poll: true,
+                poll_question: question,
+                poll_options: options,
+                allow_multiple_answers: allowMultiple,
+                created_at: new Date().toISOString()
+            }])
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        // Update conversation index
+        await updateConversationIndex(conversationId, `📊 Poll: ${question}`);
+
+        return data;
+    } catch (error) {
+        console.error('Error sending poll:', error);
+        throw error;
+    }
+};
+
+/**
+ * Vote in a poll
+ * @param {string} messageId - Poll message ID
+ * @param {string} userId - User ID
+ * @param {number} optionIndex - Index of the option being voted for
+ * @param {boolean} allowMultiple - Whether multiple answers are allowed
+ * @returns {Promise<void>}
+ */
+export const voteInPoll = async (messageId, userId, optionIndex, allowMultiple = false) => {
+    try {
+        if (!allowMultiple) {
+            // Remove any existing votes by this user for this poll
+            await supabase
+                .from('poll_votes')
+                .delete()
+                .eq('message_id', messageId)
+                .eq('user_id', userId);
+        }
+
+        // Check if this specific vote already exists
+        const { data: existing } = await supabase
+            .from('poll_votes')
+            .select('id')
+            .eq('message_id', messageId)
+            .eq('user_id', userId)
+            .eq('option_index', optionIndex)
+            .maybeSingle();
+
+        if (existing) {
+            // Toggle off if it exists
+            await supabase
+                .from('poll_votes')
+                .delete()
+                .eq('id', existing.id);
+        } else {
+            // Add vote
+            const { error } = await supabase
+                .from('poll_votes')
+                .insert([{
+                    message_id: messageId,
+                    user_id: userId,
+                    option_index: optionIndex
+                }]);
+            if (error) throw error;
+        }
+    } catch (error) {
+        console.error('Error voting in poll:', error);
+        throw error;
+    }
+};
+
+/**
+ * Get votes for a poll
+ * @param {string} messageId - Poll message ID
+ * @returns {Promise<Array>} Array of votes
+ */
+export const getPollVotes = async (messageId) => {
+    try {
+        const { data, error } = await supabase
+            .from('poll_votes')
+            .select(`
+                *,
+                profiles:user_id (
+                    full_name,
+                    email,
+                    avatar_url
+                )
+            `)
+            .eq('message_id', messageId);
+
+        if (error) throw error;
+        return data || [];
+    } catch (error) {
+        console.error('Error fetching poll votes:', error);
         return [];
     }
 };

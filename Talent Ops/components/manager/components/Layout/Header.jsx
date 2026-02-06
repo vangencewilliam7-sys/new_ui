@@ -6,10 +6,15 @@ import { useUser } from '../../context/UserContext';
 import NotificationDropdown from '../../../shared/NotificationDropdown';
 import { supabase } from '../../../../lib/supabaseClient';
 
+import { useBrowserNotification } from '../../../../hooks/useBrowserNotification';
+
 const Header = () => {
     const { addToast } = useToast();
     const navigate = useNavigate();
-    const { userRole } = useUser();
+    const { userRole, userId } = useUser();
+
+    // Enable browser notifications - moved down
+    // useBrowserNotification(userId);
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [showResults, setShowResults] = useState(false);
@@ -18,25 +23,39 @@ const Header = () => {
     const searchRef = useRef(null);
     const notificationRef = useRef(null);
 
+    // Handle new notification (update count + show toast)
+    const handleNotificationUpdate = async (newNotification) => {
+        // Update unread count
+        fetchUnreadCount();
+
+        // Show toast if notification data is present
+        if (newNotification) {
+            addToast(newNotification.message, 'info');
+        }
+    };
+
     // Fetch unread notification count
+    const fetchUnreadCount = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+            const { count } = await supabase
+                .from('notifications')
+                .select('*', { count: 'exact', head: true })
+                .eq('receiver_id', user.id)
+                .eq('is_read', false);
+
+            setUnreadCount(count || 0);
+        }
+    };
+
     useEffect(() => {
-        const fetchUnreadCount = async () => {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { count } = await supabase
-                    .from('notifications')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('receiver_id', user.id)
-                    .eq('is_read', false);
-
-                setUnreadCount(count || 0);
-            }
-        };
-
         fetchUnreadCount();
         const interval = setInterval(fetchUnreadCount, 30000);
         return () => clearInterval(interval);
     }, []);
+
+    // Enable browser notifications with wrapper callback
+    useBrowserNotification(userId, handleNotificationUpdate);
 
     // Search Functionality
     useEffect(() => {
@@ -309,6 +328,7 @@ const Header = () => {
                             isOpen={showNotifications}
                             onClose={() => setShowNotifications(false)}
                             dropdownRef={notificationRef}
+                            onNotificationUpdate={fetchUnreadCount}
                         />
                     </div>
                 </div>

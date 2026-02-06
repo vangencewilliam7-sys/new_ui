@@ -24,6 +24,7 @@ import { useUser } from '../context/UserContext';
 import ProjectAnalytics from '../../shared/ProjectAnalytics/ProjectAnalytics';
 
 
+
 const APPLIER_RESPONSIBILITIES = [
     "Complete high-priority current tasks",
     "Handover pending tasks to a teammate",
@@ -45,6 +46,7 @@ const ModulePage = ({ title, type }) => {
     const { userId, orgId, userRole } = useUser();
     const [searchTerm, setSearchTerm] = useState('');
     const [viewType, setViewType] = useState('grid'); // 'grid' or 'list'
+    const [availabilityFilter, setAvailabilityFilter] = useState('all');
 
     // State for leave requests
     const [leaveRequests, setLeaveRequests] = useState([]);
@@ -55,6 +57,9 @@ const ModulePage = ({ title, type }) => {
     const [employeeTasks, setEmployeeTasks] = useState([]);
     const [pendingTasks, setPendingTasks] = useState([]);
     const [remainingLeaves, setRemainingLeaves] = useState(0);
+
+    const [evalBalance, setEvalBalance] = useState(0);
+    const [evalPendingPaid, setEvalPendingPaid] = useState(0);
 
     // State for Apply Leave modal
     const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
@@ -143,6 +148,8 @@ const ModulePage = ({ title, type }) => {
     const [showAddPolicyModal, setShowAddPolicyModal] = useState(false);
     const [showEditPolicyModal, setShowEditPolicyModal] = useState(false);
     const [selectedPolicy, setSelectedPolicy] = useState(null);
+    const [isLoadingPolicies, setIsLoadingPolicies] = useState(false);
+    const [policyError, setPolicyError] = useState(null);
 
 
 
@@ -431,6 +438,8 @@ const ModulePage = ({ title, type }) => {
                                     startDate: leave.from_date,
                                     endDate: leave.to_date,
                                     duration: `${diffDays} Days`,
+                                    duration_weekdays: leave.duration_weekdays, // Critical for approval calculation
+                                    lop_days: leave.lop_days, // Critical for approval calculation
                                     dates: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`,
                                     status: leave.status ? leave.status.charAt(0).toUpperCase() + leave.status.slice(1).toLowerCase() : 'Pending'
                                 };
@@ -452,14 +461,17 @@ const ModulePage = ({ title, type }) => {
         };
 
         fetchEmployees();
-    }, [type, refreshTrigger, departments]);
+    }, [type, refreshTrigger, departments, orgId]);
 
     // Fetch Policies from Supabase
     useEffect(() => {
         const fetchPolicies = async () => {
-            if (type === 'policies') {
+            if (type === 'policies' && orgId) {
                 try {
                     console.log('Fetching policies from Supabase...');
+                    setIsLoadingPolicies(true);
+                    setPolicyError(null);
+
                     const { data, error } = await supabase
                         .from('policies')
                         .select('*')
@@ -468,7 +480,9 @@ const ModulePage = ({ title, type }) => {
 
                     if (error) {
                         console.error('Error fetching policies:', error);
-                        addToast('Failed to load policies', 'error');
+                        setPolicyError(error.message);
+                        // Only toast if it's a persistent error or not the first attempt
+                        // For now, let's keep it to console only as requested to remove popups
                         return;
                     }
 
@@ -485,13 +499,15 @@ const ModulePage = ({ title, type }) => {
                     }
                 } catch (err) {
                     console.error('Unexpected error fetching policies:', err);
-                    addToast('An unexpected error occurred while loading policies', 'error');
+                    setPolicyError(err.message);
+                } finally {
+                    setIsLoadingPolicies(false);
                 }
             }
         };
 
         fetchPolicies();
-    }, [type, refreshTrigger]);
+    }, [type, refreshTrigger, orgId]);
 
 
     // Real-time Subscription for Live Status
@@ -510,14 +526,20 @@ const ModulePage = ({ title, type }) => {
         };
     }, [type]);
 
-    const fetchPendingTasks = async (employeeId) => {
+    const fetchPendingTasks = async (employeeId, beforeDate) => {
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .not('status', 'in', '("completed","closed")')
+                .not('status', 'in', '("completed","closed")');
+
+            if (beforeDate) {
+                query = query.lt('due_date', beforeDate);
+            }
+
+            const { data, error } = await query
                 .order('due_date', { ascending: true })
                 .limit(5);
 
@@ -531,13 +553,14 @@ const ModulePage = ({ title, type }) => {
 
     const fetchEmployeeTasks = async (employeeId, startDate, endDate) => {
         try {
+            // Overlap logic: Task Start <= Leave End AND Task End >= Leave Start
             const { data, error } = await supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .gte('due_date', startDate)
-                .lte('due_date', endDate);
+                .lte('start_date', endDate)
+                .gte('due_date', startDate);
 
             if (error) throw error;
             return data || [];
@@ -733,6 +756,7 @@ const ModulePage = ({ title, type }) => {
     const handleViewLeave = async (leaveRequest) => {
         setSelectedLeaveRequest(leaveRequest);
 
+
         // Fetch tasks for the employee during leave dates
         const tasks = await fetchEmployeeTasks(
             leaveRequest.employee_id,
@@ -741,12 +765,28 @@ const ModulePage = ({ title, type }) => {
         );
         setEmployeeTasks(tasks);
 
-        // Fetch pending tasks for the approver (Current Executive)
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const pTasks = await fetchPendingTasks(user.id);
-            setPendingTasks(pTasks);
-        }
+        // Fetch pending tasks (Backlog) for the EMPLOYEE
+        const pTasks = await fetchPendingTasks(leaveRequest.employee_id, leaveRequest.startDate);
+        setPendingTasks(pTasks);
+
+        // Fetch live balance and other pending requests for re-evaluation preview
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('total_leaves_balance')
+            .eq('id', leaveRequest.employee_id)
+            .single();
+
+        const { data: pending } = await supabase
+            .from('leaves')
+            .select('duration_weekdays')
+            .eq('employee_id', leaveRequest.employee_id)
+            .eq('status', 'pending')
+            .neq('id', leaveRequest.id);
+
+        setEvalBalance(profile?.total_leaves_balance || 0);
+        setEvalPendingPaid(pending?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0);
+
+
 
         setShowLeaveDetailsModal(true);
     };
@@ -922,49 +962,57 @@ const ModulePage = ({ title, type }) => {
             try {
                 // Database update (lowercase for DB)
                 const dbStatus = action === 'Approve' ? 'approved' : 'rejected';
+                let finalPaid = item.duration_weekdays || 0;
+                let finalLop = item.lop_days || 0;
+
+                if (action === 'Approve') {
+                    // Fetch latest balance for re-evaluation
+                    const { data: profileData } = await supabase
+                        .from('profiles')
+                        .select('total_leaves_balance')
+                        .eq('id', item.employee_id)
+                        .single();
+
+                    if (profileData) {
+                        const currentBalance = profileData.total_leaves_balance || 0;
+                        const totalRequested = (item.duration_weekdays || 0) + (item.lop_days || 0);
+
+                        // Dynamic Re-evaluation: Use all available balance
+                        finalPaid = Math.min(totalRequested, currentBalance);
+                        finalLop = totalRequested - finalPaid;
+
+                        if (finalPaid > 0) {
+                            const { error: profileError } = await supabase
+                                .from('profiles')
+                                .update({
+                                    total_leaves_balance: currentBalance - finalPaid
+                                })
+                                .eq('id', item.employee_id);
+
+                            if (profileError) throw profileError;
+                        }
+                    }
+                }
 
                 const { error } = await supabase
                     .from('leaves')
-                    .update({ status: dbStatus })
+                    .update({
+                        status: dbStatus,
+                        duration_weekdays: finalPaid,
+                        lop_days: finalLop
+                    })
                     .eq('id', item.id)
                     .eq('org_id', orgId);
 
                 if (error) throw error;
 
-                // Refund logic: If Rejected AND NOT 'Loss of Pay', decrement leaves_taken_this_month
-                if (action === 'Reject' && item.type !== 'Loss of Pay' && item.employee_id) {
-                    const start = new Date(item.startDate);
-                    const end = new Date(item.endDate);
-                    const diffTime = Math.abs(end - start);
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-
-                    // Fetch current profile stats
-                    const { data: profileData, error: profileFetchError } = await supabase
-                        .from('profiles')
-                        .select('leaves_taken_this_month')
-                        .eq('id', item.employee_id)
-                        .eq('org_id', orgId)
-                        .single();
-
-                    if (profileData) {
-                        const currentTaken = profileData.leaves_taken_this_month || 0;
-                        const newTaken = Math.max(0, currentTaken - diffDays); // Prevent negative
-
-                        const { error: refundError } = await supabase
-                            .from('profiles')
-                            .update({ leaves_taken_this_month: newTaken })
-                            .eq('id', item.employee_id)
-                            .eq('org_id', orgId);
-
-                        if (refundError) console.error('Error refunding leave balance:', refundError);
-                        else console.log(`Refunded ${diffDays} days to employee ${item.employee_id}`);
-                    }
-                }
-
                 // Send Notification to the Employee
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user && item.employee_id) {
-                    const notificationMessage = `Your leave request for ${item.dates} has been ${action === 'Approve' ? 'Approved' : 'Rejected'}.`;
+                    let notificationMessage = `Your leave request for ${item.dates} has been ${action === 'Approve' ? 'Approved' : 'Rejected'}.`;
+                    if (action === 'Approve' && finalLop > 0) {
+                        notificationMessage += ` Note: ${finalLop} days were processed as Loss of Pay due to insufficient balance.`;
+                    }
 
                     await supabase.from('notifications').insert({
                         receiver_id: item.employee_id,
@@ -979,6 +1027,7 @@ const ModulePage = ({ title, type }) => {
                 }
 
                 addToast(`Leave request ${action.toLowerCase()}d for ${item.name}`, 'success');
+                setRefreshTrigger(prev => prev + 1); // Refresh list
             } catch (error) {
                 console.error('Error updating leave request:', error);
                 addToast(`Failed to ${action.toLowerCase()} leave request`, 'error');
@@ -1118,27 +1167,76 @@ const ModulePage = ({ title, type }) => {
                 ? formatDate(leaveFormData.startDate)
                 : `${formatDate(leaveFormData.startDate)} - ${formatDate(leaveFormData.endDate)}`);
 
-        // Add new leave request
-        const newRequest = {
-            id: leaveRequests.length + 1,
-            name: 'Executive (You)',
-            type: leaveFormData.leaveType,
-            duration: duration,
-            dates: dates,
-            status: 'Pending'
+        // Insert leave request(s)
+        const submitToDb = async () => {
+            try {
+                // Calculate initial Paid/LOP split for application record
+                const { data: profile } = await supabase
+                    .from('profiles')
+                    .select('total_leaves_balance')
+                    .eq('id', userId)
+                    .single();
+
+                const { data: pendingLeaves } = await supabase
+                    .from('leaves')
+                    .select('duration_weekdays')
+                    .eq('employee_id', userId)
+                    .eq('status', 'pending');
+
+                const pendingPaid = pendingLeaves?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0;
+                const effectiveBalance = Math.max(0, (profile?.total_leaves_balance || 0) - pendingPaid);
+
+                const leaveReason = `${leaveFormData.leaveType}: ${leaveFormData.reason}` +
+                    (useSpecificDates ? ` (Dates: ${datesToApply.join(', ')})` : '');
+
+                const leaveRows = useSpecificDates
+                    ? datesToApply.map((date, idx) => {
+                        const isPaid = idx < effectiveBalance;
+                        return {
+                            employee_id: userId,
+                            org_id: orgId,
+                            from_date: date,
+                            to_date: date,
+                            reason: leaveReason,
+                            status: 'pending',
+                            duration_weekdays: isPaid ? 1 : 0,
+                            lop_days: isPaid ? 0 : 1
+                        };
+                    })
+                    : (() => {
+                        const paidDays = Math.min(requestedDays, effectiveBalance);
+                        const lopDays = requestedDays - paidDays;
+                        return [{
+                            employee_id: userId,
+                            org_id: orgId,
+                            from_date: leaveFormData.startDate,
+                            to_date: leaveFormData.endDate,
+                            reason: leaveReason,
+                            status: 'pending',
+                            duration_weekdays: paidDays,
+                            lop_days: lopDays
+                        }];
+                    })();
+
+                const { error: insertError } = await supabase
+                    .from('leaves')
+                    .insert(leaveRows);
+
+                if (insertError) throw insertError;
+
+                addToast('Leave application submitted successfully', 'success');
+                setShowApplyLeaveModal(false);
+                setLeaveFormData({ leaveType: 'Casual Leave', startDate: '', endDate: '', reason: '' });
+                setSelectedDates([]);
+                setDateToAdd('');
+                setRefreshTrigger(prev => prev + 1); // Refresh list
+            } catch (error) {
+                console.error('Error applying leave:', error);
+                addToast('Failed to submit leave request', 'error');
+            }
         };
 
-        setLeaveRequests([...leaveRequests, newRequest]);
-        setShowApplyLeaveModal(false);
-        setLeaveFormData({
-            leaveType: 'Casual Leave',
-            startDate: '',
-            endDate: '',
-            reason: ''
-        });
-        setSelectedDates([]);
-        setDateToAdd('');
-        addToast('Leave application submitted successfully', 'success');
+        submitToDb();
     };
 
     const handleSaveCandidate = (e) => {
@@ -1831,6 +1929,30 @@ const ModulePage = ({ title, type }) => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '12px' }}>
+                        {/* Availability Filter */}
+                        <select
+                            value={availabilityFilter}
+                            onChange={(e) => setAvailabilityFilter(e.target.value)}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '12px',
+                                backgroundColor: '#ffffff',
+                                color: '#0f172a',
+                                fontWeight: '600',
+                                fontSize: '0.85rem',
+                                border: '1px solid #e2e8f0',
+                                cursor: 'pointer',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                            }}
+                        >
+                            <option value="all">All Employees</option>
+                            <option value="online">Online Only</option>
+                            <option value="offline">Offline Only</option>
+                            <option value="on-leave">On Leave</option>
+                        </select>
+
                         <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
                             <button
                                 onClick={() => setViewType('grid')}
@@ -1886,11 +2008,21 @@ const ModulePage = ({ title, type }) => {
                         gap: '16px',
                         marginTop: '8px'
                     }}>
-                        {employees.filter(emp =>
-                            emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase())
-                        ).map((emp) => (
+                        {employees.filter(emp => {
+                            // Search filter
+                            const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase());
+
+                            // Availability filter
+                            const matchesAvailability =
+                                availabilityFilter === 'all' ||
+                                (availabilityFilter === 'online' && emp.availability === 'Online') ||
+                                (availabilityFilter === 'offline' && emp.availability === 'Offline') ||
+                                (availabilityFilter === 'on-leave' && emp.availability === 'On Leave');
+
+                            return matchesSearch && matchesAvailability;
+                        }).map((emp) => (
                             <div
                                 key={emp.id}
                                 style={{
@@ -2062,11 +2194,21 @@ const ModulePage = ({ title, type }) => {
                         </div>
 
                         {/* Premium List Rows */}
-                        {employees.filter(emp =>
-                            emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase())
-                        ).map((emp) => (
+                        {employees.filter(emp => {
+                            // Search filter
+                            const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase());
+
+                            // Availability filter
+                            const matchesAvailability =
+                                availabilityFilter === 'all' ||
+                                (availabilityFilter === 'online' && emp.availability === 'Online') ||
+                                (availabilityFilter === 'offline' && emp.availability === 'Offline') ||
+                                (availabilityFilter === 'on-leave' && emp.availability === 'On Leave');
+
+                            return matchesSearch && matchesAvailability;
+                        }).map((emp) => (
                             <div
                                 key={emp.id}
                                 style={{
@@ -3073,6 +3215,72 @@ const ModulePage = ({ title, type }) => {
                                     <p style={{ fontSize: '1rem', fontWeight: '600', color: 'var(--text-primary)', lineHeight: '1.5' }}>{selectedLeaveRequest.reason}</p>
                                 </div>
                             </div>
+
+
+
+                            {/* Live Re-evaluation Preview */}
+                            {selectedLeaveRequest.employee_id !== userId && selectedLeaveRequest.status === 'Pending' && (
+                                <div style={{
+                                    marginTop: '24px',
+                                    padding: '24px',
+                                    borderRadius: '24px',
+                                    background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                                    border: '1px solid #bae6fd',
+                                    boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', color: '#0369a1' }}>
+                                        <Activity size={20} />
+                                        <h4 style={{ fontSize: '1.25rem', fontWeight: '800', margin: 0 }}>Live Approval Preview</h4>
+                                    </div>
+
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+                                        <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '16px', border: '1px solid #e0f2fe' }}>
+                                            <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Current Balance</p>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalBalance} Days</div>
+                                        </div>
+                                        <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '16px', border: '1px solid #e0f2fe' }}>
+                                            <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Other Pending (Paid)</p>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalPendingPaid} Days</div>
+                                        </div>
+                                        <div style={{
+                                            backgroundColor: '#0369a1',
+                                            padding: '16px',
+                                            borderRadius: '16px',
+                                            color: 'white',
+                                            gridColumn: 'span 1'
+                                        }}>
+                                            <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', marginBottom: '8px' }}>Effective Balance</p>
+                                            <div style={{ fontSize: '1.5rem', fontWeight: '800' }}>{Math.max(0, evalBalance - evalPendingPaid)} Days</div>
+                                        </div>
+                                    </div>
+
+                                    <div style={{
+                                        marginTop: '16px',
+                                        padding: '16px',
+                                        backgroundColor: 'rgba(255,255,255,0.5)',
+                                        borderRadius: '16px',
+                                        fontSize: '0.95rem',
+                                        fontWeight: '600',
+                                        color: '#0c4a6e',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '12px'
+                                    }}>
+                                        <div style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#0ea5e9' }}></div>
+                                        {(() => {
+                                            const totalReq = (selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0);
+                                            const effective = Math.max(0, evalBalance - evalPendingPaid);
+                                            const willBePaid = Math.max(0, Math.min(totalReq, effective));
+                                            const willBeLop = totalReq - willBePaid;
+
+                                            if (willBeLop > 0) {
+                                                return `If approved: ${willBePaid} days will be Paid, ${willBeLop} days will be Loss of Pay.`;
+                                            }
+                                            return `If approved: All ${willBePaid} days will be Paid.`;
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
 
                             {/* Tasks During Leave */}
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>

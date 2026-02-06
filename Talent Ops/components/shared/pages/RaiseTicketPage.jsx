@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
 import {
     Ticket,
@@ -15,7 +15,8 @@ import {
     HelpCircle,
     Zap,
     Shield,
-    ChevronRight
+    ChevronRight,
+    Eye
 } from 'lucide-react';
 
 const RaiseTicketPage = () => {
@@ -24,6 +25,12 @@ const RaiseTicketPage = () => {
     const [files, setFiles] = useState([]);
     const [ticketType, setTicketType] = useState('issue');
     const [recentTickets, setRecentTickets] = useState([]);
+    const [allTickets, setAllTickets] = useState([]);
+    const [selectedTicket, setSelectedTicket] = useState(null);
+    const [showTicketModal, setShowTicketModal] = useState(false);
+    const [reviewTab, setReviewTab] = useState('open_issues'); // 'open_issues', 'enhancements', 'closed'
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+    const [userProfile, setUserProfile] = useState(null);
 
     const [formData, setFormData] = useState({
         subject: '',
@@ -55,6 +62,23 @@ const RaiseTicketPage = () => {
         { value: 'high', label: 'High', color: '#ef4444', bg: '#fef2f2' }
     ];
 
+    // Fetch user profile for role and org_id
+    useEffect(() => {
+        const fetchProfile = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('role, org_id')
+                .eq('id', user.id)
+                .single();
+
+            if (data) setUserProfile(data);
+        };
+        fetchProfile();
+    }, []);
+
     // Fetch recent tickets
     useEffect(() => {
         const fetchRecentTickets = async () => {
@@ -72,7 +96,66 @@ const RaiseTicketPage = () => {
         };
 
         fetchRecentTickets();
-    }, [success]);
+    }, [success, refreshTrigger]);
+
+    // Fetch all tickets for review tab
+    useEffect(() => {
+        const fetchAllTickets = async () => {
+            if (ticketType !== 'review' || !userProfile) return;
+            setLoading(true);
+            try {
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return;
+
+                let query = supabase
+                    .from('tickets')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                // If executive or manager, show all tickets for the org
+                if (['executive', 'manager'].includes(userProfile.role?.toLowerCase())) {
+                    if (userProfile.org_id) {
+                        query = query.eq('org_id', userProfile.org_id);
+                    } else {
+                        query = query.eq('user_id', user.id);
+                    }
+                } else {
+                    query = query.eq('user_id', user.id);
+                }
+
+                const { data, error } = await query;
+
+                if (error) throw error;
+                if (data) setAllTickets(data);
+            } catch (error) {
+                console.error('Error fetching all tickets:', error);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchAllTickets();
+    }, [ticketType, refreshTrigger, userProfile]);
+
+    const handleCloseTicket = async (ticketId) => {
+        try {
+            const { error } = await supabase
+                .from('tickets')
+                .update({ status: 'resolved' }) // Using 'resolved' as the 'closed' equivalent based on getStatusColor
+                .eq('id', ticketId);
+
+            if (error) throw error;
+
+            setRefreshTrigger(prev => prev + 1);
+            if (selectedTicket && selectedTicket.id === ticketId) {
+                setSelectedTicket(prev => ({ ...prev, status: 'resolved' }));
+            }
+            alert('Ticket closed successfully');
+        } catch (error) {
+            console.error('Error closing ticket:', error);
+            alert('Failed to close ticket');
+        }
+    };
 
     const handleFileChange = (e) => {
         if (e.target.files) {
@@ -97,10 +180,47 @@ const RaiseTicketPage = () => {
                 return;
             }
 
-            const uploadedUrls = [];
+            // 1. Fetch user profile for org_id
+            const { data: profile, error: profileError } = await supabase
+                .from('profiles')
+                .select('org_id')
+                .eq('id', user.id)
+                .single();
 
+            if (profileError) {
+                console.error('Error fetching profile:', profileError);
+            }
+
+            // 2. Upload files to storage
+            const uploadedUrls = [];
+            for (const file of files) {
+                const fileExt = file.name.split('.').pop();
+                const fileName = `${Date.now()}_${Math.random().toString(36).substring(2)}.${fileExt}`;
+                const filePath = `${user.id}/${fileName}`;
+
+                const { data: uploadData, error: uploadError } = await supabase.storage
+                    .from('ticket-attachments') // Corrected bucket name
+                    .upload(filePath, file, {
+                        cacheControl: '3600',
+                        upsert: false
+                    });
+
+                if (uploadError) {
+                    console.error('Upload error:', uploadError);
+                    continue;
+                }
+
+                const { data: { publicUrl } } = supabase.storage
+                    .from('ticket-attachments') // Corrected bucket name
+                    .getPublicUrl(filePath);
+
+                if (publicUrl) uploadedUrls.push(publicUrl);
+            }
+
+            // 3. Prepare payload and insert
             const payload = {
                 user_id: user.id,
+                org_id: profile?.org_id,
                 type: ticketType,
                 category: formData.category,
                 priority: formData.priority,
@@ -264,6 +384,28 @@ const RaiseTicketPage = () => {
                             <Lightbulb size={16} />
                             Enhancement
                         </button>
+                        {['executive', 'manager'].includes(userProfile?.role?.toLowerCase()) && (
+                            <button
+                                onClick={() => toggleTicketType('review')}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '10px 20px',
+                                    borderRadius: '10px',
+                                    border: 'none',
+                                    backgroundColor: ticketType === 'review' ? '#0f172a' : 'transparent',
+                                    color: ticketType === 'review' ? 'white' : '#64748b',
+                                    fontWeight: '600',
+                                    fontSize: '0.85rem',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s'
+                                }}
+                            >
+                                <Clock size={16} />
+                                Review Tickets
+                            </button>
+                        )}
                     </div>
 
                     {/* Form Card */}
@@ -280,7 +422,7 @@ const RaiseTicketPage = () => {
                                     <CheckCircle2 size={36} color="white" />
                                 </div>
                                 <h3 style={{ fontSize: '1.4rem', fontWeight: '700', color: '#0f172a', marginBottom: '8px' }}>
-                                    {ticketType === 'issue' ? 'Issue Reported Successfully!' : 'Enhancement Proposed!'}
+                                    {ticketType === 'issue' ? 'Issue Reported Successfully!' : ticketType === 'enhancement' ? 'Enhancement Proposed!' : 'Action Completed!'}
                                 </h3>
                                 <p style={{ color: '#64748b', fontSize: '0.95rem', marginBottom: '24px' }}>
                                     Your {ticketType} has been recorded. Our team will review it shortly.
@@ -300,6 +442,146 @@ const RaiseTicketPage = () => {
                                 >
                                     Submit Another
                                 </button>
+                            </div>
+                        ) : ticketType === 'review' ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                {/* Review Sub-tabs */}
+                                <div style={{ display: 'flex', gap: '4px', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '12px', width: 'fit-content' }}>
+                                    {[
+                                        { id: 'open_issues', label: 'Open Issues' },
+                                        { id: 'enhancements', label: 'Enhancements' },
+                                        { id: 'closed', label: 'Closed' }
+                                    ].map(tab => (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => setReviewTab(tab.id)}
+                                            style={{
+                                                padding: '8px 16px',
+                                                borderRadius: '8px',
+                                                border: 'none',
+                                                backgroundColor: reviewTab === tab.id ? 'white' : 'transparent',
+                                                color: reviewTab === tab.id ? '#0f172a' : '#64748b',
+                                                fontWeight: '600',
+                                                fontSize: '0.85rem',
+                                                cursor: 'pointer',
+                                                boxShadow: reviewTab === tab.id ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                                                transition: 'all 0.2s'
+                                            }}
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' }}>
+                                    <h3 style={{ fontSize: '1.1rem', fontWeight: '700', color: '#0f172a' }}>
+                                        {reviewTab === 'open_issues' ? 'Active Issues' : reviewTab === 'enhancements' ? 'Feature Requests' : 'Ticket History'}
+                                    </h3>
+                                    <button
+                                        onClick={() => setRefreshTrigger(prev => prev + 1)}
+                                        style={{ background: 'none', border: 'none', color: '#3b82f6', fontWeight: '600', cursor: 'pointer', fontSize: '0.85rem' }}
+                                    >
+                                        Refresh
+                                    </button>
+                                </div>
+
+                                {loading ? (
+                                    <div style={{ display: 'flex', justifyContent: 'center', padding: '40px' }}>
+                                        <Loader2 size={32} style={{ animation: 'spin 1s linear infinite' }} color="#3b82f6" />
+                                    </div>
+                                ) : (
+                                    (() => {
+                                        const filteredTickets = allTickets.filter(ticket => {
+                                            if (reviewTab === 'open_issues') return ticket.type === 'issue' && !['resolved', 'closed'].includes(ticket.status);
+                                            if (reviewTab === 'enhancements') return ticket.type === 'enhancement' && !['resolved', 'closed'].includes(ticket.status);
+                                            if (reviewTab === 'closed') return ['resolved', 'closed'].includes(ticket.status);
+                                            return true;
+                                        });
+
+                                        return filteredTickets.length > 0 ? (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '600px', overflowY: 'auto' }}>
+                                                {filteredTickets.map((ticket) => {
+                                                    const statusStyle = getStatusColor(ticket.status);
+                                                    return (
+                                                        <div key={ticket.id} style={{
+                                                            padding: '20px',
+                                                            borderRadius: '16px',
+                                                            border: '1px solid #e2e8f0',
+                                                            backgroundColor: '#f8fafc',
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            transition: 'all 0.2s'
+                                                        }}>
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                                    <span style={{
+                                                                        fontSize: '0.65rem',
+                                                                        fontWeight: '700',
+                                                                        padding: '4px 8px',
+                                                                        borderRadius: '6px',
+                                                                        backgroundColor: statusStyle.bg,
+                                                                        color: statusStyle.color,
+                                                                        textTransform: 'uppercase'
+                                                                    }}>{ticket.status?.replace('_', ' ')}</span>
+                                                                    <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>#{ticket.id.slice(0, 8)}</span>
+                                                                    {/* Show type badge if in closed tab to differentiate */}
+                                                                    {reviewTab === 'closed' && (
+                                                                        <span style={{
+                                                                            fontSize: '0.65rem',
+                                                                            fontWeight: '600',
+                                                                            padding: '2px 6px',
+                                                                            borderRadius: '4px',
+                                                                            backgroundColor: '#e2e8f0',
+                                                                            color: '#64748b',
+                                                                            textTransform: 'capitalize'
+                                                                        }}>
+                                                                            {ticket.type}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <h4 style={{ fontSize: '1rem', fontWeight: '700', color: '#0f172a' }}>{ticket.subject}</h4>
+                                                                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Submitted on {new Date(ticket.created_at).toLocaleDateString()}</span>
+                                                            </div>
+                                                            <button
+                                                                onClick={() => { setSelectedTicket(ticket); setShowTicketModal(true); }}
+                                                                style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '8px',
+                                                                    padding: '10px 18px',
+                                                                    borderRadius: '10px',
+                                                                    border: '1px solid #e2e8f0',
+                                                                    backgroundColor: 'white',
+                                                                    color: '#0f172a',
+                                                                    fontWeight: '600',
+                                                                    fontSize: '0.85rem',
+                                                                    cursor: 'pointer',
+                                                                    transition: 'all 0.2s'
+                                                                }}
+                                                            >
+                                                                <Eye size={16} />
+                                                                View Details
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        ) : (
+                                            <div style={{ textAlign: 'center', padding: '60px 20px', backgroundColor: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
+                                                <div style={{ width: '56px', height: '56px', backgroundColor: 'white', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+                                                    <Ticket size={24} color="#94a3b8" />
+                                                </div>
+                                                <p style={{ color: '#0f172a', fontWeight: '700', marginBottom: '4px' }}>No tickets found</p>
+                                                <p style={{ color: '#64748b', fontSize: '0.85rem' }}>
+                                                    {reviewTab === 'open_issues' ? 'No active issues at the moment.' :
+                                                        reviewTab === 'enhancements' ? 'No feature requests pending.' :
+                                                            'No closed tickets history.'}
+                                                </p>
+                                            </div>
+                                        );
+                                    })()
+                                )}
                             </div>
                         ) : (
                             <form onSubmit={handleSubmit}>
@@ -625,12 +907,113 @@ const RaiseTicketPage = () => {
                 </div>
             </div>
 
-            <style>{`
-                @keyframes spin {
-                    from { transform: rotate(0deg); }
-                    to { transform: rotate(360deg); }
-                }
-            `}</style>
+            {/* Ticket Detail Modal */}
+            {showTicketModal && selectedTicket && (
+                <div style={{
+                    position: 'fixed',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    backgroundColor: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    zIndex: 1000,
+                    backdropFilter: 'blur(4px)'
+                }}>
+                    <div style={{
+                        backgroundColor: 'white',
+                        borderRadius: '24px',
+                        width: '90%',
+                        maxWidth: '600px',
+                        maxHeight: '90vh',
+                        overflowY: 'auto',
+                        padding: '32px',
+                        position: 'relative',
+                        boxShadow: '0 20px 50px rgba(0,0,0,0.2)'
+                    }}>
+                        <button
+                            onClick={() => setShowTicketModal(false)}
+                            style={{ position: 'absolute', top: '24px', right: '24px', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b' }}
+                        >
+                            <X size={24} />
+                        </button>
+
+                        <div style={{ marginBottom: '24px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px' }}>
+                                <span style={{
+                                    fontSize: '0.75rem',
+                                    fontWeight: '700',
+                                    padding: '4px 12px',
+                                    borderRadius: '8px',
+                                    backgroundColor: getStatusColor(selectedTicket.status).bg,
+                                    color: getStatusColor(selectedTicket.status).color,
+                                    textTransform: 'uppercase'
+                                }}>{selectedTicket.status?.replace('_', ' ')}</span>
+                                <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>Ticket #{selectedTicket.id.slice(0, 8)}</span>
+                            </div>
+                            <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a', lineHeight: 1.3 }}>{selectedTicket.subject}</h2>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px', padding: '20px', backgroundColor: '#f8fafc', borderRadius: '16px' }}>
+                            <div>
+                                <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', marginBottom: '4px', textTransform: 'uppercase' }}>Category</p>
+                                <p style={{ fontSize: '0.95rem', fontWeight: '700', color: '#0f172a', textTransform: 'capitalize' }}>{selectedTicket.category?.replace('_', ' ')}</p>
+                            </div>
+                            <div>
+                                <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', marginBottom: '4px', textTransform: 'uppercase' }}>Priority</p>
+                                <p style={{ fontSize: '0.95rem', fontWeight: '700', color: selectedTicket.priority === 'high' ? '#ef4444' : '#0f172a', textTransform: 'capitalize' }}>{selectedTicket.priority}</p>
+                            </div>
+                            <div>
+                                <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', marginBottom: '4px', textTransform: 'uppercase' }}>Submitted</p>
+                                <p style={{ fontSize: '0.95rem', fontWeight: '700', color: '#0f172a' }}>{new Date(selectedTicket.created_at).toLocaleString()}</p>
+                            </div>
+                            <div>
+                                <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', marginBottom: '4px', textTransform: 'uppercase' }}>Type</p>
+                                <p style={{ fontSize: '0.95rem', fontWeight: '700', color: '#0f172a', textTransform: 'capitalize' }}>{selectedTicket.type}</p>
+                            </div>
+                        </div>
+
+                        <div style={{ marginBottom: '32px' }}>
+                            <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', marginBottom: '12px', textTransform: 'uppercase' }}>Description</p>
+                            <div style={{ backgroundColor: '#f1f5f9', padding: '20px', borderRadius: '16px', fontSize: '0.95rem', color: '#334155', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                                {selectedTicket.description}
+                            </div>
+                        </div>
+
+                        {selectedTicket.attachments && selectedTicket.attachments.length > 0 && (
+                            <div style={{ marginBottom: '32px' }}>
+                                <p style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: '600', marginBottom: '12px', textTransform: 'uppercase' }}>Attachments</p>
+                                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                    {selectedTicket.attachments.map((url, i) => (
+                                        <a key={i} href={url} target="_blank" rel="noopener noreferrer" style={{ padding: '8px 16px', backgroundColor: '#f1f5f9', borderRadius: '8px', fontSize: '0.85rem', color: '#3b82f6', textDecoration: 'none', fontWeight: '600' }}>
+                                            View Attachment {i + 1}
+                                        </a>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end', paddingTop: '24px', borderTop: '1px solid #f1f5f9' }}>
+                            <button
+                                onClick={() => setShowTicketModal(false)}
+                                style={{ padding: '12px 24px', borderRadius: '12px', border: '1px solid #e2e8f0', backgroundColor: 'white', color: '#64748b', fontWeight: '600', cursor: 'pointer' }}
+                            >
+                                Close View
+                            </button>
+                            {selectedTicket.status !== 'resolved' && (
+                                <button
+                                    onClick={() => handleCloseTicket(selectedTicket.id)}
+                                    style={{ padding: '12px 24px', borderRadius: '12px', border: 'none', backgroundColor: '#ef4444', color: 'white', fontWeight: '600', cursor: 'pointer' }}
+                                >
+                                    Close Ticket
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

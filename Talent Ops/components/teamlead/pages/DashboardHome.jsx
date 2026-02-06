@@ -317,14 +317,14 @@ const DashboardHome = () => {
                 // Get leave balance
                 const { data: profileData } = await supabase
                     .from('profiles')
-                    .select('leaves_remaining')
+                    .select('total_leaves_balance')
                     .eq('id', user.id)
                     .single();
 
                 setAttendanceStats({
                     present: presentDays,
                     absent: absentDays,
-                    leaveBalance: profileData?.leaves_remaining || 0
+                    leaveBalance: profileData?.total_leaves_balance || 0
                 });
 
             } catch (error) {

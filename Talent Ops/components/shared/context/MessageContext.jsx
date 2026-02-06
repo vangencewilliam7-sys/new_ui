@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../../../lib/supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { sendMessage } from '../../../services/messageService';
+import { getConversationsByCategory, sendMessage, markAsReadInDB } from '../../../services/messageService';
 import { sendNotification } from '../../../services/notificationService';
 
 const MessageContext = createContext();
@@ -15,6 +15,8 @@ export const MessageProvider = ({ children, addToast }) => {
     const [conversations, setConversations] = useState([]);
     const [lastReadTimes, setLastReadTimes] = useState({});
     const [userId, setUserId] = useState(null);
+    const [notificationQueue, setNotificationQueue] = useState([]);
+    const [lastIncomingMessage, setLastIncomingMessage] = useState(null);
 
     // Hooks for navigation
     const navigate = useNavigate();
@@ -47,7 +49,7 @@ export const MessageProvider = ({ children, addToast }) => {
     useEffect(() => {
         if (!userId) return;
 
-        const storageKey = `message_read_times_${userId}`;
+        const storageKey = `message_read_times_${userId} `;
         const stored = localStorage.getItem(storageKey);
         if (stored) {
             try {
@@ -62,7 +64,7 @@ export const MessageProvider = ({ children, addToast }) => {
     useEffect(() => {
         if (!userId) return;
         if (Object.keys(lastReadTimes).length > 0) {
-            const storageKey = `message_read_times_${userId}`;
+            const storageKey = `message_read_times_${userId} `;
             localStorage.setItem(storageKey, JSON.stringify(lastReadTimes));
         }
     }, [lastReadTimes, userId]);
@@ -111,14 +113,14 @@ export const MessageProvider = ({ children, addToast }) => {
             const { data: convs, error } = await supabase
                 .from('conversations')
                 .select(`
-                    id, 
-                    type, 
-                    name,
-                    conversation_indexes (
-                        last_message,
-                        last_message_at
-                    )
-                `)
+id,
+    type,
+    name,
+    conversation_indexes(
+        last_message,
+        last_message_at
+    )
+        `)
                 .in('id', conversationIds);
 
             if (error) throw error;
@@ -146,14 +148,14 @@ export const MessageProvider = ({ children, addToast }) => {
         if (!userId) return;
 
         const channel = supabase
-            .channel(`message-notifs-${userId}`)
+            .channel(`message - notifs - ${userId} `)
             .on(
                 'postgres_changes',
                 {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'notifications',
-                    filter: `receiver_id=eq.${userId}`
+                    filter: `receiver_id = eq.${userId} `
                 },
                 async (payload) => {
                     // Handle ALL Notification Types
@@ -167,45 +169,56 @@ export const MessageProvider = ({ children, addToast }) => {
                         setUnreadCount(prev => prev + 1);
                         await fetchConversations(); // Refresh inbox
 
-                        notifTitle = `New Message from ${payload.new.sender_name || 'User'}`;
+                        notifTitle = `New Message from ${payload.new.sender_name || 'User'} `;
                         notifBody = payload.new.message;
 
-                        // Fetch avatar logic (async) could go here but let's keep it simple for speed
-                        // ... existing toast logic for reply ...
+                        // Fetch sender profile & conversation context for notification
+                        const senderId = payload.new.sender_id;
+                        let senderAvatar = null;
+                        let conversationId = null;
+                        let displayMessage = payload.new.message || 'New Message';
 
-                        // Trigger interactive toast for message
-                        if (addToast) {
-                            // ... existing complex toast logic ...
-                            const senderId = payload.new.sender_id;
-                            let senderAvatar = null;
-                            let conversationId = null;
-                            let displayMessage = payload.new.message || 'New Message';
+                        if (senderId) {
+                            const { data: profile } = await supabase.from('profiles').select('avatar_url').eq('id', senderId).single();
+                            senderAvatar = profile?.avatar_url;
+                            notifIcon = senderAvatar || notifIcon;
 
-                            // Fetch sender profile & conversation context
-                            if (senderId) {
-                                const { data: profile } = await supabase.from('profiles').select('avatar_url').eq('id', senderId).single();
-                                senderAvatar = profile?.avatar_url;
-                                notifIcon = senderAvatar || notifIcon;
-
-                                // Attempt to find DM conversation ID
-                                const { data: senderMemberships } = await supabase.from('conversation_members').select('conversation_id').eq('user_id', senderId);
-                                if (senderMemberships) {
-                                    const senderConvIds = senderMemberships.map(c => c.conversation_id);
-                                    // Need to get latest convs to match
-                                    const latestConvsWithIds = await fetchConversations();
-                                    const dm = latestConvsWithIds?.find(c => c.type === 'dm' && senderConvIds.includes(c.id));
-                                    if (dm) {
-                                        conversationId = dm.id;
-                                        const lastMessage = dm.conversation_indexes?.[0]?.last_message;
-                                        if (lastMessage) {
-                                            const looksGeneric = (payload.new.message || '').toLowerCase().startsWith('new message from');
-                                            displayMessage = looksGeneric ? lastMessage : (payload.new.message || lastMessage);
-                                        }
+                            // Attempt to find DM conversation ID
+                            const { data: senderMemberships } = await supabase.from('conversation_members').select('conversation_id').eq('user_id', senderId);
+                            if (senderMemberships) {
+                                const senderConvIds = senderMemberships.map(c => c.conversation_id);
+                                const latestConvsWithIds = await fetchConversations();
+                                const dm = latestConvsWithIds?.find(c => c.type === 'dm' && senderConvIds.includes(c.id));
+                                if (dm) {
+                                    conversationId = dm.id;
+                                    const lastMessage = dm.conversation_indexes?.[0]?.last_message;
+                                    if (lastMessage) {
+                                        const looksGeneric = (payload.new.message || '').toLowerCase().startsWith('new message from');
+                                        displayMessage = looksGeneric ? lastMessage : (payload.new.message || lastMessage);
                                     }
                                 }
                             }
+                        }
 
-                            // Check if logic exists for reply toast
+                        // ALWAYS add to notification queue (moved outside addToast check)
+                        addNotification({
+                            id: payload.new.id || Date.now(),
+                            sender_id: senderId,
+                            sender_name: payload.new.sender_name || 'User',
+                            avatar_url: senderAvatar,
+                            content: displayMessage,
+                            conversation_id: conversationId,
+                            timestamp: Date.now()
+                        });
+
+                        // Set last incoming message to trigger UI updates (e.g. resorting conversation list)
+                        setLastIncomingMessage({
+                            id: payload.new.id,
+                            timestamp: Date.now()
+                        });
+
+                        // Also trigger legacy toast system if available
+                        if (addToast) {
                             if (conversationId) {
                                 const { data: myProfile } = await supabase.from('profiles').select('full_name').eq('id', userId).single();
                                 const myName = myProfile?.full_name || 'Someone';
@@ -258,8 +271,8 @@ export const MessageProvider = ({ children, addToast }) => {
                         try {
                             const senderName = payload.new.sender_name || 'User';
                             const isMessage = payload.new.type === 'message';
-                            const systemTitle = isMessage ? `New Message from ${senderName}` : notifTitle;
-                            const systemBody = isMessage ? `New message from ${senderName}` : (notifBody || 'You have a new update');
+                            const systemTitle = isMessage ? `New Message from ${senderName} ` : notifTitle;
+                            const systemBody = isMessage ? `New message from ${senderName} ` : (notifBody || 'You have a new update');
 
                             // Use basic notification (no CTA text) to match native style
                             const notification = new Notification(systemTitle, {
@@ -301,7 +314,7 @@ export const MessageProvider = ({ children, addToast }) => {
                     if (payload.new.type !== 'message') {
                         let flashCount = 0;
                         const flashInterval = setInterval(() => {
-                            document.title = (flashCount % 2 === 0) ? `New ${payload.new.type === 'task_assigned' ? 'Task' : 'Alert'}!` : 'Talent OPS';
+                            document.title = (flashCount % 2 === 0) ? `New ${payload.new.type === 'task_assigned' ? 'Task' : 'Alert'} !` : 'Talent OPS';
                             flashCount++;
                             if (flashCount > 10) {
                                 clearInterval(flashInterval);
@@ -350,7 +363,7 @@ export const MessageProvider = ({ children, addToast }) => {
             const lastMsgTime = new Date(index.last_message_at).getTime();
             const lastReadTime = lastReadTimes[conv.id] || 0;
 
-            console.log(`📊 Conv ${conv.id}: lastMsg=${lastMsgTime}, lastRead=${lastReadTime}, isUnread=${lastMsgTime > lastReadTime}`);
+            console.log(`📊 Conv ${conv.id}: lastMsg = ${lastMsgTime}, lastRead = ${lastReadTime}, isUnread = ${lastMsgTime > lastReadTime} `);
 
             if (lastMsgTime > lastReadTime) {
                 count++;
@@ -373,15 +386,71 @@ export const MessageProvider = ({ children, addToast }) => {
             [conversationId]: now
         }));
 
-        // Optimistically update count immediately
-        // (useEffect will run eventually but this feels snappier)
+        // Persist to database
+        if (userId && conversationId) {
+            markAsReadInDB(conversationId, userId);
+        }
+    };
+
+    // Dismiss a notification from the queue
+    const dismissNotification = (messageId) => {
+        setNotificationQueue(prev => prev.filter(n => n.id !== messageId));
+    };
+
+    // Add notification to queue (for real-time messages)
+    const addNotification = (notification) => {
+        setNotificationQueue(prev => {
+            // Limit to max 5 notifications
+            const newQueue = [notification, ...prev].slice(0, 5);
+            return newQueue;
+        });
+    };
+
+    // Send quick reply from notification toast
+    const sendQuickReply = async (conversationId, text) => {
+        if (!userId || !conversationId || !text.trim()) return;
+        try {
+            await sendMessage(conversationId, userId, text.trim());
+
+            // Get recipient from conversation
+            const { data: members } = await supabase
+                .from('conversation_members')
+                .select('user_id')
+                .eq('conversation_id', conversationId)
+                .neq('user_id', userId);
+
+            if (members?.length > 0) {
+                const { data: myProfile } = await supabase
+                    .from('profiles')
+                    .select('full_name')
+                    .eq('id', userId)
+                    .single();
+
+                const myName = myProfile?.full_name || 'Someone';
+
+                // Notify all other members
+                for (const member of members) {
+                    await sendNotification(member.user_id, userId, myName, text, 'message');
+                }
+            }
+            return true;
+        } catch (err) {
+            console.error('Quick reply error:', err);
+            return false;
+        }
     };
 
     const value = {
         unreadCount,
         conversations,
         markAsRead,
-        lastReadTimes
+        lastReadTimes,
+        notificationQueue,
+        dismissNotification,
+        addNotification,
+        sendQuickReply,
+        lastIncomingMessage,
+        userId
     };
 
     return (

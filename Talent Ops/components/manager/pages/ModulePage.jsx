@@ -21,6 +21,7 @@ import { useUser } from '../context/UserContext';
 import { useProject } from '../../employee/context/ProjectContext';
 import ProjectDocuments from '../../employee/pages/ProjectDocuments';
 
+
 const APPLIER_RESPONSIBILITIES = [
     "Complete high-priority current tasks",
     "Handover pending tasks to a teammate",
@@ -28,12 +29,7 @@ const APPLIER_RESPONSIBILITIES = [
     "Ensure relevant documentation is accessible"
 ];
 
-const APPROVER_RESPONSIBILITIES = [
-    "Review applier's workload during leave period",
-    "Check own pending tasks for bottlenecks",
-    "Coordinate task reallocation with team",
-    "Ensure project deadlines are not compromised"
-];
+
 
 const ModulePage = ({ title, type }) => {
     const { addToast } = useToast();
@@ -44,6 +40,7 @@ const ModulePage = ({ title, type }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [viewType, setViewType] = useState('grid');
     const [activeMenuId, setActiveMenuId] = useState(null);
+    const [availabilityFilter, setAvailabilityFilter] = useState('all');
 
     // State for leave requests
     // State for leave requests
@@ -55,11 +52,16 @@ const ModulePage = ({ title, type }) => {
     const [selectedLeaveRequest, setSelectedLeaveRequest] = useState(null);
     const [showLeaveDetailsModal, setShowLeaveDetailsModal] = useState(false);
     const [employeeTasks, setEmployeeTasks] = useState([]);
+    const [evalBalance, setEvalBalance] = useState(0);
+    const [evalPendingPaid, setEvalPendingPaid] = useState(0);
 
     // ... (rest of states)
 
     const [remainingLeaves, setRemainingLeaves] = useState(0);
     const [pendingTasks, setPendingTasks] = useState([]);
+
+    // AI Leave Analysis state
+
 
     // State for Apply Leave modal
     const [showApplyLeaveModal, setShowApplyLeaveModal] = useState(false);
@@ -110,6 +112,8 @@ const ModulePage = ({ title, type }) => {
 
     // State for Policies
     const [policies, setPolicies] = useState([]);
+    const [isLoadingPolicies, setIsLoadingPolicies] = useState(false);
+    const [policyError, setPolicyError] = useState(null);
     const [showAddPolicyModal, setShowAddPolicyModal] = useState(false);
 
 
@@ -236,6 +240,145 @@ const ModulePage = ({ title, type }) => {
                                 department_display: deptMap[emp.department] || emp.department || 'Main Office',
                                 dept: (projectMap[emp.id] && projectMap[emp.id].length > 0) ? projectMap[emp.id].join(', ') : 'Unassigned',
                                 projects: projectMap[emp.id]?.length || 0,
+                                status: 'Active',
+                                joinDate: emp.created_at ? new Date(emp.created_at).toLocaleDateString() : 'N/A',
+                                avatar_url: emp.avatar_url,
+                                availability: availability,
+                                task: currentTask,
+                                lastActive: lastActive
+                            };
+                        });
+
+                        setEmployees(richData);
+                        setEmployeeStatus(richData);
+                    }
+                } else if (type === 'project-members') {
+                    // Fetch employees who are members of the CURRENT PROJECT only
+                    if (!currentProject?.id) {
+                        setEmployees([]);
+                        setEmployeeStatus([]);
+                        return;
+                    }
+
+                    // 1. Fetch project members for current project
+                    const { data: projectMembersData, error: projectMembersError } = await supabase
+                        .from('project_members')
+                        .select('user_id, role')
+                        .eq('project_id', currentProject.id)
+                        .eq('org_id', orgId);
+
+                    if (projectMembersError) throw projectMembersError;
+
+                    const userIdsInProject = projectMembersData?.map(pm => pm.user_id) || [];
+                    const memberRoleMap = {};
+                    projectMembersData?.forEach(pm => {
+                        memberRoleMap[pm.user_id] = pm.role;
+                    });
+
+                    if (userIdsInProject.length === 0) {
+                        setEmployees([]);
+                        setEmployeeStatus([]);
+                        return;
+                    }
+
+                    // 2. Fetch profiles for project members only
+                    const { data: profilesData, error: profileError } = await supabase
+                        .from('profiles')
+                        .select(`
+                            id, 
+                            full_name, 
+                            email, 
+                            role, 
+                            job_title, 
+                            department,
+                            created_at,
+                            avatar_url
+                        `)
+                        .eq('org_id', orgId)
+                        .in('id', userIdsInProject);
+
+                    if (profileError) throw profileError;
+
+                    // 3. Fetch departments for mapping
+                    const { data: deptData } = await supabase
+                        .from('departments')
+                        .select('id, department_name')
+                        .eq('org_id', orgId);
+
+                    const deptMap = {};
+                    if (deptData) {
+                        deptData.forEach(d => deptMap[d.id] = d.department_name);
+                    }
+
+                    // 4. Fetch Attendance & Leaves for Status
+                    const today = new Date().toISOString().split('T')[0];
+                    const yesterday = new Date(new Date().getTime() - 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+                    const { data: attendanceData } = await supabase
+                        .from('attendance')
+                        .select('employee_id, clock_in, clock_out, date, current_task')
+                        .in('date', [yesterday, today])
+                        .eq('org_id', orgId)
+                        .in('employee_id', userIdsInProject);
+
+                    const { data: leavesData } = await supabase
+                        .from('leaves')
+                        .select('employee_id')
+                        .eq('status', 'approved')
+                        .eq('org_id', orgId)
+                        .lte('from_date', today)
+                        .gte('to_date', today)
+                        .in('employee_id', userIdsInProject);
+
+                    const leaveSet = new Set(leavesData?.map(l => l.employee_id));
+                    const attendanceMap = {};
+                    if (attendanceData) {
+                        const sortedAtt = [...attendanceData].sort((a, b) => {
+                            if (a.date !== b.date) return a.date.localeCompare(b.date);
+                            return (a.clock_in || '').localeCompare(b.clock_in || '');
+                        });
+                        sortedAtt.forEach(record => attendanceMap[record.employee_id] = record);
+                    }
+
+                    if (profilesData) {
+                        const richData = profilesData.map(emp => {
+                            const attendance = attendanceMap[emp.id];
+                            let availability = 'Offline';
+                            let lastActive = 'N/A';
+
+                            if (attendance) {
+                                if (attendance.clock_in && !attendance.clock_out) {
+                                    availability = 'Online';
+                                    lastActive = `Clocked in at ${attendance.clock_in.slice(0, 5)}`;
+                                } else if (attendance.clock_out) {
+                                    availability = 'Offline';
+                                    lastActive = `Left at ${attendance.clock_out.slice(0, 5)}`;
+                                }
+                            }
+
+                            if (availability === 'Offline' && leaveSet.has(emp.id)) {
+                                availability = 'On Leave';
+                            }
+
+                            const currentTask = (availability === 'Online' && attendance?.current_task) ? attendance.current_task :
+                                (availability === 'Online') ? 'No active task' : '-';
+
+                            // Get project role for this member
+                            let projectRoleDisplay = memberRoleMap[emp.id] || 'Member';
+                            if (projectRoleDisplay === 'team_lead') projectRoleDisplay = 'Team Lead';
+                            else if (projectRoleDisplay === 'employee') projectRoleDisplay = 'Member';
+                            else if (projectRoleDisplay === 'manager') projectRoleDisplay = 'Manager';
+
+                            return {
+                                id: emp.id,
+                                name: emp.full_name || 'N/A',
+                                email: emp.email || 'N/A',
+                                role: emp.role || 'N/A',
+                                job_title: emp.job_title || 'N/A',
+                                department_display: deptMap[emp.department] || emp.department || 'Main Office',
+                                dept: currentProject.name, // Show project name as department
+                                projects: 1,
+                                project_role: projectRoleDisplay, // Role in this project
                                 status: 'Active',
                                 joinDate: emp.created_at ? new Date(emp.created_at).toLocaleDateString() : 'N/A',
                                 avatar_url: emp.avatar_url,
@@ -431,6 +574,8 @@ const ModulePage = ({ title, type }) => {
                                     startDate: leave.from_date, // Added for calculation
                                     endDate: leave.to_date, // Added for calculation
                                     duration: `${diffDays} Days`,
+                                    duration_weekdays: leave.duration_weekdays, // Critical for approval calculation
+                                    lop_days: leave.lop_days, // Critical for approval calculation
                                     dates: `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`,
                                     status: leave.status ? leave.status.charAt(0).toUpperCase() + leave.status.slice(1).toLowerCase() : 'Pending'
                                 };
@@ -496,13 +641,13 @@ const ModulePage = ({ title, type }) => {
 
             const { data } = await supabase
                 .from('profiles')
-                .select('leaves_remaining')
+                .select('total_leaves_balance')
                 .eq('id', user.id)
                 .eq('org_id', orgId)
                 .single();
 
             if (data) {
-                setRemainingLeaves(data.leaves_remaining || 0);
+                setRemainingLeaves(data.total_leaves_balance || 0);
             }
         };
 
@@ -510,14 +655,17 @@ const ModulePage = ({ title, type }) => {
         if (type === 'leaves' || type === 'my-leaves') {
             fetchRemainingLeaves();
         }
-    }, [type, refreshTrigger, currentProject?.id]);
+    }, [type, refreshTrigger, currentProject?.id, orgId]);
 
     // Fetch Policies from Supabase
     React.useEffect(() => {
         const fetchPolicies = async () => {
-            if (type === 'policies') {
+            if (type === 'policies' && orgId) {
                 try {
                     console.log('Fetching policies from Supabase...');
+                    setIsLoadingPolicies(true);
+                    setPolicyError(null);
+
                     const { data, error } = await supabase
                         .from('policies')
                         .select('*')
@@ -527,7 +675,7 @@ const ModulePage = ({ title, type }) => {
 
                     if (error) {
                         console.error('Error fetching policies:', error);
-                        addToast('Failed to load policies', 'error');
+                        setPolicyError(error.message);
                         return;
                     }
 
@@ -544,13 +692,15 @@ const ModulePage = ({ title, type }) => {
                     }
                 } catch (err) {
                     console.error('Unexpected error fetching policies:', err);
-                    addToast('An unexpected error occurred while loading policies', 'error');
+                    setPolicyError(err.message);
+                } finally {
+                    setIsLoadingPolicies(false);
                 }
             }
         };
 
         fetchPolicies();
-    }, [type, refreshTrigger]);
+    }, [type, refreshTrigger, orgId]);
 
 
     // Real-time Subscription for Live Status & Data
@@ -579,14 +729,20 @@ const ModulePage = ({ title, type }) => {
         };
     }, []);
 
-    const fetchPendingTasks = async (employeeId) => {
+    const fetchPendingTasks = async (employeeId, beforeDate) => {
         try {
-            const { data, error } = await supabase
+            let query = supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .not('status', 'in', '("completed","closed")')
+                .not('status', 'in', '("completed","closed")');
+
+            if (beforeDate) {
+                query = query.lt('due_date', beforeDate);
+            }
+
+            const { data, error } = await query
                 .order('due_date', { ascending: true })
                 .limit(5);
 
@@ -600,24 +756,28 @@ const ModulePage = ({ title, type }) => {
 
     const fetchEmployeeTasks = async (employeeId, startDate, endDate) => {
         try {
+            // Overlap logic: Task Start <= Leave End AND Task End >= Leave Start
+            // We assume table has 'start_date' and 'due_date'
             const { data, error } = await supabase
                 .from('tasks')
                 .select('*')
                 .eq('assigned_to', employeeId)
                 .eq('org_id', orgId)
-                .gte('due_date', startDate)
-                .lte('due_date', endDate);
+                .lte('start_date', endDate)  // Task starts before or on leave end
+                .gte('due_date', startDate); // Task ends after or on leave start
 
             if (error) throw error;
             return data || [];
         } catch (error) {
             console.error('Error fetching tasks:', error);
+            // Fallback to simpler check if start_date doesn't exist or errors
             return [];
         }
     };
 
     const handleViewLeave = async (leaveRequest) => {
         setSelectedLeaveRequest(leaveRequest);
+
 
         // Fetch tasks for the employee during leave dates
         const tasks = await fetchEmployeeTasks(
@@ -627,12 +787,29 @@ const ModulePage = ({ title, type }) => {
         );
         setEmployeeTasks(tasks);
 
-        // Fetch pending tasks for the approver (Current Manager)
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-            const pTasks = await fetchPendingTasks(user.id);
-            setPendingTasks(pTasks);
-        }
+        // Fetch pending tasks (Backlog) for the EMPLOYEE (not the approver)
+        // These are tasks due BEFORE the leave starts
+        const pTasks = await fetchPendingTasks(leaveRequest.employee_id, leaveRequest.startDate);
+        setPendingTasks(pTasks);
+
+        // Fetch live balance and other pending requests for re-evaluation preview
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('total_leaves_balance')
+            .eq('id', leaveRequest.employee_id)
+            .single();
+
+        const { data: pending } = await supabase
+            .from('leaves')
+            .select('duration_weekdays')
+            .eq('employee_id', leaveRequest.employee_id)
+            .eq('status', 'pending')
+            .neq('id', leaveRequest.id); // Exclude the current one
+
+        setEvalBalance(profile?.total_leaves_balance || 0);
+        setEvalPendingPaid(pending?.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0) || 0);
+
+
 
         setShowLeaveDetailsModal(true);
     };
@@ -780,48 +957,78 @@ const ModulePage = ({ title, type }) => {
                 // Database update (Lowercase for DB)
                 const dbStatus = action === 'Approve' ? 'approved' : 'rejected';
 
-                const { error } = await supabase
-                    .from('leaves')
-                    .update({ status: dbStatus })
-                    .eq('id', item.id)
-                    .eq('org_id', orgId);
+                // Fetch latest profile status for the employee
+                const { data: profileData, error: profileFetchError } = await supabase
+                    .from('profiles')
+                    .select('leaves_taken_this_month, total_leaves_balance')
+                    .eq('id', item.employee_id)
+                    .eq('org_id', orgId)
+                    .single();
 
-                if (error) throw error;
+                if (profileFetchError) throw profileFetchError;
 
-                // Refund logic: If Rejected AND NOT 'Loss of Pay', decrement leaves_taken_this_month
-                if (action === 'Reject' && item.type !== 'Loss of Pay' && item.employee_id) {
-                    const start = new Date(item.startDate);
-                    const end = new Date(item.endDate);
-                    const diffTime = Math.abs(end - start);
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                let finalPaid = item.duration_weekdays || 0;
+                let finalLop = item.lop_days || 0;
 
-                    // Fetch current profile stats
-                    const { data: profileData, error: profileFetchError } = await supabase
+                if (action === 'Approve') {
+                    // Re-calculate the split based on the CURRENT live balance
+                    // This allows "converting" LOP to Paid if other leaves were rejected in the meantime
+                    const totalRequestedWeekdays = (item.duration_weekdays || 0) + (item.lop_days || 0);
+                    const currentBalance = profileData.total_leaves_balance || 0;
+
+                    finalPaid = Math.max(0, Math.min(totalRequestedWeekdays, currentBalance));
+                    finalLop = totalRequestedWeekdays - finalPaid;
+
+                    // Update leave record with final split and status
+                    const { error: leaveUpdateError } = await supabase
+                        .from('leaves')
+                        .update({
+                            status: dbStatus,
+                            duration_weekdays: finalPaid,
+                            lop_days: finalLop
+                        })
+                        .eq('id', item.id)
+                        .eq('org_id', orgId);
+
+                    if (leaveUpdateError) throw leaveUpdateError;
+
+                    // Update profile for deduction
+                    const newTaken = (profileData.leaves_taken_this_month || 0) + finalPaid;
+                    const newBalance = currentBalance - finalPaid;
+
+                    const { error: profileUpdateError } = await supabase
                         .from('profiles')
-                        .select('leaves_taken_this_month')
+                        .update({
+                            leaves_taken_this_month: newTaken,
+                            total_leaves_balance: newBalance
+                        })
                         .eq('id', item.employee_id)
-                        .eq('org_id', orgId)
-                        .single();
+                        .eq('org_id', orgId);
 
-                    if (profileData) {
-                        const currentTaken = profileData.leaves_taken_this_month || 0;
-                        const newTaken = Math.max(0, currentTaken - diffDays); // Prevent negative
+                    if (profileUpdateError) throw profileUpdateError;
+                    console.log(`Approved: Deducted ${finalPaid} paid days. New balance: ${newBalance}`);
 
-                        const { error: refundError } = await supabase
-                            .from('profiles')
-                            .update({ leaves_taken_this_month: newTaken })
-                            .eq('id', item.employee_id)
-                            .eq('org_id', orgId);
+                } else {
+                    // For Rejection, we just update status. 
+                    // No refund logic needed because balance was never deducted upfront.
+                    const { error: rejectError } = await supabase
+                        .from('leaves')
+                        .update({ status: dbStatus })
+                        .eq('id', item.id)
+                        .eq('org_id', orgId);
 
-                        if (refundError) console.error('Error refunding leave balance:', refundError);
-                        else console.log(`Refunded ${diffDays} days to employee ${item.employee_id}`);
-                    }
+                    if (rejectError) throw rejectError;
                 }
 
                 // Send Notification to the Employee
                 const { data: { user } } = await supabase.auth.getUser();
                 if (user && item.employee_id) {
-                    const notificationMessage = `Your leave request for ${item.dates} has been ${action === 'Approve' ? 'Approved' : 'Rejected'}.`;
+                    const actionWord = action === 'Approve' ? 'Approved' : 'Rejected';
+                    let notificationMessage = `Your leave request for ${item.dates} has been ${actionWord}.`;
+
+                    if (action === 'Approve' && finalLop > 0) {
+                        notificationMessage += ` (Partial LOP: ${finalLop} days)`;
+                    }
 
                     await supabase.from('notifications').insert({
                         receiver_id: item.employee_id,
@@ -1016,28 +1223,7 @@ const ModulePage = ({ title, type }) => {
 
             if (error) throw error;
 
-            // Update remaining leaves if NOT loss of pay
-            if (leaveFormData.leaveType !== 'Loss of Pay') {
-                const { data: userData, error: userError } = await supabase
-                    .from('profiles')
-                    .select('monthly_leave_quota, leaves_taken_this_month')
-                    .eq('id', user.id)
-                    .eq('org_id', orgId)
-                    .single();
-
-                if (userError) throw userError;
-
-                const newTaken = (userData.leaves_taken_this_month || 0) + requestedDays;
-
-                const { error: updateError } = await supabase
-                    .from('profiles')
-                    .update({ leaves_taken_this_month: newTaken })
-                    .eq('id', user.id)
-                    .eq('org_id', orgId);
-
-                if (updateError) throw updateError;
-                setRemainingLeaves((userData.monthly_leave_quota || 0) - newTaken);
-            }
+            // Balance update REMOVED. Deduction now occurs only on Approval to prevent balance jumps.
 
             // Update local state
             if (data && data.length > 0) {
@@ -1638,7 +1824,7 @@ const ModulePage = ({ title, type }) => {
             </div>
 
             {/* Quick Stats Summary for Status & Workforce */}
-            {(type === 'status' || type === 'workforce') && (
+            {(type === 'status' || type === 'workforce' || type === 'project-members') && (
                 <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(4, 1fr)',
@@ -1682,8 +1868,8 @@ const ModulePage = ({ title, type }) => {
                 </div>
             )}
 
-            {/* Search and Filters Bar for Status & Workforce */}
-            {(type === 'status' || type === 'workforce') && (
+            {/* Search and Filters Bar for Status, Workforce & Project Members */}
+            {(type === 'status' || type === 'workforce' || type === 'project-members') && (
                 <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -1732,6 +1918,30 @@ const ModulePage = ({ title, type }) => {
                     </div>
 
                     <div style={{ display: 'flex', gap: '12px' }}>
+                        {/* Availability Filter */}
+                        <select
+                            value={availabilityFilter}
+                            onChange={(e) => setAvailabilityFilter(e.target.value)}
+                            style={{
+                                padding: '8px 16px',
+                                borderRadius: '12px',
+                                backgroundColor: '#ffffff',
+                                color: '#0f172a',
+                                fontWeight: '600',
+                                fontSize: '0.85rem',
+                                border: '1px solid #e2e8f0',
+                                cursor: 'pointer',
+                                outline: 'none',
+                                transition: 'all 0.2s',
+                                boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                            }}
+                        >
+                            <option value="all">All Employees</option>
+                            <option value="online">Online Only</option>
+                            <option value="offline">Offline Only</option>
+                            <option value="on-leave">On Leave</option>
+                        </select>
+
                         <div style={{ display: 'flex', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '14px', border: '1px solid #e2e8f0' }}>
                             <button
                                 onClick={() => setViewType('grid')}
@@ -1860,8 +2070,8 @@ const ModulePage = ({ title, type }) => {
                 </div>
             )}
 
-            {/* Rich Grid/List View for Status & Workforce */}
-            {(type === 'status' || type === 'workforce') ? (
+            {/* Rich Grid/List View for Status, Workforce & Project Members */}
+            {(type === 'status' || type === 'workforce' || type === 'project-members') ? (
                 viewType === 'grid' ? (
                     <div style={{
                         display: 'grid',
@@ -1869,11 +2079,21 @@ const ModulePage = ({ title, type }) => {
                         gap: '16px',
                         marginTop: '8px'
                     }}>
-                        {employeeStatus.filter(emp =>
-                            emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase())
-                        ).map((emp) => (
+                        {employeeStatus.filter(emp => {
+                            // Search filter
+                            const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase());
+
+                            // Availability filter
+                            const matchesAvailability =
+                                availabilityFilter === 'all' ||
+                                (availabilityFilter === 'online' && emp.availability === 'Online') ||
+                                (availabilityFilter === 'offline' && emp.availability === 'Offline') ||
+                                (availabilityFilter === 'on-leave' && emp.availability === 'On Leave');
+
+                            return matchesSearch && matchesAvailability;
+                        }).map((emp) => (
                             <div
                                 key={emp.id}
                                 style={{
@@ -2029,11 +2249,21 @@ const ModulePage = ({ title, type }) => {
                         </div>
 
                         {/* Premium List Rows */}
-                        {employeeStatus.filter(emp =>
-                            emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase())
-                        ).map((emp) => (
+                        {employeeStatus.filter(emp => {
+                            // Search filter
+                            const matchesSearch = emp.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                emp.job_title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                emp.department_display?.toLowerCase().includes(searchTerm.toLowerCase());
+
+                            // Availability filter
+                            const matchesAvailability =
+                                availabilityFilter === 'all' ||
+                                (availabilityFilter === 'online' && emp.availability === 'Online') ||
+                                (availabilityFilter === 'offline' && emp.availability === 'Offline') ||
+                                (availabilityFilter === 'on-leave' && emp.availability === 'On Leave');
+
+                            return matchesSearch && matchesAvailability;
+                        }).map((emp) => (
                             <div
                                 key={emp.id}
                                 style={{
@@ -2712,8 +2942,94 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
+
+
+                        {/* Live Re-evaluation Preview */}
+                        {selectedLeaveRequest.status === 'Pending' && (
+                            <div style={{
+                                marginTop: '24px',
+                                padding: '24px',
+                                borderRadius: '20px',
+                                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                                border: '1px solid #bae6fd',
+                                boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)'
+                            }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px', color: '#0369a1' }}>
+                                    <Activity size={20} />
+                                    <h4 style={{ fontSize: '1.2rem', fontWeight: '800', margin: 0 }}>Live Approval Preview</h4>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+                                    {/* Card 1: Current Total Leaves (Profile Balance) */}
+                                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '14px', border: '1px solid #e0f2fe' }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Current Total Leaves</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>{evalBalance} Days</div>
+                                    </div>
+
+                                    {/* Card 2: Leave Applied For (Total Requested) */}
+                                    <div style={{ backgroundColor: 'white', padding: '16px', borderRadius: '14px', border: '1px solid #e0f2fe' }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>Leave Applied For</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800', color: '#0f172a' }}>
+                                            {(selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0)} Days
+                                        </div>
+                                    </div>
+
+                                    {/* Card 3: Effective Balance IF Accepted */}
+                                    <div style={{
+                                        backgroundColor: '#0369a1',
+                                        padding: '16px',
+                                        borderRadius: '14px',
+                                        color: 'white',
+                                        gridColumn: 'span 1'
+                                    }}>
+                                        <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', marginBottom: '8px' }}>Effective Balance if Accepted</p>
+                                        <div style={{ fontSize: '1.5rem', fontWeight: '800' }}>
+                                            {(() => {
+                                                // 1. Effective BEFORE this request (Profile - Other Pending Paid)
+                                                // Note: evalPendingPaid includes ALL pending. We want to exclude specific logic if needed, but per previous logic evalPendingPaid was sum of ALL pending.
+                                                // However, `handleViewLeave` excludes CURRENT request from `pending` list query.
+                                                // So `evalPendingPaid` = "Other Pending (Paid)".
+                                                const effectiveCurrent = Math.max(0, evalBalance - evalPendingPaid);
+
+                                                // 2. How much of THIS request will be paid?
+                                                const totalRequested = (selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0);
+                                                const paidAmountForCurrent = Math.min(totalRequested, effectiveCurrent);
+
+                                                // 3. Final Balance = Effective Current - Paid Amount Used
+                                                return Math.max(0, effectiveCurrent - paidAmountForCurrent);
+                                            })()} Days
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Dynamic Info Footer: Total Days, LOP Days */}
+                                <div style={{
+                                    marginTop: '16px',
+                                    padding: '12px 16px',
+                                    backgroundColor: 'rgba(255,255,255,0.5)',
+                                    borderRadius: '12px',
+                                    fontSize: '0.9rem',
+                                    fontWeight: '600',
+                                    color: '#0c4a6e',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                }}>
+                                    <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#0ea5e9' }}></div>
+                                    {(() => {
+                                        const effectiveCurrent = Math.max(0, evalBalance - evalPendingPaid);
+                                        const totalReq = (selectedLeaveRequest.duration_weekdays || 0) + (selectedLeaveRequest.lop_days || 0);
+                                        const willBePaid = Math.min(totalReq, effectiveCurrent);
+                                        const willBeLop = totalReq - willBePaid;
+
+                                        return `Total Leave Days: ${totalReq}, Loss of Pay Days: ${willBeLop}`;
+                                    })()}
+                                </div>
+                            </div>
+                        )}
+
                         {/* Tasks During Leave */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', marginTop: '24px' }}>
                             <div style={{ marginBottom: '24px' }}>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '16px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <Briefcase size={20} color="var(--primary)" /> Tasks During Leave Period
@@ -2759,7 +3075,7 @@ const ModulePage = ({ title, type }) => {
 
                             <div style={{ marginBottom: '24px' }}>
                                 <h4 style={{ fontSize: '1.1rem', fontWeight: '800', marginBottom: '16px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <Activity size={20} color="var(--primary)" /> Your Pending Tasks
+                                    <Activity size={20} color="var(--primary)" /> Pending Tasks
                                 </h4>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     {pendingTasks.length > 0 ? pendingTasks.map(task => (
@@ -2777,20 +3093,7 @@ const ModulePage = ({ title, type }) => {
                             </div>
                         </div>
 
-                        {/* Approver Responsibilities */}
-                        <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#eff6ff', borderRadius: '16px', border: '1px solid #dbeafe' }}>
-                            <h4 style={{ fontSize: '1.15rem', fontWeight: '800', marginBottom: '16px', color: '#1e40af', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <CheckCircle size={22} /> Approver Responsibilities
-                            </h4>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                {APPROVER_RESPONSIBILITIES.map((resp, idx) => (
-                                    <div key={idx} style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-                                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6' }}></div>
-                                        <span style={{ fontSize: '0.95rem', fontWeight: 600, color: '#1e40af' }}>{resp}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
+
 
                         {/* Footer */}
                         <div style={{ display: 'flex', gap: '12px' }}>

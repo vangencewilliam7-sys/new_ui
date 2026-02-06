@@ -238,6 +238,7 @@ export const ToastProvider = ({ children }) => {
     const [toasts, setToasts] = useState([]);
 
     const addToast = useCallback((message, type = 'info', options = {}) => {
+        console.log('[ToastContext] addToast called:', { message, type });
         // Options supports: action, sender (for message_reply), duration
         const id = Date.now();
         const { action, sender, duration } = options || {};

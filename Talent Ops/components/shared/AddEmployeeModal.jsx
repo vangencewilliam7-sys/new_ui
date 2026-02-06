@@ -14,8 +14,8 @@ export const AddEmployeeModal = ({ isOpen, onClose, onSuccess, orgId }) => {
         password: '',
         role: 'employee',
         job_title: '',
-        employment_type: 'full_time', // Changed default to lowercase snake_case
-        department_id: '', // Added department_id
+        employment_type: 'full_time',
+        department_id: '',
         monthly_leave_quota: 3,
         basic_salary: '',
         hra: '',
@@ -136,11 +136,11 @@ export const AddEmployeeModal = ({ isOpen, onClose, onSuccess, orgId }) => {
 
                 if (!userId) {
                     // Query for the newly created user by email
+                    // IMPORTANT: Don't filter by org_id here as the Edge Function might not have set it yet
                     const { data: profileData, error: profileError } = await supabase
                         .from('profiles')
                         .select('id')
                         .eq('email', formData.email)
-                        .eq('org_id', orgId)
                         .single();
 
                     if (profileError) {
@@ -152,19 +152,21 @@ export const AddEmployeeModal = ({ isOpen, onClose, onSuccess, orgId }) => {
 
                 if (userId) {
                     // Update profile with department, job_title and join date
-                    if (formData.department_id || formData.joinDate || formData.job_title) {
+                    if (formData.department_id || formData.joinDate || formData.job_title || selectedProjects.length > 0) {
                         const updateData = {};
                         if (formData.department_id) updateData.department = formData.department_id;
+                        if (selectedProjects.length > 0) updateData.team_id = selectedProjects[0];
                         if (formData.joinDate) updateData.join_date = formData.joinDate;
                         if (formData.job_title) updateData.job_title = formData.job_title;
                         if (formData.employment_type) updateData.employment_type = formData.employment_type;
+                        if (formData.monthly_leave_quota) updateData.total_leaves_balance = formData.monthly_leave_quota;
+                        updateData.org_id = orgId; // Explicitly ensure org_id is set
 
                         console.log('Updating profile for user:', userId, 'with data:', updateData);
                         const { data: updateResult, error: updateError } = await supabase
                             .from('profiles')
                             .update(updateData)
                             .eq('id', userId)
-                            .eq('org_id', orgId)
                             .select();
 
                         if (updateError) {
@@ -172,6 +174,19 @@ export const AddEmployeeModal = ({ isOpen, onClose, onSuccess, orgId }) => {
                             setError(`Failed to update profile details: ${updateError.message}`);
                         } else {
                             console.log('Profile updated successfully:', updateResult);
+                        }
+
+                        // Also ensure employee_finance has the org_id
+                        console.log('Ensuring employee_finance has org_id for user:', userId);
+                        const { error: financeError } = await supabase
+                            .from('employee_finance')
+                            .update({ org_id: orgId })
+                            .eq('employee_id', userId);
+
+                        if (financeError) {
+                            console.error('Failed to update employee_finance org_id:', financeError);
+                        } else {
+                            console.log('employee_finance org_id updated successfully');
                         }
                     }
 
@@ -455,23 +470,13 @@ export const AddEmployeeModal = ({ isOpen, onClose, onSuccess, orgId }) => {
 
                         {/* Department */}
                         <div>
-                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 500 }}>
-                                Department *
-                            </label>
+                            <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 500 }}>Department *</label>
                             <select
                                 required
                                 value={formData.department_id}
                                 onChange={(e) => setFormData({ ...formData, department_id: e.target.value })}
-                                style={{
-                                    width: '100%',
-                                    padding: '10px',
-                                    borderRadius: '8px',
-                                    border: '1px solid var(--border)',
-                                    backgroundColor: 'var(--background)',
-                                    color: 'var(--text-primary)',
-                                }}
+                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
                             >
-                                <option value="">Select Department</option>
                                 <option value="">Select Department</option>
                                 {departments.map((dept) => (
                                     <option key={dept.id} value={dept.id}>

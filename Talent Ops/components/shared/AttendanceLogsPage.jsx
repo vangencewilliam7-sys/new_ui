@@ -32,6 +32,7 @@ const AttendanceLogsPage = () => {
     const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
     const [orgId, setOrgId] = useState(null);
     const [expandedEmployee, setExpandedEmployee] = useState(null); // For calendar accordion
+    const [showDetailedLogs, setShowDetailedLogs] = useState({}); // { [employeeId]: boolean } - Toggle for detailed logs view
 
     const [leaveData, setLeaveData] = useState([]);
 
@@ -569,10 +570,6 @@ const AttendanceLogsPage = () => {
                         <Calendar size={16} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
                         Monthly Summary
                     </button>
-                    <button style={tabStyle(activeTab === 'report')} onClick={() => setActiveTab('report')}>
-                        <BarChart3 size={16} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
-                        Report
-                    </button>
                 </div>
 
                 {/* Search */}
@@ -952,6 +949,152 @@ const AttendanceLogsPage = () => {
                                                         </div>
                                                     ))}
                                                 </div>
+
+                                                {/* View Detailed Logs Toggle */}
+                                                <div style={{
+                                                    display: 'flex',
+                                                    justifyContent: 'center',
+                                                    marginTop: '20px',
+                                                    borderTop: '1px solid #e2e8f0',
+                                                    paddingTop: '20px'
+                                                }}>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setShowDetailedLogs(prev => ({
+                                                                ...prev,
+                                                                [emp.id]: !prev[emp.id]
+                                                            }));
+                                                        }}
+                                                        style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '8px',
+                                                            padding: '12px 24px',
+                                                            borderRadius: '12px',
+                                                            border: 'none',
+                                                            backgroundColor: showDetailedLogs[emp.id] ? '#7c3aed' : '#f1f5f9',
+                                                            color: showDetailedLogs[emp.id] ? '#fff' : '#64748b',
+                                                            fontWeight: 600,
+                                                            cursor: 'pointer',
+                                                            transition: 'all 0.2s ease',
+                                                            boxShadow: showDetailedLogs[emp.id] ? '0 4px 12px rgba(124, 58, 237, 0.3)' : 'none'
+                                                        }}
+                                                    >
+                                                        <Clock size={18} />
+                                                        {showDetailedLogs[emp.id] ? 'Hide Detailed Logs' : 'View Detailed Logs'}
+                                                    </button>
+                                                </div>
+
+                                                {/* Detailed Logs Table */}
+                                                {showDetailedLogs[emp.id] && (
+                                                    <div style={{
+                                                        marginTop: '20px',
+                                                        padding: '20px',
+                                                        backgroundColor: '#fff',
+                                                        borderRadius: '12px',
+                                                        border: '1px solid #e2e8f0',
+                                                        animation: 'fadeIn 0.3s ease'
+                                                    }}>
+                                                        <h4 style={{
+                                                            fontSize: '1rem',
+                                                            fontWeight: 600,
+                                                            color: '#0f172a',
+                                                            marginBottom: '16px',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '8px'
+                                                        }}>
+                                                            <Clock size={18} style={{ color: '#7c3aed' }} />
+                                                            Attendance History - {monthNames[selectedMonth]} {selectedYear}
+                                                        </h4>
+                                                        <div style={{ overflowX: 'auto' }}>
+                                                            <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '400px' }}>
+                                                                <thead>
+                                                                    <tr style={{ backgroundColor: '#f8fafc' }}>
+                                                                        <th style={tableHeaderStyle}>Date</th>
+                                                                        <th style={tableHeaderStyle}>Clock In</th>
+                                                                        <th style={tableHeaderStyle}>Clock Out</th>
+                                                                        <th style={tableHeaderStyle}>Total Hours</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {getEmployeeAttendance(emp.id).map((record, idx) => (
+                                                                        <tr key={idx}
+                                                                            style={{
+                                                                                transition: 'background 0.15s'
+                                                                            }}
+                                                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                                                                        >
+                                                                            <td style={tableCellStyle}>
+                                                                                <div style={{ fontWeight: 500 }}>
+                                                                                    {new Date(record.date).toLocaleDateString('en-US', {
+                                                                                        weekday: 'short',
+                                                                                        month: 'short',
+                                                                                        day: 'numeric'
+                                                                                    })}
+                                                                                </div>
+                                                                            </td>
+                                                                            <td style={{ ...tableCellStyle }}>
+                                                                                <span style={{
+                                                                                    display: 'inline-flex',
+                                                                                    alignItems: 'center',
+                                                                                    gap: '6px',
+                                                                                    color: '#22c55e',
+                                                                                    fontWeight: 500
+                                                                                }}>
+                                                                                    <CheckCircle size={14} />
+                                                                                    {formatTime(record.clock_in)}
+                                                                                </span>
+                                                                            </td>
+                                                                            <td style={{ ...tableCellStyle }}>
+                                                                                <span style={{
+                                                                                    display: 'inline-flex',
+                                                                                    alignItems: 'center',
+                                                                                    gap: '6px',
+                                                                                    color: record.clock_out ? '#ef4444' : '#94a3b8',
+                                                                                    fontWeight: 500
+                                                                                }}>
+                                                                                    {record.clock_out ? <XCircle size={14} /> : <AlertCircle size={14} />}
+                                                                                    {formatTime(record.clock_out)}
+                                                                                </span>
+                                                                            </td>
+                                                                            <td style={{ ...tableCellStyle }}>
+                                                                                <span style={{
+                                                                                    display: 'inline-block',
+                                                                                    padding: '4px 10px',
+                                                                                    backgroundColor: '#f0fdf4',
+                                                                                    color: '#166534',
+                                                                                    borderRadius: '6px',
+                                                                                    fontWeight: 600,
+                                                                                    fontSize: '0.85rem'
+                                                                                }}>
+                                                                                    {record.total_hours
+                                                                                        ? `${parseFloat(record.total_hours).toFixed(1)}h`
+                                                                                        : calculateHours(record.clock_in, record.clock_out)}
+                                                                                </span>
+                                                                            </td>
+                                                                        </tr>
+                                                                    ))}
+                                                                    {getEmployeeAttendance(emp.id).length === 0 && (
+                                                                        <tr>
+                                                                            <td colSpan="4" style={{
+                                                                                ...tableCellStyle,
+                                                                                textAlign: 'center',
+                                                                                color: '#94a3b8',
+                                                                                padding: '32px'
+                                                                            }}>
+                                                                                <AlertCircle size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                                                                                <div>No attendance records found for this month</div>
+                                                                            </td>
+                                                                        </tr>
+                                                                    )}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         )}
                                     </div>
@@ -1169,226 +1312,136 @@ const AttendanceLogsPage = () => {
                 </div>
             )}
 
-            {activeTab === 'report' && (
-                <div style={cardStyle}>
-                    <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#0f172a', marginBottom: '16px' }}>
-                        Consolidated Monthly Report - {monthNames[selectedMonth]} {selectedYear}
-                    </h3>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                        <thead>
-                            <tr style={{ backgroundColor: '#f8fafc' }}>
-                                <th style={tableHeaderStyle}>#</th>
-                                <th style={tableHeaderStyle}>Employee</th>
-                                <th style={tableHeaderStyle}>Role/Department</th>
-                                <th style={tableHeaderStyle}>Present Days</th>
-                                <th style={tableHeaderStyle}>Total Hours</th>
-                                <th style={tableHeaderStyle}>Avg. Hours/Day</th>
-                                <th style={tableHeaderStyle}>Attendance Rate</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {filteredMonthlySummary.map((emp, idx) => (
-                                <tr key={emp.id}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
-                                >
-                                    <td style={tableCellStyle}>{idx + 1}</td>
-                                    <td style={tableCellStyle}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <div style={{
-                                                width: '40px',
-                                                height: '40px',
-                                                borderRadius: '50%',
-                                                padding: '2px',
-                                                background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                boxShadow: '0 2px 4px rgba(34, 197, 94, 0.2)'
-                                            }}>
-                                                <div style={{
-                                                    width: '34px',
-                                                    height: '34px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: '#fff',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    color: '#22c55e',
-                                                    fontWeight: 700,
-                                                    fontSize: '0.8rem',
-                                                    backgroundImage: emp.avatar_url ? `url(${emp.avatar_url})` : 'none',
-                                                    backgroundSize: 'cover',
-                                                    backgroundPosition: 'center'
-                                                }}>
-                                                    {!emp.avatar_url && getEmployeeInitials(emp)}
-                                                </div>
-                                            </div>
-                                            <span style={{ fontWeight: 600 }}>{emp.full_name || emp.email}</span>
-                                        </div>
-                                    </td>
-                                    <td style={tableCellStyle}>{emp.role || '-'}</td>
-                                    <td style={tableCellStyle}>
-                                        <span style={{ fontWeight: 600, color: '#22c55e' }}>{emp.presentDays}</span>
-                                    </td>
-                                    <td style={tableCellStyle}>
-                                        <span style={{ fontWeight: 600 }}>{emp.totalHours}h</span>
-                                    </td>
-                                    <td style={tableCellStyle}>
-                                        {emp.presentDays > 0 ? (parseFloat(emp.totalHours) / emp.presentDays).toFixed(1) : '0'}h
-                                    </td>
-                                    <td style={tableCellStyle}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <div style={{
-                                                width: '60px',
-                                                height: '6px',
-                                                backgroundColor: '#e2e8f0',
-                                                borderRadius: '3px',
-                                                overflow: 'hidden'
-                                            }}>
-                                                <div style={{
-                                                    width: `${Math.min(emp.attendanceRate, 100)}%`,
-                                                    height: '100%',
-                                                    backgroundColor: parseFloat(emp.attendanceRate) >= 80 ? '#22c55e' : parseFloat(emp.attendanceRate) >= 50 ? '#eab308' : '#ef4444',
-                                                    borderRadius: '3px'
-                                                }} />
-                                            </div>
-                                            <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>{emp.attendanceRate}%</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            )}
+            {/* Report tab removed - functionality now available via 'View Detailed Logs' toggle in Daily Logs */}
 
             {/* Employee Detail Modal */}
-            {showEmployeeModal && selectedEmployee && (
-                <div
-                    style={{
-                        position: 'fixed',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: 'rgba(0,0,0,0.5)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 1000
-                    }}
-                    onClick={() => setShowEmployeeModal(false)}
-                >
+            {
+                showEmployeeModal && selectedEmployee && (
                     <div
                         style={{
-                            backgroundColor: '#fff',
-                            borderRadius: '20px',
-                            padding: '24px',
-                            width: '700px',
-                            maxHeight: '80vh',
-                            overflow: 'auto'
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0,0,0,0.5)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            zIndex: 1000
                         }}
-                        onClick={(e) => e.stopPropagation()}
+                        onClick={() => setShowEmployeeModal(false)}
                     >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                <div style={{
-                                    width: '48px',
-                                    height: '48px',
-                                    borderRadius: '50%',
-                                    backgroundColor: '#e0e7ff',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    color: '#4f46e5',
-                                    fontWeight: 600,
-                                    fontSize: '1.1rem'
-                                }}>
-                                    {getEmployeeInitials(selectedEmployee)}
+                        <div
+                            style={{
+                                backgroundColor: '#fff',
+                                borderRadius: '20px',
+                                padding: '24px',
+                                width: '700px',
+                                maxHeight: '80vh',
+                                overflow: 'auto'
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{
+                                        width: '48px',
+                                        height: '48px',
+                                        borderRadius: '50%',
+                                        backgroundColor: '#e0e7ff',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        color: '#4f46e5',
+                                        fontWeight: 600,
+                                        fontSize: '1.1rem'
+                                    }}>
+                                        {getEmployeeInitials(selectedEmployee)}
+                                    </div>
+                                    <div>
+                                        <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#0f172a' }}>
+                                            {selectedEmployee.full_name || selectedEmployee.email}
+                                        </h2>
+                                        <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
+                                            {selectedEmployee.role || 'Employee'}
+                                        </p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h2 style={{ fontSize: '1.3rem', fontWeight: 700, color: '#0f172a' }}>
-                                        {selectedEmployee.full_name || selectedEmployee.email}
-                                    </h2>
-                                    <p style={{ color: '#64748b', fontSize: '0.9rem' }}>
-                                        {selectedEmployee.role || 'Employee'}
-                                    </p>
+                                <button
+                                    onClick={() => setShowEmployeeModal(false)}
+                                    style={{
+                                        width: '36px',
+                                        height: '36px',
+                                        borderRadius: '50%',
+                                        border: 'none',
+                                        backgroundColor: '#f1f5f9',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center'
+                                    }}
+                                >
+                                    <X size={18} />
+                                </button>
+                            </div>
+
+                            {/* Summary Stats */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
+                                <div style={{ textAlign: 'center', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '12px' }}>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#22c55e' }}>{selectedEmployee.presentDays}</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Present Days</div>
+                                </div>
+                                <div style={{ textAlign: 'center', padding: '16px', backgroundColor: '#faf5ff', borderRadius: '12px' }}>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#a855f7' }}>{selectedEmployee.totalHours}h</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Total Hours</div>
+                                </div>
+                                <div style={{ textAlign: 'center', padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '12px' }}>
+                                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0ea5e9' }}>{selectedEmployee.attendanceRate}%</div>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Attendance Rate</div>
                                 </div>
                             </div>
-                            <button
-                                onClick={() => setShowEmployeeModal(false)}
-                                style={{
-                                    width: '36px',
-                                    height: '36px',
-                                    borderRadius: '50%',
-                                    border: 'none',
-                                    backgroundColor: '#f1f5f9',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center'
-                                }}
-                            >
-                                <X size={18} />
-                            </button>
-                        </div>
 
-                        {/* Summary Stats */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
-                            <div style={{ textAlign: 'center', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '12px' }}>
-                                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#22c55e' }}>{selectedEmployee.presentDays}</div>
-                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Present Days</div>
-                            </div>
-                            <div style={{ textAlign: 'center', padding: '16px', backgroundColor: '#faf5ff', borderRadius: '12px' }}>
-                                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#a855f7' }}>{selectedEmployee.totalHours}h</div>
-                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Total Hours</div>
-                            </div>
-                            <div style={{ textAlign: 'center', padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '12px' }}>
-                                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0ea5e9' }}>{selectedEmployee.attendanceRate}%</div>
-                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Attendance Rate</div>
-                            </div>
+                            {/* Detailed Logs */}
+                            <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#0f172a', marginBottom: '12px' }}>
+                                Attendance History - {monthNames[selectedMonth]} {selectedYear}
+                            </h3>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ backgroundColor: '#f8fafc' }}>
+                                        <th style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>Date</th>
+                                        <th style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>Clock In</th>
+                                        <th style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>Clock Out</th>
+                                        <th style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>Hours</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {getEmployeeAttendance(selectedEmployee.id).map((record, idx) => (
+                                        <tr key={idx}>
+                                            <td style={{ ...tableCellStyle, fontSize: '0.9rem' }}>
+                                                {new Date(record.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                            </td>
+                                            <td style={{ ...tableCellStyle, fontSize: '0.9rem', color: '#22c55e' }}>{formatTime(record.clock_in)}</td>
+                                            <td style={{ ...tableCellStyle, fontSize: '0.9rem', color: '#ef4444' }}>{formatTime(record.clock_out)}</td>
+                                            <td style={{ ...tableCellStyle, fontSize: '0.9rem', fontWeight: 600 }}>
+                                                {record.total_hours ? `${parseFloat(record.total_hours).toFixed(1)}h` : calculateHours(record.clock_in, record.clock_out)}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {getEmployeeAttendance(selectedEmployee.id).length === 0 && (
+                                        <tr>
+                                            <td colSpan="4" style={{ ...tableCellStyle, textAlign: 'center', color: '#94a3b8' }}>
+                                                No attendance records found
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
                         </div>
-
-                        {/* Detailed Logs */}
-                        <h3 style={{ fontSize: '1rem', fontWeight: 600, color: '#0f172a', marginBottom: '12px' }}>
-                            Attendance History - {monthNames[selectedMonth]} {selectedYear}
-                        </h3>
-                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                                <tr style={{ backgroundColor: '#f8fafc' }}>
-                                    <th style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>Date</th>
-                                    <th style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>Clock In</th>
-                                    <th style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>Clock Out</th>
-                                    <th style={{ ...tableHeaderStyle, fontSize: '0.75rem' }}>Hours</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {getEmployeeAttendance(selectedEmployee.id).map((record, idx) => (
-                                    <tr key={idx}>
-                                        <td style={{ ...tableCellStyle, fontSize: '0.9rem' }}>
-                                            {new Date(record.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                                        </td>
-                                        <td style={{ ...tableCellStyle, fontSize: '0.9rem', color: '#22c55e' }}>{formatTime(record.clock_in)}</td>
-                                        <td style={{ ...tableCellStyle, fontSize: '0.9rem', color: '#ef4444' }}>{formatTime(record.clock_out)}</td>
-                                        <td style={{ ...tableCellStyle, fontSize: '0.9rem', fontWeight: 600 }}>
-                                            {record.total_hours ? `${parseFloat(record.total_hours).toFixed(1)}h` : calculateHours(record.clock_in, record.clock_out)}
-                                        </td>
-                                    </tr>
-                                ))}
-                                {getEmployeeAttendance(selectedEmployee.id).length === 0 && (
-                                    <tr>
-                                        <td colSpan="4" style={{ ...tableCellStyle, textAlign: 'center', color: '#94a3b8' }}>
-                                            No attendance records found
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
                     </div>
-                </div>
-            )}
-        </div>
+                )
+            }
+        </div >
     );
 };
 
