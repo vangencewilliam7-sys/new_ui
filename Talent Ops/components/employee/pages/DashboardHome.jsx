@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Users, Clock, Calendar, ChevronRight, MoreHorizontal,
-    CheckCircle2, AlertCircle, Timer, Plus, Star, X
+    CheckCircle2, AlertCircle, Timer, Plus, Star, X, TrendingUp
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { useUser } from '../context/UserContext';
@@ -49,6 +49,7 @@ const DashboardHome = () => {
     // State for leave balance from profile
     const [leaveBalance, setLeaveBalance] = useState(0);
 
+
     // Add Event State
     const [showAddEventModal, setShowAddEventModal] = useState(false);
     const [eventScope, setEventScope] = useState('team');
@@ -77,7 +78,7 @@ const DashboardHome = () => {
                     // 3. Fetch Leave Balance from profiles table
                     const { data: profileData } = await supabase
                         .from('profiles')
-                        .select('leaves_remaining, monthly_leave_quota, team_id')
+                        .select('leaves_remaining, monthly_leave_quota, team_id, org_id')
                         .eq('id', user.id)
                         .single();
 
@@ -100,8 +101,11 @@ const DashboardHome = () => {
                         }
                     }
 
+
                     // 5. Fetch Timeline/Events
                     let combinedEvents = [];
+
+
 
                     // Tasks were removed from consultant view, so no task events
 
@@ -363,6 +367,7 @@ const DashboardHome = () => {
                 gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
                 gap: '16px'
             }}>
+
                 <StatCard
                     label="Days Present"
                     value={attendanceStats.present}

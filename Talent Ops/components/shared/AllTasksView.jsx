@@ -1,10 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Plus, Eye, Calendar, ChevronDown, X, Clock, ExternalLink, ThumbsUp, ThumbsDown, AlertTriangle, CheckCircle2, AlertCircle, Edit2, Trash2, Upload, FileText, Send, ListTodo, Award } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Search, Plus, Eye, Calendar, ChevronDown, X, Clock, ExternalLink, ThumbsUp, ThumbsDown, AlertTriangle, CheckCircle2, AlertCircle, Edit2, Trash2, Upload, FileText, Send, ListTodo, Award, StickyNote } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { supabaseRequest } from '../../lib/supabaseRequest';
 import { useProject } from '../employee/context/ProjectContext';
 import SkillBadgeIndicator from './SkillBadgeIndicator';
 import TaskSkillsSection from './TaskSkillsSection';
+import { calculateDueDateTime } from '../../lib/businessHoursUtils';
+import TaskNotesModal from './TaskNotesModal';
+import TaskDetailOverlay from '../employee/components/UI/TaskDetailOverlay';
+
 
 const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId, orgId, addToast, viewMode = 'default', projectId, onBack }) => {
     const { currentProject, projectRole: contextProjectRole } = useProject();
@@ -19,7 +23,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     const [loading, setLoading] = useState(true);
     const [employees, setEmployees] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
+    const [statusFilters, setStatusFilters] = useState(['pending', 'in_progress', 'on_hold']); // Default active statuses
+    const [showStatusDropdown, setShowStatusDropdown] = useState(false);
     const [dateFilter, setDateFilter] = useState('');
 
     const [showAddTaskModal, setShowAddTaskModal] = useState(false);
@@ -42,6 +47,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     const [taskForProof, setTaskForProof] = useState(null);
     const [proofFile, setProofFile] = useState(null);
     const [proofText, setProofText] = useState('');
+    const [proofHours, setProofHours] = useState('');
     const [uploading, setUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -50,6 +56,10 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     const [accessReason, setAccessReason] = useState('');
     const [taskForAccess, setTaskForAccess] = useState(null);
     const [requestingAccess, setRequestingAccess] = useState(false);
+
+    // Task Notes State
+    const [showNotesModal, setShowNotesModal] = useState(false);
+    const [taskForNotes, setTaskForNotes] = useState(null);
 
     const handleRequestAccess = async () => {
         if (!accessReason.trim()) {
@@ -295,54 +305,187 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
         startTime: '09:00',
         dueTime: '17:00',
         priority: 'Medium',
-        requiredPhases: ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment']
+        skill: '',
+        allocatedHours: 10,
+        riskTag: null, // 'red' | 'yellow' | null
+        requiredPhases: ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment'],
+        stepDuration: '2h' // '2h' or '4h'
     });
 
-    const fetchEmployees = async () => {
-        try {
-            if (!orgId) {
-                setEmployees([]);
-                return;
-            }
+    // Task Steps State for Manager Assignment
+    const [taskStepsToAdd, setTaskStepsToAdd] = useState({}); // { phase_key: [{title: '', hours: 2}] }
+    const [newStepInput, setNewStepInput] = useState('');
+    const [newStepHours, setNewStepHours] = useState(2); // Default 2 hours per step
+    const [activeStepPhase, setActiveStepPhase] = useState('requirement_refiner');
 
-            if (effectiveProjectId) {
-                const { data: members, error: membersError } = await supabase
+    // Smart Sort for Employees based on selected skill
+    const sortedEmployees = useMemo(() => {
+        if (!Array.isArray(employees)) return [];
+        if (!newTask.skill) return employees;
+
+        return [...employees].sort((a, b) => {
+            const scoreA = a.technical_scores?.[newTask.skill] || 0;
+            const scoreB = b.technical_scores?.[newTask.skill] || 0;
+            return scoreA - scoreB; // Ascending Order (Least skilled first) per user requirement
+        });
+    }, [employees, newTask.skill]);
+
+    // Auto-calculate Allocated Hours based on Steps and Duration Setting
+    useEffect(() => {
+        const stepCount = Object.values(taskStepsToAdd).flat().length;
+        const durationPerStep = newTask.stepDuration === '4h' ? 4 : 2;
+        const totalHours = stepCount * durationPerStep;
+
+        // Only override if steps are present, otherwise allow manual input (if no steps mode)
+        // But per requirements, steps drive the hours.
+        if (stepCount > 0) {
+            setNewTask(prev => ({ ...prev, allocatedHours: totalHours }));
+        }
+    }, [taskStepsToAdd, newStepHours]); // Changed dependency to newStepHours
+
+    // Auto-sync newStepHours with stepDuration
+    useEffect(() => {
+        const h = parseFloat(newTask.stepDuration) || 2;
+        setNewStepHours(h);
+    }, [newTask.stepDuration]);
+
+    // Auto-calculate Due Time based on Allocated Hours and Start Date/Time
+    useEffect(() => {
+        if (newTask.allocatedHours > 0) {
+            try {
+                const startDateStr = `${newTask.startDate}T${newTask.startTime}`;
+                const { dueDate, dueTime } = calculateDueDateTime(new Date(startDateStr), newTask.allocatedHours);
+                setNewTask(prev => ({
+                    ...prev,
+                    // Auto-calculate both Date and Time to handle rollovers (e.g. next day)
+                    endDate: dueDate,
+                    dueTime: dueTime
+                }));
+            } catch (err) {
+                console.error("Error calculating due date:", err);
+            }
+        }
+    }, [newTask.allocatedHours, newTask.startDate, newTask.startTime]);
+
+
+
+    const fetchEmployees = async () => {
+        if (!orgId) {
+            setEmployees([]);
+            return;
+        }
+
+        const fetchWithFallback = async (queryFn, isProject = false) => {
+            try {
+                // Try Full Fetch (with technical_scores)
+                const { data, error } = await queryFn(true);
+                if (error) throw error;
+                return { data, isFallback: false };
+            } catch (err) {
+                console.warn('Full fetch failed, trying fallback without technical_scores...', err.message);
+                // Fallback Fetch (basic info only)
+                const { data, error } = await queryFn(false);
+                if (error) {
+                    console.error('Fallback fetch also failed:', error);
+                    return { data: [], isFallback: true };
+                }
+                return { data, isFallback: true };
+            }
+        };
+
+        if (effectiveProjectId) {
+            const queryFn = async (includeScores) => {
+                const selectString = includeScores
+                    ? `user_id, role, profiles:user_id (id, full_name, email, role, avatar_url, technical_scores)`
+                    : `user_id, role, profiles:user_id (id, full_name, email, role, avatar_url)`;
+
+                return await supabase
                     .from('project_members')
-                    .select(`
-                        user_id,
-                        role,
-                        profiles:user_id (id, full_name, email, role, avatar_url)
-                    `)
+                    .select(selectString)
                     .eq('project_id', effectiveProjectId)
                     .eq('org_id', orgId);
+            };
 
-                if (membersError) throw membersError;
+            const { data: members } = await fetchWithFallback(queryFn, true);
 
-                if (members && members.length > 0) {
-                    const teamMembers = members
-                        .filter(m => m.profiles)
-                        .map(m => ({
+            // Fetch reviews to get actual scores if technical_scores is empty/missing
+            // (Since technical_scores columns in profiles might be empty until synced)
+            const memberIds = members?.map(m => m.user_id).filter(Boolean) || [];
+            let reviewsMap = {};
+            if (memberIds.length > 0) {
+                const { data: reviews } = await supabase
+                    .from('employee_reviews')
+                    .select('user_id, manager_development_skills, development_skills')
+                    .in('user_id', memberIds);
+
+                (reviews || []).forEach(r => {
+                    reviewsMap[r.user_id] = r.manager_development_skills || r.development_skills || {};
+                });
+            }
+
+            if (members && members.length > 0) {
+                const teamMembers = members
+                    .filter(m => m.profiles)
+                    .map(m => {
+                        // Priority: Review Data -> Profile Data -> Empty
+                        const reviewScores = reviewsMap[m.profiles.id];
+                        const profileScores = m.profiles.technical_scores;
+                        const finalScores = (reviewScores && Object.keys(reviewScores).length > 0)
+                            ? reviewScores
+                            : (profileScores || {});
+
+                        return {
                             id: m.profiles.id,
                             full_name: m.profiles.full_name,
                             email: m.profiles.email,
                             role: m.role || m.profiles.role,
-                            avatar_url: m.profiles.avatar_url
-                        }));
-                    setEmployees(teamMembers);
-                    return;
-                }
-
+                            avatar_url: m.profiles.avatar_url,
+                            technical_scores: finalScores
+                        };
+                    });
+                setEmployees(teamMembers);
+            } else {
                 setEmployees([]);
-                return;
+            }
+        } else {
+            const queryFn = async (includeScores) => {
+                const selectString = includeScores
+                    ? 'id, full_name, email, role, avatar_url, technical_scores'
+                    : 'id, full_name, email, role, avatar_url';
+
+                return await supabase
+                    .from('profiles')
+                    .select(selectString)
+                    .eq('org_id', orgId);
+            };
+
+            const { data } = await fetchWithFallback(queryFn, false);
+
+            // Fetch reviews for ALL profiles fetched
+            const userIds = data?.map(u => u.id).filter(Boolean) || [];
+            let reviewsMap = {};
+            if (userIds.length > 0) {
+                const { data: reviews } = await supabase
+                    .from('employee_reviews')
+                    .select('user_id, manager_development_skills, development_skills')
+                    .in('user_id', userIds);
+
+                (reviews || []).forEach(r => {
+                    reviewsMap[r.user_id] = r.manager_development_skills || r.development_skills || {};
+                });
             }
 
-            const { data } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('org_id', orgId);
-            setEmployees(data || []);
-        } catch (error) {
-            console.error('Error fetching employees:', error);
+            const mergedEmployees = (data || []).map(p => {
+                const reviewScores = reviewsMap[p.id];
+                const profileScores = p.technical_scores;
+                const finalScores = (reviewScores && Object.keys(reviewScores).length > 0)
+                    ? reviewScores
+                    : (profileScores || {});
+
+                return { ...p, technical_scores: finalScores };
+            });
+
+            setEmployees(mergedEmployees);
         }
     };
 
@@ -582,6 +725,11 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     return;
                 }
 
+                // Calculate due date/time based on allocated hours and business hours
+                const allocatedHrs = parseFloat(newTask.allocatedHours) || 0;
+                const startDateStr = `${newTask.startDate}T${newTask.startTime}`;
+                const { dueDate, dueTime } = calculateDueDateTime(new Date(startDateStr), allocatedHrs);
+
                 const tasksToInsert = newTask.selectedAssignees.map(empId => ({
                     title: newTask.title,
                     description: newTask.description,
@@ -591,15 +739,49 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     project_id: effectiveProjectId,
                     start_date: newTask.startDate,
                     start_time: newTask.startTime,
-                    due_date: newTask.endDate,
-                    due_time: newTask.dueTime,
+                    due_date: dueDate, // Calculated based on business hours
+                    due_time: dueTime, // Calculated based on business hours
                     priority: newTask.priority.toLowerCase(),
                     status: 'pending',
                     phase_validations: preparedValidations,
-                    org_id: orgId
+                    org_id: orgId,
+                    // skill_required removed - not in schema
+                    allocated_hours: allocatedHrs,
+                    risk_tag: newTask.riskTag
                 }));
 
-                await supabaseRequest(supabase.from('tasks').insert(tasksToInsert), addToast);
+                const { data: createdMultiTasks, error: multiTaskError } = await supabase.from('tasks').insert(tasksToInsert).select('id');
+                if (multiTaskError) throw multiTaskError;
+
+                // Insert manager-defined steps for all created tasks
+                if (createdMultiTasks && createdMultiTasks.length > 0) {
+                    const allStepsToInsert = [];
+
+                    createdMultiTasks.forEach(createdTask => {
+                        Object.entries(taskStepsToAdd).forEach(([phaseKey, steps]) => {
+                            steps.forEach((step, idx) => {
+                                if (step.title.trim()) {
+                                    allStepsToInsert.push({
+                                        org_id: orgId,
+                                        task_id: createdTask.id,
+                                        stage_id: phaseKey,
+                                        step_title: step.title.trim(),
+                                        order_index: idx,
+                                        status: 'pending',
+                                        created_by: user.id,
+                                        created_by_role: 'manager',
+                                        estimated_hours: step.hours || 2
+                                    });
+                                }
+                            });
+                        });
+                    });
+
+                    if (allStepsToInsert.length > 0) {
+                        const { error: stepsError } = await supabase.from('task_steps').insert(allStepsToInsert);
+                        if (stepsError) console.error('Error inserting steps for multi-assign:', stepsError);
+                    }
+                }
 
                 // Notifications for multi
                 const notifications = tasksToInsert.map(task => ({
@@ -616,6 +798,11 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
             } else {
 
+                // Calculate due date/time based on allocated hours and business hours
+                const allocatedHrs = parseFloat(newTask.allocatedHours) || 0;
+                const startDateStr = `${newTask.startDate}T${newTask.startTime}`;
+                const { dueDate, dueTime } = calculateDueDateTime(new Date(startDateStr), allocatedHrs);
+
                 const taskToInsert = {
                     title: newTask.title,
                     description: newTask.description,
@@ -625,15 +812,48 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     project_id: effectiveProjectId,
                     start_date: newTask.startDate,
                     start_time: newTask.startTime,
-                    due_date: newTask.endDate,
-                    due_time: newTask.dueTime,
+                    due_date: dueDate, // Calculated based on business hours
+                    due_time: dueTime, // Calculated based on business hours
                     priority: newTask.priority.toLowerCase(),
                     status: 'pending',
                     phase_validations: preparedValidations,
-                    org_id: orgId
+                    org_id: orgId,
+                    // skill_required removed - not in schema
+                    allocated_hours: allocatedHrs,
+                    risk_tag: newTask.riskTag
                 };
 
-                await supabaseRequest(supabase.from('tasks').insert([taskToInsert]), addToast);
+                const { data: createdTasks, error: taskError } = await supabase.from('tasks').insert([taskToInsert]).select('id');
+                if (taskError) throw taskError;
+
+                // Insert manager-defined steps for this task
+                if (createdTasks && createdTasks.length > 0) {
+                    const taskId = createdTasks[0].id;
+                    const stepsToInsert = [];
+
+                    Object.entries(taskStepsToAdd).forEach(([phaseKey, steps]) => {
+                        steps.forEach((step, idx) => {
+                            if (step.title.trim()) {
+                                stepsToInsert.push({
+                                    org_id: orgId,
+                                    task_id: taskId,
+                                    stage_id: phaseKey,
+                                    step_title: step.title.trim(),
+                                    order_index: idx,
+                                    status: 'pending',
+                                    created_by: user.id,
+                                    created_by_role: 'manager',
+                                    estimated_hours: step.hours || 2
+                                });
+                            }
+                        });
+                    });
+
+                    if (stepsToInsert.length > 0) {
+                        const { error: stepsError } = await supabase.from('task_steps').insert(stepsToInsert);
+                        if (stepsError) console.error('Error inserting steps:', stepsError);
+                    }
+                }
 
                 // Send Notifications
                 try {
@@ -679,10 +899,15 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 startTime: '09:00',
                 dueTime: '17:00',
                 priority: 'Medium',
+                skill: '',
+                allocatedHours: 10,
+                pointsPerHour: 100,
                 requiredPhases: ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment']
             });
             setPhaseFiles({}); // Clear files
             setPhaseDescriptions({}); // Clear descriptions
+            setTaskStepsToAdd({}); // Clear steps
+            setNewStepInput(''); // Clear step input
             fetchData();
         } catch (error) {
             console.error('Error adding task:', error);
@@ -1120,6 +1345,11 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
             return;
         }
 
+        if (!proofHours) {
+            addToast?.('Please enter actual hours spent.', 'error');
+            return;
+        }
+
         setUploading(true);
         setUploadProgress(10);
 
@@ -1226,12 +1456,59 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
             if (error) throw error;
 
+            // 3. Record Submission & Hours for Points Calculation
+            const { data: existingSub } = await supabase
+                .from('task_submissions')
+                .select('id')
+                .eq('task_id', taskForProof.id)
+                .eq('user_id', user.id)
+                .single();
+
+            let subError;
+            if (existingSub) {
+                const { error: upError } = await supabase
+                    .from('task_submissions')
+                    .update({
+                        actual_hours: parseFloat(proofHours),
+                        submitted_at: new Date().toISOString()
+                    })
+                    .eq('id', existingSub.id);
+                subError = upError;
+            } else {
+                const { error: inError } = await supabase
+                    .from('task_submissions')
+                    .insert({
+                        task_id: taskForProof.id,
+                        user_id: user.id,
+                        actual_hours: parseFloat(proofHours),
+                        submitted_at: new Date().toISOString()
+                    });
+                subError = inError;
+            }
+
+            if (subError) throw subError;
+
+            // 4. Fetch Calculated Points Feedback
+            const { data: pointData } = await supabase
+                .from('task_submissions')
+                .select('final_points, bonus_points, penalty_points')
+                .eq('task_id', taskForProof.id)
+                .eq('user_id', user.id)
+                .single();
+
             setUploadProgress(100);
-            addToast?.('Proof submitted successfully!', 'success');
+
+            if (pointData) {
+                addToast?.(`Submitted! Earned: ${pointData.final_points} Points (Bonus: ${pointData.bonus_points || 0}, Penalty: ${pointData.penalty_points || 0})`, 'success');
+            } else {
+                addToast?.('Proof submitted successfully!', 'success');
+            }
+
             setShowProofModal(false);
             setTaskForProof(null);
             setProofFile(null);
             setProofText('');
+            setProofHours('');
             fetchData(); // Refresh tasks
 
         } catch (error) {
@@ -1341,9 +1618,9 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     };
 
     const filteredTasks = tasks.filter(task => {
-        const matchesSearch = task.title?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            task.assignee_name?.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesStatus = statusFilter === 'all' || task.status?.toLowerCase() === statusFilter.toLowerCase();
+        const matchesSearch = (task.title?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+            (task.assignee_name?.toLowerCase() || '').includes(searchQuery.toLowerCase());
+        const matchesStatus = statusFilters.includes('all') || statusFilters.includes(task.status?.toLowerCase());
 
         // Date filter: show tasks active on selected date (start_date..due_date)
         let matchesDate = true;
@@ -1668,37 +1945,109 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
 
 
-                    {/* Status Filter */}
+                    {/* Status Filter Multi-Select */}
                     <div style={{ position: 'relative' }}>
-                        <select
-                            value={statusFilter}
-                            onChange={(e) => setStatusFilter(e.target.value)}
+                        <button
+                            onClick={() => setShowStatusDropdown(!showStatusDropdown)}
                             style={{
-                                padding: '10px 36px 10px 16px',
+                                padding: '10px 16px',
                                 border: '1px solid #e2e8f0',
                                 borderRadius: '8px',
-                                fontSize: '0.95rem',
-                                fontWeight: 500,
+                                fontSize: '0.9rem',
+                                fontWeight: 600,
                                 backgroundColor: 'white',
+                                color: '#334155',
                                 cursor: 'pointer',
-                                outline: 'none',
-                                appearance: 'none'
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
                             }}
                         >
-                            <option value="all">All Statuses</option>
-                            <option value="pending">Pending</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="completed">Completed</option>
-                            <option value="on_hold">On Hold</option>
-                        </select>
-                        <ChevronDown size={16} style={{
-                            position: 'absolute',
-                            right: '12px',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            pointerEvents: 'none',
-                            color: '#64748b'
-                        }} />
+                            <span>{statusFilters.includes('all') ? 'All Statuses' : `${statusFilters.length} Selected`}</span>
+                            <ChevronDown size={14} />
+                        </button>
+
+                        {showStatusDropdown && (
+                            <>
+                                <div
+                                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 40 }}
+                                    onClick={() => setShowStatusDropdown(false)}
+                                />
+                                <div style={{
+                                    position: 'absolute',
+                                    top: '100%',
+                                    right: 0,
+                                    marginTop: '8px',
+                                    backgroundColor: 'white',
+                                    borderRadius: '12px',
+                                    boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+                                    border: '1px solid #e2e8f0',
+                                    padding: '8px',
+                                    zIndex: 50,
+                                    width: '200px',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    gap: '2px'
+                                }}>
+                                    {[
+                                        { value: 'all', label: 'All Statuses' },
+                                        { value: 'pending', label: 'Pending' },
+                                        { value: 'in_progress', label: 'In Progress' },
+                                        { value: 'completed', label: 'Completed' },
+                                        { value: 'on_hold', label: 'On Hold' },
+                                        { value: 'rejected', label: 'Rejected' }
+                                    ].map(option => (
+                                        <div
+                                            key={option.value}
+                                            onClick={() => {
+                                                if (option.value === 'all') {
+                                                    setStatusFilters(['all']);
+                                                } else {
+                                                    let newFilters = statusFilters.filter(f => f !== 'all');
+                                                    if (newFilters.includes(option.value)) {
+                                                        newFilters = newFilters.filter(f => f !== option.value);
+                                                    } else {
+                                                        newFilters.push(option.value);
+                                                    }
+                                                    if (newFilters.length === 0) newFilters = ['all'];
+                                                    setStatusFilters(newFilters);
+                                                }
+                                            }}
+                                            style={{
+                                                padding: '8px 12px',
+                                                borderRadius: '8px',
+                                                cursor: 'pointer',
+                                                fontSize: '0.85rem',
+                                                fontWeight: 500,
+                                                color: '#334155',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: '8px',
+                                                backgroundColor: statusFilters.includes(option.value) ? '#f0f9ff' : 'transparent',
+                                                transition: 'background-color 0.15s'
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = statusFilters.includes(option.value) ? '#e0f2fe' : '#f8fafc'}
+                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = statusFilters.includes(option.value) ? '#f0f9ff' : 'transparent'}
+                                        >
+                                            <div style={{
+                                                width: '16px',
+                                                height: '16px',
+                                                borderRadius: '4px',
+                                                border: `2px solid ${statusFilters.includes(option.value) ? '#3b82f6' : '#cbd5e1'}`,
+                                                backgroundColor: statusFilters.includes(option.value) ? '#3b82f6' : 'white',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center'
+                                            }}>
+                                                {statusFilters.includes(option.value) && <CheckCircle2 size={10} color="white" />}
+                                            </div>
+                                            {option.label}
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
 
@@ -1873,7 +2222,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                         <div style={{ position: 'relative', display: 'inline-block' }}>
                                                             <select
                                                                 value={task.priority || 'medium'}
-                                                                onChange={(e) => handleUpdateTask(task.id, 'priority', e.target.value.toLowerCase())}
+                                                                onChange={(e) => handleUpdateTask(task.id, { priority: e.target.value.toLowerCase() })}
                                                                 style={{
                                                                     padding: '4px 24px 4px 10px',
                                                                     backgroundColor: priorityStyle.bg,
@@ -2047,6 +2396,17 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                                 >
                                                                                     Add Issue
                                                                                 </button>
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); setTaskForNotes(task); setShowNotesModal(true); }}
+                                                                                    style={{
+                                                                                        display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                                                                                        backgroundColor: '#0ea5e9', color: 'white', border: 'none', borderRadius: '4px',
+                                                                                        fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
+                                                                                    }}
+                                                                                >
+                                                                                    <StickyNote size={12} />
+                                                                                    Notes
+                                                                                </button>
                                                                             </div>
                                                                         );
                                                                     })()}
@@ -2093,6 +2453,21 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                 >
                                                                     <AlertTriangle size={14} />
                                                                     Resolve
+                                                                </button>
+                                                            )}
+
+                                                            {/* Notes button for executives/admins (Managers see it above) */}
+                                                            {(userRole === 'executive' || userRole === 'org_admin') && (
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); setTaskForNotes(task); setShowNotesModal(true); }}
+                                                                    style={{
+                                                                        display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
+                                                                        backgroundColor: '#0ea5e9', color: 'white', border: 'none', borderRadius: '4px',
+                                                                        fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
+                                                                    }}
+                                                                >
+                                                                    <StickyNote size={12} />
+                                                                    Notes
                                                                 </button>
                                                             )}
                                                         </div>
@@ -2253,37 +2628,43 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                 {employees.length === 0 ? (
                                                     <p style={{ color: '#94a3b8', width: '100%', textAlign: 'center' }}>No employees found.</p>
                                                 ) : (
-                                                    employees.map(emp => (
-                                                        <label
-                                                            key={emp.id}
-                                                            style={{
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                gap: '6px',
-                                                                fontSize: '0.9rem',
-                                                                cursor: 'pointer',
-                                                                userSelect: 'none',
-                                                                backgroundColor: 'white',
-                                                                padding: '4px 8px',
-                                                                borderRadius: '6px',
-                                                                border: newTask.selectedAssignees.includes(emp.id) ? '1px solid #3b82f6' : '1px solid #e2e8f0'
-                                                            }}
-                                                        >
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={newTask.selectedAssignees.includes(emp.id)}
-                                                                onChange={(e) => {
-                                                                    if (e.target.checked) {
-                                                                        setNewTask({ ...newTask, selectedAssignees: [...newTask.selectedAssignees, emp.id] });
-                                                                    } else {
-                                                                        setNewTask({ ...newTask, selectedAssignees: newTask.selectedAssignees.filter(id => id !== emp.id) });
-                                                                    }
+                                                    sortedEmployees.map(emp => {
+                                                        const score = newTask.skill ? (emp.technical_scores?.[newTask.skill] || 0) : null;
+                                                        return (
+                                                            <label
+                                                                key={emp.id}
+                                                                style={{
+                                                                    display: 'flex',
+                                                                    alignItems: 'center',
+                                                                    gap: '6px',
+                                                                    fontSize: '0.9rem',
+                                                                    cursor: 'pointer',
+                                                                    userSelect: 'none',
+                                                                    backgroundColor: 'white',
+                                                                    padding: '4px 8px',
+                                                                    borderRadius: '6px',
+                                                                    border: newTask.selectedAssignees.includes(emp.id) ? '1px solid #3b82f6' : '1px solid #e2e8f0'
                                                                 }}
-                                                                style={{ accentColor: '#3b82f6' }}
-                                                            />
-                                                            {emp.full_name}
-                                                        </label>
-                                                    ))
+                                                            >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={newTask.selectedAssignees.includes(emp.id)}
+                                                                    onChange={(e) => {
+                                                                        if (e.target.checked) {
+                                                                            setNewTask({ ...newTask, selectedAssignees: [...newTask.selectedAssignees, emp.id] });
+                                                                        } else {
+                                                                            setNewTask({ ...newTask, selectedAssignees: newTask.selectedAssignees.filter(id => id !== emp.id) });
+                                                                        }
+                                                                    }}
+                                                                    style={{ accentColor: '#3b82f6' }}
+                                                                />
+                                                                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between' }}>
+                                                                    <span>{emp.full_name}</span>
+                                                                    {score !== null && <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Score: {score}</span>}
+                                                                </div>
+                                                            </label>
+                                                        );
+                                                    })
                                                 )}
                                             </div>
                                         ) : (
@@ -2307,9 +2688,14 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                 >
                                                     <option value="">{newTask.assignType === 'individual' ? 'Select Employee' : `Entire ${currentProject?.name} Team`}</option>
                                                     {newTask.assignType === 'individual' && (
-                                                        employees.map(emp => (
-                                                            <option key={emp.id} value={emp.id}>{emp.full_name}</option>
-                                                        ))
+                                                        sortedEmployees.map(emp => {
+                                                            const score = newTask.skill ? (emp.technical_scores?.[newTask.skill] || 0) : null;
+                                                            return (
+                                                                <option key={emp.id} value={emp.id}>
+                                                                    {emp.full_name} {score !== null ? `(Score: ${score})` : ''}
+                                                                </option>
+                                                            );
+                                                        })
                                                     )}
                                                 </select>
                                                 <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#64748b' }} />
@@ -2341,25 +2727,93 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                         </div>
                                         {/* Due Date */}
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>Due Date</label>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                                <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155', margin: 0 }}>Due Date</label>
+                                            </div>
                                             <input
                                                 type="date"
                                                 value={newTask.endDate}
                                                 onChange={(e) => setNewTask({ ...newTask, endDate: e.target.value })}
-                                                style={{ width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 12px',
+                                                    border: '1px solid #e2e8f0',
+                                                    borderRadius: '8px',
+                                                    fontSize: '0.9rem',
+                                                    outline: 'none',
+                                                    backgroundColor: 'white'
+                                                }}
                                             />
                                         </div>
                                         {/* Due Time */}
                                         <div>
-                                            <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>Due Time</label>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                                                <label style={{ fontSize: '0.9rem', fontWeight: 600, color: '#334155', margin: 0 }}>Due Time</label>
+                                                {newTask.allocatedHours > 0 && <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#2563eb', backgroundColor: '#eff6ff', padding: '1px 6px', borderRadius: '4px' }}>AUTO</span>}
+                                            </div>
                                             <input
                                                 type="time"
                                                 value={newTask.dueTime}
-                                                onChange={(e) => setNewTask({ ...newTask, dueTime: e.target.value })}
-                                                style={{ width: '100%', padding: '10px 12px', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                                readOnly={newTask.allocatedHours > 0}
+                                                onChange={(e) => !newTask.allocatedHours && setNewTask({ ...newTask, dueTime: e.target.value })}
+                                                style={{
+                                                    width: '100%',
+                                                    padding: '10px 12px',
+                                                    border: '1px solid #e2e8f0',
+                                                    borderRadius: '8px',
+                                                    fontSize: '0.9rem',
+                                                    outline: 'none',
+                                                    backgroundColor: newTask.allocatedHours > 0 ? '#f8fafc' : 'white',
+                                                    color: newTask.allocatedHours > 0 ? '#64748b' : 'inherit'
+                                                }}
                                             />
                                         </div>
                                     </div>
+
+                                    {/* Value Configuration */}
+                                    <div style={{ padding: '16px', backgroundColor: '#f0f9ff', borderRadius: '12px', border: '1px solid #e0f2fe', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                            <div>
+                                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#0369a1', marginBottom: '8px' }}>Required Skill</label>
+                                                <select
+                                                    value={newTask.skill}
+                                                    onChange={(e) => setNewTask({ ...newTask, skill: e.target.value })}
+                                                    style={{ width: '100%', padding: '10px 12px', border: '1px solid #bae6fd', borderRadius: '8px', fontSize: '0.9rem', outline: 'none' }}
+                                                >
+                                                    <option value="">Select Skill</option>
+                                                    {['Frontend', 'Backend', 'Workflows', 'Databases', 'Prompting', 'Non-popular LLMs', 'Fine-tuning', 'Data Labelling', 'Content Generation'].map(s => (
+                                                        <option key={s} value={s}>{s}</option>
+                                                    ))}
+                                                </select>
+
+
+                                            </div>
+                                            <div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                                                    <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#0369a1', margin: 0 }}>Allocated Hours</label>
+                                                    {Object.values(taskStepsToAdd).flat().length > 0 && <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#0369a1', backgroundColor: '#e0f2fe', padding: '1px 4px', borderRadius: '3px' }}>CALCULATED</span>}
+                                                </div>
+                                                <input
+                                                    type="number"
+                                                    value={newTask.allocatedHours}
+                                                    readOnly={Object.values(taskStepsToAdd).flat().length > 0}
+                                                    onChange={(e) => setNewTask({ ...newTask, allocatedHours: e.target.value })}
+                                                    style={{
+                                                        width: '100%',
+                                                        padding: '10px 12px',
+                                                        border: Object.values(taskStepsToAdd).flat().length > 0 ? '1px solid #e2e8f0' : '1px solid #bae6fd',
+                                                        borderRadius: '8px',
+                                                        fontSize: '0.9rem',
+                                                        outline: 'none',
+                                                        backgroundColor: Object.values(taskStepsToAdd).flat().length > 0 ? '#f8fafc' : 'white',
+                                                        color: Object.values(taskStepsToAdd).flat().length > 0 ? '#64748b' : 'inherit'
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+
 
                                     {/* Lifecycle Stages Selection */}
                                     <div style={{ marginTop: '12px' }}>
@@ -2505,6 +2959,244 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                         </p>
                                     </div>
 
+                                    {/* Execution Steps Section */}
+                                    <div style={{ marginTop: '16px' }}>
+                                        <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '12px' }}>
+                                            📝 Pre-define Execution Steps (Optional)
+                                        </label>
+
+                                        <div style={{ marginBottom: '16px' }}>
+                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#0369a1', marginBottom: '8px' }}>Step Duration Setting</label>
+                                            <div style={{ display: 'flex', gap: '8px', backgroundColor: 'white', padding: '4px', borderRadius: '8px', border: '1px solid #bae6fd', width: 'fit-content' }}>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setNewTask(prev => ({ ...prev, stepDuration: '2h' }))}
+                                                    style={{
+                                                        padding: '6px 12px',
+                                                        borderRadius: '6px',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 600,
+                                                        backgroundColor: newTask.stepDuration === '2h' ? '#0ea5e9' : 'transparent',
+                                                        color: newTask.stepDuration === '2h' ? 'white' : '#64748b',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.2s'
+                                                    }}
+                                                >
+                                                    2 Hours / Step
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setNewTask(prev => ({ ...prev, stepDuration: '4h' }))}
+                                                    style={{
+                                                        padding: '6px 12px',
+                                                        borderRadius: '6px',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 600,
+                                                        backgroundColor: newTask.stepDuration === '4h' ? '#0ea5e9' : 'transparent',
+                                                        color: newTask.stepDuration === '4h' ? 'white' : '#64748b',
+                                                        border: 'none',
+                                                        cursor: 'pointer',
+                                                        transition: 'all 0.2s'
+                                                    }}
+                                                >
+                                                    4 Hours / Step
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+                                                Checklist for each lifecycle phase
+                                            </p>
+                                            {Object.values(taskStepsToAdd).flat().reduce((sum, s) => sum + (s.hours || 0), 0) > 0 && (
+                                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#2563eb', backgroundColor: '#eff6ff', padding: '4px 10px', borderRadius: '12px' }}>
+                                                    Total Estimated Time: {Object.values(taskStepsToAdd).flat().reduce((sum, s) => sum + (s.hours || 0), 0)}h
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {/* Phase Tabs */}
+                                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                                            {newTask.requiredPhases.map(phaseKey => {
+                                                const phaseLabel = {
+                                                    'requirement_refiner': 'Requirements',
+                                                    'design_guidance': 'Design',
+                                                    'build_guidance': 'Build',
+                                                    'acceptance_criteria': 'Acceptance',
+                                                    'deployment': 'Deployment'
+                                                }[phaseKey] || phaseKey;
+                                                const stepCount = (taskStepsToAdd[phaseKey] || []).length;
+                                                return (
+                                                    <button
+                                                        key={phaseKey}
+                                                        type="button"
+                                                        onClick={() => setActiveStepPhase(phaseKey)}
+                                                        style={{
+                                                            padding: '6px 12px',
+                                                            borderRadius: '6px',
+                                                            border: activeStepPhase === phaseKey ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                                                            backgroundColor: activeStepPhase === phaseKey ? '#eff6ff' : 'white',
+                                                            color: activeStepPhase === phaseKey ? '#1d4ed8' : '#64748b',
+                                                            fontWeight: 600,
+                                                            fontSize: '0.8rem',
+                                                            cursor: 'pointer',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '6px'
+                                                        }}
+                                                    >
+                                                        {phaseLabel}
+                                                        {stepCount > 0 && (
+                                                            <span style={{
+                                                                backgroundColor: '#3b82f6',
+                                                                color: 'white',
+                                                                borderRadius: '10px',
+                                                                padding: '1px 6px',
+                                                                fontSize: '0.7rem'
+                                                            }}>{stepCount}</span>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {/* Steps List for Active Phase */}
+                                        <div style={{
+                                            backgroundColor: '#f8fafc',
+                                            borderRadius: '8px',
+                                            border: '1px solid #e2e8f0',
+                                            padding: '12px'
+                                        }}>
+                                            {(taskStepsToAdd[activeStepPhase] || []).length > 0 ? (
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                                                    {(taskStepsToAdd[activeStepPhase] || []).map((step, idx) => (
+                                                        <div key={idx} style={{
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            gap: '8px',
+                                                            padding: '8px 10px',
+                                                            backgroundColor: 'white',
+                                                            borderRadius: '6px',
+                                                            border: '1px solid #e2e8f0'
+                                                        }}>
+                                                            <span style={{ fontSize: '0.85rem', color: '#334155', flex: 1 }}>
+                                                                {idx + 1}. {step.title}
+                                                            </span>
+                                                            <span style={{
+                                                                fontSize: '0.75rem',
+                                                                color: '#64748b',
+                                                                backgroundColor: '#f1f5f9',
+                                                                padding: '2px 6px',
+                                                                borderRadius: '4px',
+                                                                fontWeight: 600
+                                                            }}>
+                                                                {step.hours}h
+                                                            </span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    const updated = [...(taskStepsToAdd[activeStepPhase] || [])];
+                                                                    updated.splice(idx, 1);
+                                                                    setTaskStepsToAdd({ ...taskStepsToAdd, [activeStepPhase]: updated });
+                                                                }}
+                                                                style={{
+                                                                    border: 'none',
+                                                                    background: 'none',
+                                                                    color: '#ef4444',
+                                                                    cursor: 'pointer',
+                                                                    padding: '4px'
+                                                                }}
+                                                            >
+                                                                <X size={14} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <p style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', marginBottom: '12px' }}>
+                                                    No steps added for this phase yet.
+                                                </p>
+                                            )}
+
+                                            {/* Add Step Input */}
+                                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                                <input
+                                                    type="text"
+                                                    value={newStepInput}
+                                                    onChange={(e) => setNewStepInput(e.target.value)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' && newStepInput.trim()) {
+                                                            e.preventDefault();
+                                                            const existing = taskStepsToAdd[activeStepPhase] || [];
+                                                            const defaultDuration = parseFloat(newTask.stepDuration) || 2;
+                                                            setTaskStepsToAdd({
+                                                                ...taskStepsToAdd,
+                                                                [activeStepPhase]: [...existing, { title: newStepInput.trim(), hours: parseFloat(newStepHours) || defaultDuration }]
+                                                            });
+                                                            setNewStepInput('');
+                                                            setNewStepHours(defaultDuration);
+                                                        }
+                                                    }}
+                                                    placeholder="+ Add a step for this phase..."
+                                                    style={{
+                                                        flex: 1,
+                                                        padding: '8px 12px',
+                                                        borderRadius: '6px',
+                                                        border: '1px solid #e2e8f0',
+                                                        fontSize: '0.85rem',
+                                                        outline: 'none'
+                                                    }}
+                                                />
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <input
+                                                        type="number"
+                                                        value={newStepHours}
+                                                        onChange={(e) => setNewStepHours(e.target.value)}
+                                                        min="0.5"
+                                                        step="0.5"
+                                                        style={{
+                                                            width: '60px',
+                                                            padding: '8px 6px',
+                                                            borderRadius: '6px',
+                                                            border: '1px solid #e2e8f0',
+                                                            fontSize: '0.85rem',
+                                                            outline: 'none',
+                                                            textAlign: 'center'
+                                                        }}
+                                                    />
+                                                    <span style={{ fontSize: '0.8rem', color: '#64748b' }}>hrs</span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (newStepInput.trim()) {
+                                                            const existing = taskStepsToAdd[activeStepPhase] || [];
+                                                            setTaskStepsToAdd({
+                                                                ...taskStepsToAdd,
+                                                                [activeStepPhase]: [...existing, { title: newStepInput.trim(), hours: parseFloat(newStepHours) || 2 }]
+                                                            });
+                                                            setNewStepInput('');
+                                                            setNewStepHours(2);
+                                                        }
+                                                    }}
+                                                    disabled={!newStepInput.trim()}
+                                                    style={{
+                                                        padding: '8px 16px',
+                                                        borderRadius: '6px',
+                                                        border: 'none',
+                                                        backgroundColor: newStepInput.trim() ? '#3b82f6' : '#e2e8f0',
+                                                        color: newStepInput.trim() ? 'white' : '#94a3b8',
+                                                        fontWeight: 600,
+                                                        fontSize: '0.8rem',
+                                                        cursor: newStepInput.trim() ? 'pointer' : 'default'
+                                                    }}
+                                                >
+                                                    Add
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
 
                                     {/* Modal Footer */}
                                     <div style={{
@@ -2552,647 +3244,28 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                         </div >
                     )
                 }
-                {/* Task Details Modal */}
-                {
-                    selectedTask && (
-                        <div style={{
-                            position: 'fixed',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            padding: '20px',
-                            zIndex: 1000,
-                            backdropFilter: 'blur(4px)'
-                        }}>
-                            <div style={{
-                                backgroundColor: 'white',
-                                borderRadius: '16px',
-                                width: '100%',
-                                maxWidth: '600px',
-                                boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                maxHeight: '90vh'
-                            }}>
-                                {/* Modal Header */}
-                                <div style={{
-                                    padding: '20px 24px',
-                                    borderBottom: '1px solid #f1f5f9',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center'
-                                }}>
-                                    <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: '#0f172a' }}>Task Details</h2>
-                                    <button
-                                        onClick={() => setSelectedTask(null)}
-                                        style={{
-                                            border: 'none',
-                                            background: 'none',
-                                            color: '#64748b',
-                                            cursor: 'pointer',
-                                            padding: '4px'
-                                        }}
-                                    >
-                                        <X size={20} />
-                                    </button>
-                                </div>
+                {/* Task Detail Modal */}
+                <TaskDetailOverlay
+                    isOpen={!!selectedTask}
+                    onClose={() => setSelectedTask(null)}
+                    task={selectedTask}
+                    onRefresh={fetchData}
+                    addToast={addToast}
+                    userId={userId}
+                    userRole={userRole}
+                    orgId={orgId}
+                    onApprovePhase={handleApprovePhase}
+                    onRejectPhase={handleRejectPhase}
+                    onShowAccessRequest={(t) => {
+                        setTaskForAccess(t);
+                        setShowAccessRequestModal(true);
+                    }}
+                    onShowAccessReview={(t) => {
+                        setAccessReviewTask(t);
+                        setShowAccessReviewModal(true);
+                    }}
+                />
 
-                                {/* Modal Body */}
-                                <div style={{ padding: '24px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                                    <div>
-                                        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>{selectedTask.title}</h3>
-                                        <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: '1.5', margin: 0, whiteSpace: 'pre-wrap' }}>
-                                            {selectedTask.description || 'No description provided.'}
-                                        </p>
-                                    </div>
-
-                                    {(selectedTask.reassigned_from || selectedTask.reassigned_to || selectedTask.access_reason === 'Reassigned by manager') && (
-                                        <div style={{
-                                            padding: '16px',
-                                            backgroundColor: '#fff7ed',
-                                            borderRadius: '12px',
-                                            border: '1px solid #fed7aa'
-                                        }}>
-                                            <label style={{
-                                                display: 'block',
-                                                fontSize: '0.8rem',
-                                                fontWeight: 700,
-                                                color: '#9a3412',
-                                                textTransform: 'uppercase',
-                                                marginBottom: '10px',
-                                                letterSpacing: '0.05em'
-                                            }}>Reassignment</label>
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.9rem', color: '#7c2d12' }}>
-                                                {selectedTask.reassigned_from && (
-                                                    <div><strong>From:</strong> {selectedTask.reassigned_from_name || 'Unknown'}</div>
-                                                )}
-                                                {selectedTask.reassigned_to && (
-                                                    <div><strong>To:</strong> {selectedTask.reassigned_to_name || 'Unknown'}</div>
-                                                )}
-                                                {!selectedTask.reassigned_from && !selectedTask.reassigned_to && selectedTask.access_reason === 'Reassigned by manager' && (
-                                                    <div><strong>Status:</strong> Reassigned by manager</div>
-                                                )}
-                                                {selectedTask.reassigned_at && (
-                                                    <div><strong>On:</strong> {new Date(selectedTask.reassigned_at).toLocaleString()}</div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Lifecycle Progress */}
-                                    <div style={{
-                                        padding: '20px',
-                                        backgroundColor: '#f8fafc',
-                                        borderRadius: '12px',
-                                        border: '1px solid #e2e8f0'
-                                    }}>
-                                        <label style={{
-                                            display: 'block',
-                                            fontSize: '0.85rem',
-                                            fontWeight: 600,
-                                            color: '#64748b',
-                                            textTransform: 'uppercase',
-                                            marginBottom: '16px',
-                                            letterSpacing: '0.05em'
-                                        }}>Task Lifecycle Progress</label>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                                            {(() => {
-                                                let parsedValidations = selectedTask.phase_validations;
-                                                if (typeof selectedTask.phase_validations === 'string') {
-                                                    try {
-                                                        parsedValidations = JSON.parse(selectedTask.phase_validations);
-                                                    } catch (e) {
-                                                        console.error("Error parsing validations JSON in modal", e);
-                                                    }
-                                                }
-                                                const activePhases = parsedValidations?.active_phases || LIFECYCLE_PHASES.map(p => p.key);
-                                                const filteredPhases = LIFECYCLE_PHASES.filter(p => activePhases.includes(p.key));
-
-                                                return filteredPhases.map((phase, idx) => {
-                                                    const currentPhaseKey = selectedTask.lifecycle_state || activePhases[0] || 'requirement_refiner';
-
-                                                    // Find index in the FILTERED list
-                                                    const currentIndex = filteredPhases.findIndex(p => p.key === currentPhaseKey);
-                                                    const validation = parsedValidations?.[phase.key];
-                                                    const status = validation?.status;
-
-                                                    // Color Logic
-                                                    let color = '#e5e7eb'; // Default Grey
-                                                    let isYellow = false;
-
-                                                    const hasProof = validation?.proof_url || validation?.proof_text;
-
-                                                    if (selectedTask.status === 'completed') {
-                                                        color = '#10b981';
-                                                    } else if (idx < currentIndex) {
-                                                        // Past Phase
-                                                        if (status === 'pending') { color = '#f59e0b'; isYellow = true; } // Yellow
-                                                        else if (status === 'rejected') color = '#fee2e2'; // Red
-                                                        else color = '#10b981'; // Green
-                                                    } else if (idx === currentIndex) {
-                                                        // Current Phase
-                                                        if (status === 'approved') color = '#10b981';
-                                                        else if (status === 'pending' || selectedTask.sub_state === 'pending_validation') { color = '#f59e0b'; isYellow = true; } // Yellow
-                                                        else color = '#3b82f6'; // Blue
-                                                    } else if (hasProof) {
-                                                        // Future Phase but has proof (e.g. reverted state)
-                                                        if (status === 'pending') { color = '#f59e0b'; isYellow = true; }
-                                                        else if (status === 'rejected') color = '#fee2e2';
-                                                        else color = '#10b981'; // Assuming green if exists or approved
-                                                    }
-
-                                                    const isCompleted = color === '#10b981';
-                                                    const isCurrent = idx === currentIndex;
-
-                                                    return (
-                                                        <React.Fragment key={phase.key}>
-                                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                                                                <div style={{
-                                                                    width: '36px',
-                                                                    height: '36px',
-                                                                    borderRadius: '50%',
-                                                                    display: 'flex',
-                                                                    alignItems: 'center',
-                                                                    justifyContent: 'center',
-                                                                    fontSize: '0.75rem',
-                                                                    fontWeight: 700,
-                                                                    backgroundColor: color,
-                                                                    color: color === '#e5e7eb' ? '#9ca3af' : color === '#fee2e2' ? '#991b1b' : 'white',
-                                                                    transition: 'all 0.3s',
-                                                                    boxShadow: isCurrent ? '0 4px 12px rgba(59, 130, 246, 0.3)' : 'none'
-                                                                }}>
-                                                                    {isCompleted ? '✓' : phase.short}
-                                                                </div>
-                                                                <span style={{
-                                                                    fontSize: '0.7rem',
-                                                                    fontWeight: isCurrent ? 600 : 500,
-                                                                    color: isCompleted || isCurrent || isYellow ? '#0f172a' : '#94a3b8',
-                                                                    textAlign: 'center',
-                                                                    maxWidth: '70px'
-                                                                }}>
-                                                                    {phase.label}
-                                                                </span>
-                                                            </div>
-                                                            {idx < filteredPhases.length - 1 && (
-                                                                <div style={{
-                                                                    width: '24px',
-                                                                    height: '3px',
-                                                                    backgroundColor: idx < currentIndex && !isYellow ? '#10b981' : '#e5e7eb',
-                                                                    borderRadius: '2px',
-                                                                    marginBottom: '28px'
-                                                                }} />
-                                                            )}
-                                                        </React.Fragment>
-                                                    );
-                                                });
-                                            })()}
-                                        </div>
-                                        {selectedTask.sub_state === 'pending_validation' && (
-                                            <div style={{
-                                                marginTop: '12px',
-                                                padding: '12px',
-                                                backgroundColor: '#fef3c7',
-                                                borderRadius: '8px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                gap: '8px'
-                                            }}>
-                                                <div style={{
-                                                    width: '6px',
-                                                    height: '6px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: '#f59e0b'
-                                                }} />
-                                                <span style={{ fontSize: '0.85rem', color: '#92400e', fontWeight: 500 }}>
-                                                    Awaiting validation for current phase
-                                                </span>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Assignee</label>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                                <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: '#0f172a', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', fontWeight: 600 }}>
-                                                    {selectedTask.assignee_name?.charAt(0) || 'U'}
-                                                </div>
-                                                <span style={{ fontWeight: 500, color: '#0f172a' }}>{selectedTask.assignee_name}</span>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Team / Project</label>
-                                            <span style={{ fontWeight: 500, color: '#0f172a' }}>{selectedTask.project_name}</span>
-                                        </div>
-                                    </div>
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Start Date/Time</label>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f172a' }}>
-                                                <Calendar size={16} />
-                                                <span>
-                                                    {selectedTask.start_date ? new Date(selectedTask.start_date).toLocaleDateString() : '-'}
-                                                    {' '}
-                                                    <span style={{ color: '#64748b', fontSize: '0.85em' }}>
-                                                        {selectedTask.start_time || ''}
-                                                    </span>
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Due Date/Time</label>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#0f172a' }}>
-                                                <Clock size={16} />
-                                                <span>
-                                                    {selectedTask.due_date ? new Date(selectedTask.due_date).toLocaleDateString() : '-'}
-                                                    {' '}
-                                                    <span style={{ color: selectedTask.is_overdue ? '#ef4444' : '#64748b', fontSize: '0.85em', fontWeight: selectedTask.is_overdue ? 700 : 400 }}>
-                                                        {selectedTask.due_time || ''}
-                                                    </span>
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {selectedTask.is_locked && selectedTask.access_status !== 'approved' && (
-                                        <div style={{ padding: '16px', backgroundColor: '#fee2e2', borderRadius: '12px', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <div>
-                                                <p style={{ fontWeight: 700, color: '#991b1b', margin: 0 }}>Task Locked - Overdue</p>
-                                                <p style={{ fontSize: '0.85rem', color: '#7f1d1d', margin: '4px 0 0 0' }}>
-                                                    This task is locked because the deadline has passed.
-                                                    {selectedTask.access_requested ? ' Access request is pending approval.' : ' Please request access to continue.'}
-                                                </p>
-                                            </div>
-                                            {!selectedTask.access_requested && (
-                                                <button
-                                                    onClick={() => { setShowAccessRequestModal(true); setTaskForAccess(selectedTask); }}
-                                                    style={{ padding: '8px 16px', backgroundColor: '#991b1b', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
-                                                >
-                                                    Request Access
-                                                </button>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {selectedTask.access_requested && (userRole === 'manager' || userRole === 'team_lead') && (
-                                        <div style={{ padding: '16px', backgroundColor: '#fff7ed', borderRadius: '12px', border: '1px solid #fed7aa', marginTop: '12px' }}>
-                                            <h4 style={{ margin: '0 0 8px 0', color: '#9a3412' }}>Access Request</h4>
-                                            <p style={{ margin: 0, fontSize: '0.9rem', color: '#c2410c' }}><strong>Reason:</strong> {selectedTask.access_reason}</p>
-                                            <div style={{ marginTop: '12px', display: 'flex', gap: '8px' }}>
-                                                <button
-                                                    onClick={() => {
-                                                        setAccessReviewTask(selectedTask);
-                                                        setShowAccessReviewModal(true);
-                                                    }}
-                                                    style={{ padding: '6px 12px', backgroundColor: '#f97316', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}
-                                                >
-                                                    Review & Manage Request
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Priority</label>
-                                            <div style={{
-                                                display: 'inline-block',
-                                                padding: '6px 12px',
-                                                backgroundColor: getPriorityStyle(selectedTask.priority).bg,
-                                                color: getPriorityStyle(selectedTask.priority).text,
-                                                borderRadius: '6px',
-                                                fontSize: '0.75rem',
-                                                fontWeight: 700,
-                                                textTransform: 'uppercase'
-                                            }}>
-                                                {selectedTask.priority}
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Status</label>
-                                            <div style={{
-                                                display: 'inline-block',
-                                                padding: '6px 12px',
-                                                backgroundColor: getStatusStyle(selectedTask.status).bg,
-                                                color: getStatusStyle(selectedTask.status).text,
-                                                borderRadius: '6px',
-                                                fontSize: '0.75rem',
-                                                fontWeight: 700,
-                                                textTransform: 'capitalize'
-                                            }}>
-                                                {selectedTask.status}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* assigned By Section */}
-                                    <div style={{ padding: '0 24px 20px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                                        <div>
-                                            <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>Assigned By</label>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <div style={{
-                                                    width: '24px',
-                                                    height: '24px',
-                                                    borderRadius: '50%',
-                                                    backgroundColor: '#f1f5f9',
-                                                    display: 'flex',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    fontSize: '0.75rem',
-                                                    fontWeight: 600,
-                                                    color: '#64748b'
-                                                }}>
-                                                    {selectedTask.assigned_by_name ? selectedTask.assigned_by_name.charAt(0) : '?'}
-                                                </div>
-                                                <span style={{ fontSize: '0.9rem', color: '#334155', fontWeight: 500 }}>
-                                                    {selectedTask.assigned_by_name || 'Unknown'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Guidance & Instructions Section */}
-                                    {(() => {
-                                        let validations = selectedTask.phase_validations || {};
-                                        if (typeof validations === 'string') {
-                                            try {
-                                                validations = JSON.parse(validations);
-                                            } catch (e) {
-                                                console.error('Error parsing phase_validations for guidance:', e);
-                                                validations = {};
-                                            }
-                                        }
-
-                                        // Check if we have any active phases with guidance docs OR descriptions
-                                        const hasInstructions = Object.values(validations).some(v => v.guidance_doc_url || v.description);
-
-                                        if (!hasInstructions) return null;
-
-                                        return (
-                                            <div style={{ padding: '20px', backgroundColor: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe' }}>
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 800, color: '#1d4ed8', textTransform: 'uppercase', marginBottom: '16px', letterSpacing: '0.05em' }}>
-                                                    <ListTodo size={18} /> Requirements & Stage Guidance
-                                                </label>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                                    {Object.entries(validations).map(([phaseKey, data]) => {
-                                                        if (!data.guidance_doc_url && !data.description) return null;
-                                                        const phaseLabel = LIFECYCLE_PHASES.find(p => p.key === phaseKey)?.label || phaseKey;
-
-                                                        return (
-                                                            <div key={phaseKey} style={{
-                                                                display: 'flex',
-                                                                flexDirection: 'column',
-                                                                gap: '10px',
-                                                                padding: '14px',
-                                                                backgroundColor: 'white',
-                                                                borderRadius: '10px',
-                                                                border: '1px solid #dbeafe',
-                                                                boxShadow: '0 2px 4px rgba(37, 99, 235, 0.05)'
-                                                            }}>
-                                                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                                                    <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#1e40af' }}>{phaseLabel}</span>
-                                                                    {data.guidance_doc_url && (
-                                                                        <a href={data.guidance_doc_url} target="_blank" rel="noopener noreferrer" style={{
-                                                                            display: 'flex',
-                                                                            alignItems: 'center',
-                                                                            gap: '4px',
-                                                                            color: '#2563eb',
-                                                                            fontSize: '0.8rem',
-                                                                            fontWeight: 600,
-                                                                            textDecoration: 'none',
-                                                                            padding: '4px 8px',
-                                                                            backgroundColor: '#eff6ff',
-                                                                            borderRadius: '6px'
-                                                                        }}>
-                                                                            View Specs <ExternalLink size={12} />
-                                                                        </a>
-                                                                    )}
-                                                                </div>
-
-                                                                {data.description && (
-                                                                    <div style={{
-                                                                        fontSize: '0.9rem',
-                                                                        color: '#334155',
-                                                                        lineHeight: '1.5',
-                                                                        padding: '10px',
-                                                                        backgroundColor: '#f8fafc',
-                                                                        borderRadius: '8px',
-                                                                        borderLeft: '4px solid #3b82f6',
-                                                                        margin: 0,
-                                                                        whiteSpace: 'pre-wrap'
-                                                                    }}>
-                                                                        {data.description}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-
-                                    {/* Validations History */}
-                                    {(() => {
-                                        let validations = selectedTask.phase_validations || {};
-                                        if (typeof validations === 'string') {
-                                            try {
-                                                validations = JSON.parse(validations);
-                                            } catch (e) {
-                                                console.error('Error parsing phase_validations for history:', e);
-                                                validations = {};
-                                            }
-                                        }
-                                        const legacyProof = selectedTask.proof_url;
-                                        const hasValidations = Object.values(validations).some(v => v.proof_url || v.proof_text);
-                                        const hasLegacy = !!legacyProof && !hasValidations;
-
-                                        if (!hasValidations && !hasLegacy) return null;
-
-                                        return (
-                                            <div style={{ padding: '16px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                                                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', marginBottom: '8px' }}>
-                                                    <CheckCircle2 size={16} /> Submitted Proofs
-                                                </label>
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                                    {/* New System */}
-                                                    {Object.entries(validations).map(([phaseKey, data]) => {
-                                                        if (!data.proof_url && !data.proof_text) return null;
-                                                        const phaseLabel = LIFECYCLE_PHASES.find(p => p.key === phaseKey)?.label || phaseKey;
-                                                        const isPending = data.status === 'pending';
-                                                        const canReview = (userRole === 'manager' || userRole === 'team_lead');
-
-                                                        return (
-                                                            <div key={phaseKey} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#334155' }}>{phaseLabel}:</span>
-                                                                        {data.proof_url && (
-                                                                            <span style={{ fontSize: '0.9rem', color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
-                                                                                {data.proof_url.split('/').pop()}
-                                                                            </span>
-                                                                        )}
-                                                                        {!data.proof_url && <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>Text Submission</span>}
-                                                                    </div>
-                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                                        {data.proof_url && (
-                                                                            <a href={data.proof_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#3b82f6', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}>
-                                                                                View <ExternalLink size={12} />
-                                                                            </a>
-                                                                        )}
-                                                                        <button
-                                                                            onClick={() => handleDeleteProof(selectedTask, phaseKey)}
-                                                                            style={{
-                                                                                background: 'none',
-                                                                                border: 'none',
-                                                                                cursor: 'pointer',
-                                                                                color: '#ef4444',
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                padding: '4px',
-                                                                                borderRadius: '4px'
-                                                                            }}
-                                                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                                                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                                                            title="Delete Proof"
-                                                                        >
-                                                                            <Trash2 size={14} />
-                                                                        </button>
-                                                                    </div>
-                                                                </div>
-                                                                {data.proof_text && (
-                                                                    <div style={{ fontSize: '0.85rem', color: '#475569', backgroundColor: '#f1f5f9', padding: '8px', borderRadius: '4px', marginTop: '4px' }}>
-                                                                        <span style={{ fontWeight: 600, fontSize: '0.75rem', color: '#64748b', display: 'block', marginBottom: '2px' }}>NOTE:</span>
-                                                                        {data.proof_text}
-                                                                    </div>
-                                                                )}
-
-                                                                {/* Individual Action Buttons */}
-                                                                {isPending && canReview && (
-                                                                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid #f1f5f9' }}>
-                                                                        <button
-                                                                            onClick={() => handleRejectPhase(phaseKey)}
-                                                                            disabled={processingApproval}
-                                                                            style={{
-                                                                                flex: 1,
-                                                                                padding: '6px',
-                                                                                borderRadius: '6px',
-                                                                                backgroundColor: '#fee2e2',
-                                                                                color: '#991b1b',
-                                                                                border: 'none',
-                                                                                fontWeight: 600,
-                                                                                cursor: 'pointer',
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'center',
-                                                                                gap: '4px',
-                                                                                fontSize: '0.8rem',
-                                                                                opacity: processingApproval ? 0.6 : 1
-                                                                            }}
-                                                                        >
-                                                                            <ThumbsDown size={12} /> Reject
-                                                                        </button>
-                                                                        <button
-                                                                            onClick={() => handleApprovePhase(phaseKey)}
-                                                                            disabled={processingApproval}
-                                                                            style={{
-                                                                                flex: 1,
-                                                                                padding: '6px',
-                                                                                borderRadius: '6px',
-                                                                                backgroundColor: '#d1fae5',
-                                                                                color: '#065f46',
-                                                                                border: 'none',
-                                                                                fontWeight: 600,
-                                                                                cursor: 'pointer',
-                                                                                display: 'flex',
-                                                                                alignItems: 'center',
-                                                                                justifyContent: 'center',
-                                                                                gap: '4px',
-                                                                                fontSize: '0.8rem',
-                                                                                opacity: processingApproval ? 0.6 : 1
-                                                                            }}
-                                                                        >
-                                                                            <ThumbsUp size={12} /> Approve
-                                                                        </button>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        );
-                                                    })}
-
-                                                    {/* Legacy Support */}
-                                                    {hasLegacy && (
-                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', backgroundColor: 'white', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b' }}>[Legacy]</span>
-                                                                <span style={{ fontSize: '0.9rem', color: '#64748b' }}>{legacyProof.split('/').pop()}</span>
-                                                            </div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <a href={legacyProof} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#3b82f6', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}>
-                                                                    View <ExternalLink size={12} />
-                                                                </a>
-                                                                <button
-                                                                    onClick={() => handleDeleteProof(selectedTask, 'LEGACY_PROOF')}
-                                                                    style={{
-                                                                        background: 'none',
-                                                                        border: 'none',
-                                                                        cursor: 'pointer',
-                                                                        color: '#ef4444',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        padding: '4px',
-                                                                        borderRadius: '4px'
-                                                                    }}
-                                                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                                                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                                                    title="Delete Legacy Proof"
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-
-                                    {/* Skills Claimed Section */}
-                                    <TaskSkillsSection
-                                        taskId={selectedTask?.id}
-                                        employeeId={selectedTask?.assigned_to}
-                                    />
-
-
-                                </div>
-
-                                {/* Modal Footer */}
-                                <div style={{ padding: '20px 24px', borderTop: '1px solid #f1f5f9', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-                                    <button
-                                        onClick={() => setSelectedTask(null)}
-                                        style={{
-                                            padding: '10px 24px',
-                                            borderRadius: '8px',
-                                            backgroundColor: 'white',
-                                            color: '#64748b',
-                                            border: '1px solid #e2e8f0',
-                                            fontWeight: 600,
-                                            cursor: 'pointer'
-                                        }}
-                                    >
-                                        Close
-                                    </button>
-                                </div>
-                            </div>
-                        </div >
-                    )
-                }
 
                 {/* Issue Resolution Modal */}
                 {
@@ -3504,6 +3577,36 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
                                 <div style={{ width: '100%', height: '1px', backgroundColor: '#e2e8f0', margin: '24px 0' }}></div>
 
+                                {/* Actual Hours Input */}
+                                <div style={{ marginBottom: '24px' }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem', color: '#334155' }}>
+                                        Actual Hours Spent <span style={{ color: '#ef4444' }}>*</span>
+                                    </label>
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                        <input
+                                            type="number"
+                                            value={proofHours}
+                                            onChange={(e) => setProofHours(e.target.value)}
+                                            placeholder="e.g., 4.5"
+                                            step="0.5"
+                                            style={{
+                                                padding: '12px',
+                                                borderRadius: '10px',
+                                                border: '1px solid #e2e8f0',
+                                                fontSize: '0.95rem',
+                                                outline: 'none',
+                                                width: '120px'
+                                            }}
+                                        />
+                                        <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                            Allocated: <span style={{ fontWeight: 700 }}>{taskForProof?.allocated_hours || 0}h</span>
+                                        </span>
+                                    </div>
+                                    <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '4px' }}>
+                                        Enter total hours spent on this task. Used for points calculation.
+                                    </p>
+                                </div>
+
                                 {/* Text Input Section */}
                                 <div style={{ marginBottom: '24px' }}>
                                     <label style={{ display: 'block', marginBottom: '8px', fontWeight: 600, fontSize: '0.9rem', color: '#334155' }}>
@@ -3722,6 +3825,23 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                     )
                 }
             </div >
+
+            {/* Task Notes Modal */}
+            <TaskNotesModal
+                isOpen={showNotesModal}
+                onClose={() => { setShowNotesModal(false); setTaskForNotes(null); }}
+                task={taskForNotes}
+                userId={userId}
+                userRole={userRole}
+                orgId={orgId}
+                addToast={addToast}
+                canAddNote={
+                    // Managers/executives can add notes to any task
+                    ['manager', 'team_lead', 'executive', 'org_admin'].includes(userRole) ||
+                    // Assigned employee can add notes to their own task
+                    (taskForNotes?.assigned_to === userId)
+                }
+            />
         </>
     );
 };

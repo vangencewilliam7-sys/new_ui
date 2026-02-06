@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Calendar, Clock, Eye, X, CheckCircle, XCircle, Send, History, ChevronRight, AlertCircle, Upload, FileText, Paperclip, Plus, Users } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
+import { calculateDueDateTime } from '../../lib/businessHoursUtils';
 
 
 // Lifecycle phases in order
@@ -98,13 +99,18 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, orgId, addToast, pro
 
         try {
             const { data: { user } } = await supabase.auth.getUser();
+
+            // Calculate due date/time based on allocated hours and business hours
+            const allocatedHrs = parseFloat(newTask.allocated_hours) || 0;
+            const { dueDate, dueTime } = calculateDueDateTime(new Date(), allocatedHrs);
+
             const { error } = await supabase.from('tasks').insert({
                 title: newTask.title, description: newTask.description, assigned_to: newTask.assigned_to,
-                due_date: newTask.due_date || null, priority: newTask.priority, created_by: user.id,
+                due_date: dueDate, due_time: dueTime, priority: newTask.priority, created_by: user.id,
                 project_id: currentProjectId,
                 team_id: teamId, // Ensure task is linked to the creator's team for visibility in ManagerTasks
                 status: 'pending', lifecycle_state: 'requirement_refiner', sub_state: 'in_progress',
-                allocated_hours: parseFloat(newTask.allocated_hours),
+                allocated_hours: allocatedHrs,
                 org_id: orgId
             });
             if (error) throw error;

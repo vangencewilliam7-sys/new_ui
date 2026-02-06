@@ -26,6 +26,7 @@ import ManagerReviewPage from '../performance/ManagerReviewPage';
 import FullRankingPage from '../performance/FullRankingPage';
 // @ts-ignore
 import TeamPerformance from '../performance/TeamPerformanceAnalytics';
+import ProjectTaskModule from '../shared/ProjectValueTaskModule';
 import RoleGuard from '../shared/RoleGuard';
 // @ts-ignore
 import AttendanceLogsPage from '../shared/AttendanceLogsPage';
@@ -45,6 +46,7 @@ export const ManagerDashboard = () => {
                                 <Route path="employees" element={<ModulePage title="Team Members" type="workforce" />} />
                                 <Route path="tasks" element={<ModulePage title="All Project Tasks" type="tasks" />} />
                                 <Route path="global-tasks" element={<ManagerAllTasksPage />} />
+                                <Route path="value-tasks" element={<ProjectTaskModule />} />
                                 <Route path="personal-tasks" element={<ModulePage title="My Tasks" type="personal-tasks" />} />
                                 <Route path="leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
                                 <Route path="my-leaves" element={<MyLeavesPage />} />

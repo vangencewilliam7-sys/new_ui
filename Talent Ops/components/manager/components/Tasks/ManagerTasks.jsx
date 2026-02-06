@@ -3,6 +3,7 @@ import { MoreHorizontal, Plus, X, User, Users, Filter, Search, Calendar, CheckCi
 import { useToast } from '../../context/ToastContext';
 import { useUser } from '../../context/UserContext';
 import { supabase } from '../../../../lib/supabaseClient';
+import { calculateDueDateTime } from '../../../../lib/businessHoursUtils';
 
 
 const ManagerTasks = () => {
@@ -344,6 +345,10 @@ const ManagerTasks = () => {
             let statusDb = newTask.status.toLowerCase().replace(/ /g, '_');
             if (statusDb === 'to_do') statusDb = 'pending';
 
+            // Calculate due date/time based on allocated hours and business hours
+            const allocatedHrs = parseFloat(newTask.allocated_hours) || 0;
+            const { dueDate, dueTime } = calculateDueDateTime(new Date(), allocatedHrs);
+
             if (newTask.assign_type === 'team') {
                 // Assign to all filtered employees
                 tasksToInsert = employeesList.map(member => ({
@@ -353,11 +358,11 @@ const ManagerTasks = () => {
                     assigned_by: user.id,
                     team_id: teamId, // Force context teamId
                     start_date: newTask.start_date,
-                    due_date: newTask.due_date,
-                    due_time: newTask.due_time || null,
+                    due_date: dueDate, // Calculated based on business hours
+                    due_time: dueTime, // Calculated based on business hours
                     priority: newTask.priority.toLowerCase(),
                     status: statusDb,
-                    allocated_hours: parseFloat(newTask.allocated_hours)
+                    allocated_hours: allocatedHrs
                 }));
             } else {
                 tasksToInsert = [{
@@ -367,10 +372,11 @@ const ManagerTasks = () => {
                     assigned_by: user.id,
                     team_id: teamId, // Force context teamId
                     start_date: newTask.start_date,
-                    due_date: newTask.due_date,
+                    due_date: dueDate, // Calculated based on business hours
+                    due_time: dueTime, // Calculated based on business hours
                     priority: newTask.priority.toLowerCase(),
                     status: statusDb,
-                    allocated_hours: parseFloat(newTask.allocated_hours)
+                    allocated_hours: allocatedHrs
                 }];
             }
 
