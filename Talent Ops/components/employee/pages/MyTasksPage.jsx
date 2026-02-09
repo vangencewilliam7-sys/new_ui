@@ -19,7 +19,7 @@ const LIFECYCLE_PHASES = [
 const MyTasksPage = () => {
     // We don't need projectRole, but we use useProject context for consistency (or future use)
     const { currentProject } = useProject();
-    const { orgId } = useUser();
+    const { userId, orgId } = useUser();
     const { addToast } = useToast();
     const [tasks, setTasks] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -1375,71 +1375,6 @@ const MyTasksPage = () => {
                                                         >
                                                             <Eye size={12} /> View
                                                         </button>
-                                                        {(task.sub_state === 'in_progress' || task.sub_state === 'pending_validation') && (
-                                                            <button
-                                                                onClick={() => openProofModal(task)}
-                                                                disabled={uploading}
-                                                                style={{
-                                                                    padding: '6px 10px',
-                                                                    borderRadius: '6px',
-                                                                    backgroundColor: task.sub_state === 'pending_validation' ? '#f59e0b' : '#8b5cf6',
-                                                                    color: 'white',
-                                                                    border: 'none',
-                                                                    fontWeight: 500,
-                                                                    cursor: 'pointer',
-                                                                    display: 'inline-flex',
-                                                                    alignItems: 'center',
-                                                                    gap: '4px',
-                                                                    fontSize: '0.75rem',
-                                                                    transition: 'background-color 0.2s',
-                                                                    whiteSpace: 'nowrap'
-                                                                }}
-                                                            >
-                                                                <Upload size={12} />
-                                                                {task.sub_state === 'pending_validation' ? 'Update Proof' : 'Submit'}
-                                                            </button>
-                                                        )}
-                                                        <button
-                                                            onClick={() => openIssueModal(task)}
-                                                            disabled={submittingIssue}
-                                                            style={{
-                                                                padding: '6px 10px',
-                                                                borderRadius: '6px',
-                                                                backgroundColor: task.issues ? '#dc2626' : '#ef4444',
-                                                                color: 'white',
-                                                                border: 'none',
-                                                                fontWeight: 500,
-                                                                cursor: 'pointer',
-                                                                display: 'inline-flex',
-                                                                alignItems: 'center',
-                                                                gap: '4px',
-                                                                fontSize: '0.75rem',
-                                                                transition: 'background-color 0.2s',
-                                                                whiteSpace: 'nowrap'
-                                                            }}
-                                                        >
-                                                            <AlertTriangle size={12} /> Add Issue
-                                                        </button>
-                                                        <button
-                                                            onClick={() => { setTaskForNotes(task); setShowNotesModal(true); }}
-                                                            style={{
-                                                                padding: '6px 10px',
-                                                                borderRadius: '6px',
-                                                                backgroundColor: '#0ea5e9',
-                                                                color: 'white',
-                                                                border: 'none',
-                                                                fontWeight: 500,
-                                                                cursor: 'pointer',
-                                                                display: 'inline-flex',
-                                                                alignItems: 'center',
-                                                                gap: '4px',
-                                                                fontSize: '0.75rem',
-                                                                transition: 'background-color 0.2s',
-                                                                whiteSpace: 'nowrap'
-                                                            }}
-                                                        >
-                                                            <StickyNote size={12} /> Notes
-                                                        </button>
                                                     </div>
                                                 );
                                             })()}
@@ -1674,7 +1609,7 @@ const MyTasksPage = () => {
                 task={taskForView}
                 onRefresh={fetchTasks}
                 addToast={addToast}
-                userId={taskForView?.assigned_to}
+                userId={userId}
                 orgId={orgId}
             />
 

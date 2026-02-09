@@ -88,7 +88,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
             { icon: FileText, label: 'Project Documents', path: '/manager-dashboard/documents' },
             { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
-            { icon: Target, label: 'Value Tasks', path: '/manager-dashboard/value-tasks' },
+
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/manager-dashboard/project-hierarchy' },
         ],
@@ -96,7 +96,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
             { icon: FileText, label: 'Project Documents', path: '/manager-dashboard/documents' },
             { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
-            { icon: Target, label: 'Value Tasks', path: '/manager-dashboard/value-tasks' },
+
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/manager-dashboard/project-hierarchy' },
         ],
@@ -104,7 +104,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
             { icon: ListTodo, label: 'All Project Tasks', path: '/manager-dashboard/tasks' },
             { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
-            { icon: Target, label: 'Value Tasks', path: '/manager-dashboard/value-tasks' },
+
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/manager-dashboard/project-hierarchy' },
             { icon: FileText, label: 'Documents', path: '/manager-dashboard/documents' },
@@ -113,7 +113,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: Users, label: 'Team Members', path: '/manager-dashboard/employees' },
             { icon: ListTodo, label: 'All Project Tasks', path: '/manager-dashboard/tasks' },
             { icon: User, label: 'My Tasks', path: '/manager-dashboard/personal-tasks' },
-            { icon: Target, label: 'Value Tasks', path: '/manager-dashboard/value-tasks' },
+
             { icon: BarChart2, label: 'Analytics', path: '/manager-dashboard/analytics' },
             { icon: Network, label: 'Project Hierarchy', path: '/manager-dashboard/project-hierarchy' },
             { icon: FileText, label: 'Documents', path: '/manager-dashboard/documents' },

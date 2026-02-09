@@ -2368,47 +2368,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                             );
                                                                         }
 
-                                                                        // Not Locked: Show Submit and Add Issue
-                                                                        if (task.status === 'completed') return null;
-
-                                                                        return (
-                                                                            <div style={{ display: 'flex', gap: '4px' }}>
-                                                                                {(task.sub_state === 'in_progress' || task.sub_state === 'pending_validation') && (
-                                                                                    <button
-                                                                                        onClick={(e) => { e.stopPropagation(); openProofModal(task); }}
-                                                                                        style={{
-                                                                                            display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 10px',
-                                                                                            backgroundColor: task.sub_state === 'pending_validation' ? '#f59e0b' : '#8b5cf6',
-                                                                                            color: 'white', border: 'none', borderRadius: '4px',
-                                                                                            fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
-                                                                                        }}
-                                                                                    >
-                                                                                        {task.sub_state === 'pending_validation' ? 'Update' : 'Submit'}
-                                                                                    </button>
-                                                                                )}
-                                                                                <button
-                                                                                    onClick={(e) => { e.stopPropagation(); openIssueModal(task); }}
-                                                                                    style={{
-                                                                                        display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
-                                                                                        backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '4px',
-                                                                                        fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
-                                                                                    }}
-                                                                                >
-                                                                                    Add Issue
-                                                                                </button>
-                                                                                <button
-                                                                                    onClick={(e) => { e.stopPropagation(); setTaskForNotes(task); setShowNotesModal(true); }}
-                                                                                    style={{
-                                                                                        display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
-                                                                                        backgroundColor: '#0ea5e9', color: 'white', border: 'none', borderRadius: '4px',
-                                                                                        fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
-                                                                                    }}
-                                                                                >
-                                                                                    <StickyNote size={12} />
-                                                                                    Notes
-                                                                                </button>
-                                                                            </div>
-                                                                        );
+                                                                        // Not Locked
+                                                                        return null;
                                                                     })()}
                                                                 </>
                                                             )}
@@ -2456,20 +2417,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                 </button>
                                                             )}
 
-                                                            {/* Notes button for executives/admins (Managers see it above) */}
-                                                            {(userRole === 'executive' || userRole === 'org_admin') && (
-                                                                <button
-                                                                    onClick={(e) => { e.stopPropagation(); setTaskForNotes(task); setShowNotesModal(true); }}
-                                                                    style={{
-                                                                        display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '6px 10px',
-                                                                        backgroundColor: '#0ea5e9', color: 'white', border: 'none', borderRadius: '4px',
-                                                                        fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer'
-                                                                    }}
-                                                                >
-                                                                    <StickyNote size={12} />
-                                                                    Notes
-                                                                </button>
-                                                            )}
+
                                                         </div>
                                                     </td>
                                                 </tr>

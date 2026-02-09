@@ -421,6 +421,77 @@ const TaskDetailOverlay = ({
         setProofFiles(prev => prev.filter((_, i) => i !== index));
     };
 
+    // Handler to delete a proof file from a phase
+    const handleDeleteProof = async (phaseKey, fileUrl) => {
+        if (!confirm('Are you sure you want to delete this file?')) return;
+
+        try {
+            const phaseVal = task.phase_validations?.[phaseKey];
+            if (!phaseVal) return;
+
+            // Parse existing URLs
+            let existingUrls = [];
+            try {
+                const parsed = JSON.parse(phaseVal.proof_url);
+                existingUrls = Array.isArray(parsed) ? parsed : [phaseVal.proof_url];
+            } catch (e) {
+                if (phaseVal.proof_url.includes('http')) {
+                    existingUrls = phaseVal.proof_url.split(',').map(u => u.trim());
+                } else {
+                    existingUrls = [phaseVal.proof_url];
+                }
+            }
+
+            // Remove the specified URL
+            const updatedUrls = existingUrls.filter(url => url !== fileUrl);
+
+            // Extract file path from URL for storage deletion
+            try {
+                const urlObj = new URL(fileUrl);
+                const pathParts = urlObj.pathname.split('/task-proofs/');
+                if (pathParts.length > 1) {
+                    const filePath = pathParts[1];
+                    // Delete from storage
+                    await supabase.storage.from('task-proofs').remove([filePath]);
+                }
+            } catch (err) {
+                console.warn('Could not delete from storage:', err);
+            }
+
+            // Update phase_validations
+            const updatedValidations = {
+                ...(task.phase_validations || {}),
+                [phaseKey]: {
+                    ...phaseVal,
+                    proof_url: updatedUrls.length > 0 ? JSON.stringify(updatedUrls) : null,
+                    updated_at: new Date().toISOString()
+                }
+            };
+
+            // If no files left and no text, remove the phase validation
+            if (updatedUrls.length === 0 && !phaseVal.proof_text) {
+                delete updatedValidations[phaseKey];
+            }
+
+            // Update task in database
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    phase_validations: updatedValidations,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', task.id);
+
+            if (error) throw error;
+
+            addToast?.('File deleted successfully', 'success');
+            onRefresh?.(); // Refresh the task to show updated data
+        } catch (err) {
+            console.error('Error deleting proof:', err);
+            addToast?.('Failed to delete file', 'error');
+        }
+    };
+
     const handleSubmitIssue = async () => {
         if (!issueText.trim()) return;
         setSubmittingIssue(true);
@@ -1165,7 +1236,13 @@ const TaskDetailOverlay = ({
                                                     >
                                                         View File
                                                     </a>
-                                                    <Trash2 size={14} color="#ef4444" style={{ cursor: 'pointer', opacity: 0.7 }} title="Remove (Demo)" />
+                                                    <Trash2
+                                                        size={14}
+                                                        color="#ef4444"
+                                                        style={{ cursor: 'pointer', opacity: 0.7 }}
+                                                        title="Delete File"
+                                                        onClick={() => handleDeleteProof(p.key, url)}
+                                                    />
                                                 </div>
                                             </div>
                                         ))}

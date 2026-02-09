@@ -11,7 +11,7 @@ import TeamTasksPage from './pages/TeamTasksPage';
 import TeamPerformance from './pages/TeamPerformance';
 import NotificationsPage from '../shared/NotificationsPage';
 import MessagingHub from '../shared/MessagingHub';
-import ProjectTaskModule from '../shared/ProjectValueTaskModule';
+
 import { ToastProvider } from './context/ToastContext';
 import { UserProvider } from './context/UserContext';
 import { ProjectProvider } from './context/ProjectContext';
@@ -32,7 +32,7 @@ function App() {
                 <Route path="/employee-dashboard/project-hierarchy" element={<ProjectHierarchy />} />
                 <Route path="/employee-dashboard/my-tasks" element={<MyTasksPage />} />
                 <Route path="/employee-dashboard/team-tasks" element={<TeamTasksPage />} />
-                <Route path="/employee-dashboard/value-tasks" element={<ProjectTaskModule />} />
+
                 <Route path="/employee-dashboard/analytics" element={<ModulePage title="My Analytics" type="analytics" />} />
                 <Route path="/employee-dashboard/employees" element={<ModulePage title="Team Members" type="workforce" />} />
                 <Route path="/employee-dashboard/leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
