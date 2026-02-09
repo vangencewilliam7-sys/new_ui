@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Plus, Eye, Calendar, ChevronDown, X, Clock, ExternalLink, ThumbsUp, ThumbsDown, AlertTriangle, CheckCircle2, AlertCircle, Edit2, Trash2, Upload, FileText, Send, ListTodo, Award, StickyNote } from 'lucide-react';
+import { Search, Plus, Eye, Calendar, ChevronDown, X, Clock, ExternalLink, ThumbsUp, ThumbsDown, AlertTriangle, CheckCircle2, AlertCircle, Edit2, Trash2, Upload, FileText, Send, ListTodo, Award, StickyNote, Archive } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import { supabaseRequest } from '../../lib/supabaseRequest';
 import { useProject } from '../employee/context/ProjectContext';
@@ -594,6 +594,16 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
             fetchData();
         } catch (error) {
             addToast?.('Failed to delete task', 'error');
+        }
+    };
+
+    const handleArchiveTask = async (taskId) => {
+        try {
+            await supabase.from('tasks').update({ status: 'archived' }).eq('id', taskId);
+            addToast?.('Task archived', 'success');
+            fetchData();
+        } catch (error) {
+            addToast?.('Failed to archive task', 'error');
         }
     };
 
@@ -1996,7 +2006,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                         { value: 'in_progress', label: 'In Progress' },
                                         { value: 'completed', label: 'Completed' },
                                         { value: 'on_hold', label: 'On Hold' },
-                                        { value: 'rejected', label: 'Rejected' }
+                                        { value: 'rejected', label: 'Rejected' },
+                                        { value: 'archived', label: 'Archived' }
                                     ].map(option => (
                                         <div
                                             key={option.value}
@@ -2302,6 +2313,36 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                                                 >
                                                                     <Edit2 size={12} />
                                                                     Edit
+                                                                </button>
+                                                            )}
+
+                                                            {/* Archive Button - Available for ALL tasks */}
+                                                            {task.status !== 'archived' && (
+                                                                <button
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleArchiveTask(task.id);
+                                                                    }}
+                                                                    title="Archive this task"
+                                                                    style={{
+                                                                        display: 'inline-flex',
+                                                                        alignItems: 'center',
+                                                                        gap: '4px',
+                                                                        padding: '6px 10px',
+                                                                        backgroundColor: '#6366f1',
+                                                                        color: 'white',
+                                                                        border: 'none',
+                                                                        borderRadius: '4px',
+                                                                        fontSize: '0.75rem',
+                                                                        fontWeight: 600,
+                                                                        cursor: 'pointer',
+                                                                        whiteSpace: 'nowrap'
+                                                                    }}
+                                                                    onMouseEnter={e => e.currentTarget.style.backgroundColor = '#4f46e5'}
+                                                                    onMouseLeave={e => e.currentTarget.style.backgroundColor = '#6366f1'}
+                                                                >
+                                                                    <Archive size={12} />
+                                                                    Archive
                                                                 </button>
                                                             )}
 

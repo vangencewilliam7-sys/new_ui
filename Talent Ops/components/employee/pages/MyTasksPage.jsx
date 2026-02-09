@@ -694,6 +694,8 @@ const MyTasksPage = () => {
                     if (taskStatus === 'completed') return false;
                     return taskStatus === 'on_hold' || taskStatus === 'on hold' ||
                         taskSubState === 'on_hold';
+                case 'archived':
+                    return taskStatus === 'archived';
                 default:
                     return false;
             }
@@ -1026,7 +1028,8 @@ const MyTasksPage = () => {
                                     { value: 'in_progress', label: 'In Progress', color: '#3b82f6' },
                                     { value: 'pending', label: 'Pending', color: '#f59e0b' },
                                     { value: 'completed', label: 'Completed', color: '#10b981' },
-                                    { value: 'on_hold', label: 'On Hold', color: '#ef4444' }
+                                    { value: 'on_hold', label: 'On Hold', color: '#ef4444' },
+                                    { value: 'archived', label: 'Archived', color: '#6366f1' }
                                 ].map(status => (
                                     <label
                                         key={status.value}
