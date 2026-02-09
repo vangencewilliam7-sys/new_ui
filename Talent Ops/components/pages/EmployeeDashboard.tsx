@@ -26,7 +26,6 @@ import TeamTasksPage from '../employee/pages/TeamTasksPage';
 import TeamPerformance from '../performance/TeamPerformanceAnalytics';
 // @ts-ignore
 import EmployeeReviewPage from '../performance/EmployeeReviewPage';
-import ProjectTaskModule from '../shared/ProjectValueTaskModule';
 import RoleGuard from '../shared/RoleGuard';
 import '../employee/index.css';
 
@@ -45,7 +44,7 @@ export const EmployeeDashboard = () => {
                                 {/* Real Task Routes */}
                                 <Route path="my-tasks" element={<MyTasksPage />} />
                                 <Route path="team-tasks" element={<TeamTasksPage />} />
-                                <Route path="value-tasks" element={<ProjectTaskModule />} />
+
                                 <Route path="team-members" element={<ModulePage title="Team Members" type="workforce" />} />
 
                                 <Route path="leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
