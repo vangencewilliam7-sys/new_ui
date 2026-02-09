@@ -3,6 +3,7 @@ import { useProject } from '../context/ProjectContext';
 import { supabase } from '../../../lib/supabaseClient';
 import { useToast } from '../context/ToastContext';
 import { TrendingUp, Award, Briefcase, Users, CheckCircle, Clock } from 'lucide-react';
+import Leaderboard from '../../shared/Leaderboard';
 
 const TeamPerformance = () => {
     const { currentProject } = useProject();
@@ -281,6 +282,11 @@ const TeamPerformance = () => {
                         </h3>
                     </div>
                 ))}
+            </div>
+
+            {/* Leaderboard Section */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '20px' }}>
+                <Leaderboard orgId={currentProject?.org_id} />
             </div>
 
             {/* Charts Row */}

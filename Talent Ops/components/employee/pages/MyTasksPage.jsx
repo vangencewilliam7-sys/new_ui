@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Calendar, CheckCircle, Upload, FileText, Send, AlertCircle, Paperclip, ClipboardList, AlertTriangle, Eye, Clock, Trash2, X } from 'lucide-react';
+import { Search, Calendar, CheckCircle, Upload, FileText, Send, AlertCircle, Paperclip, ClipboardList, AlertTriangle, Eye, Clock, Trash2, X, StickyNote } from 'lucide-react';
 import { supabase } from '../../../lib/supabaseClient';
 import { useProject } from '../context/ProjectContext';
 import { useUser } from '../context/UserContext';
 import { useToast } from '../context/ToastContext';
 import SkillSelectionModal from '../components/UI/SkillSelectionModal';
+import TaskNotesModal from '../../shared/TaskNotesModal';
+import TaskDetailOverlay from '../components/UI/TaskDetailOverlay';
 
 const LIFECYCLE_PHASES = [
     { key: 'requirement_refiner', label: 'Requirement Refiner', short: 'Req' },
@@ -23,7 +25,10 @@ const MyTasksPage = () => {
     const [loading, setLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [dateFilter, setDateFilter] = useState('');
-    const [statusFilter, setStatusFilter] = useState('all');
+    const [statusFilters, setStatusFilters] = useState(['in_progress', 'pending']); // Default to In Progress + Pending
+    const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+
+
 
     // Proof upload states
     const [showProofModal, setShowProofModal] = useState(false);
@@ -53,6 +58,10 @@ const MyTasksPage = () => {
     const [showSkillModal, setShowSkillModal] = useState(false);
     const [taskForSkills, setTaskForSkills] = useState(null);
 
+    // Task Notes State
+    const [showNotesModal, setShowNotesModal] = useState(false);
+    const [taskForNotes, setTaskForNotes] = useState(null);
+
     useEffect(() => {
         if (orgId) {
             fetchTasks();
@@ -74,14 +83,22 @@ const MyTasksPage = () => {
             // Fetch tasks assigned to the current user (across projects)
             const { data, error } = await supabase
                 .from('tasks')
-                .select('*, projects(name)')
+                .select('*, projects(name), task_submissions(final_points)')
                 .eq('assigned_to', user.id)
                 .eq('org_id', orgId)
                 .order('id', { ascending: false });
 
             if (error) throw error;
-            console.log('Fetched Tasks:', data);
-            setTasks(data || []);
+            const tasksList = data || [];
+
+
+            setTasks(tasksList);
+
+            // Sync the currently viewed task in the overlay if it's open
+            if (showViewModal && taskForView) {
+                const updatedTask = tasksList.find(t => t.id === taskForView.id);
+                if (updatedTask) setTaskForView(updatedTask);
+            }
         } catch (err) {
             console.error('Error fetching tasks:', err.message, err.details, err.hint);
             addToast?.(`Failed to fetch tasks: ${err.message}`, 'error');
@@ -90,6 +107,8 @@ const MyTasksPage = () => {
             setLoading(false);
         }
     };
+
+
 
     const openProofModal = (task) => {
         setTaskForProof(task);
@@ -195,21 +214,40 @@ const MyTasksPage = () => {
             }
 
             // 3. Prepare Updates
+            const existingPhaseVal = taskForProof.phase_validations?.[currentPhase] || {};
+            let combinedUrls = [];
+
+            // Parse existing URLs
+            if (existingPhaseVal.proof_url) {
+                try {
+                    const parsed = JSON.parse(existingPhaseVal.proof_url);
+                    combinedUrls = Array.isArray(parsed) ? parsed : [existingPhaseVal.proof_url];
+                } catch (e) {
+                    combinedUrls = [existingPhaseVal.proof_url];
+                }
+            }
+            // Add new URL
+            if (proofUrl) combinedUrls = [...combinedUrls, proofUrl];
+            const combinedUrlsString = combinedUrls.length > 0 ? JSON.stringify(combinedUrls) : null;
+
+            // Append text
+            const combinedText = [existingPhaseVal.proof_text, proofText].filter(Boolean).join('\n---\n');
+
             const currentValidations = taskForProof.phase_validations || {};
             const updatedValidations = {
                 ...currentValidations,
                 [currentPhase]: {
                     status: 'pending',
-                    proof_url: proofUrl,
-                    proof_text: proofText,
+                    proof_url: combinedUrlsString,
+                    proof_text: combinedText,
                     submitted_at: new Date().toISOString()
                 }
             };
 
             const updates = {
                 phase_validations: updatedValidations,
-                proof_url: proofUrl, // Legacy compat
-                proof_text: proofText,
+                proof_url: combinedUrlsString, // Legacy compat
+                proof_text: combinedText,
                 updated_at: new Date().toISOString()
             };
 
@@ -632,10 +670,34 @@ const MyTasksPage = () => {
         // Date filter
         const matchesDate = !dateFilter || (t.due_date && t.due_date === dateFilter);
 
-        // Status filter
-        const matchesStatus = statusFilter === 'all' ||
-            (t.status?.toLowerCase() === statusFilter.toLowerCase()) ||
-            (t.sub_state?.replace('_', ' ').toLowerCase() === statusFilter.toLowerCase());
+        // Status filter - multi-select (empty array = show all)
+        const taskStatus = t.status?.toLowerCase() || '';
+        const taskSubState = t.sub_state?.toLowerCase() || '';
+
+        const matchesStatus = statusFilters.length === 0 || statusFilters.some(f => {
+            // Exact matching for each filter type
+            // IMPORTANT: status field takes precedence over sub_state
+            switch (f) {
+                case 'in_progress':
+                    // Only match in_progress if status is NOT completed
+                    if (taskStatus === 'completed') return false;
+                    return taskStatus === 'in_progress' || taskStatus === 'in progress' ||
+                        taskSubState === 'in_progress';
+                case 'pending':
+                    // Only match pending if status is NOT completed
+                    if (taskStatus === 'completed') return false;
+                    return taskStatus === 'pending';
+                case 'completed':
+                    return taskStatus === 'completed';
+                case 'on_hold':
+                    // Only match on_hold if status is NOT completed
+                    if (taskStatus === 'completed') return false;
+                    return taskStatus === 'on_hold' || taskStatus === 'on hold' ||
+                        taskSubState === 'on_hold';
+                default:
+                    return false;
+            }
+        });
 
         return matchesSearch && matchesDate && matchesStatus;
     });
@@ -719,6 +781,8 @@ const MyTasksPage = () => {
                 }}>
                     Track your assigned tasks through each phase of the development lifecycle.
                 </p>
+
+
             </div>
 
             {/* Premium Toolbar */}
@@ -873,30 +937,150 @@ const MyTasksPage = () => {
                     )}
                 </div>
 
-                {/* Status Filter */}
-                <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    style={{
-                        padding: '10px 16px',
-                        borderRadius: '12px',
-                        border: '1px solid #e2e8f0',
-                        backgroundColor: '#f8fafc',
-                        color: '#334155',
-                        fontWeight: 500,
-                        fontSize: '0.9rem',
-                        outline: 'none',
-                        cursor: 'pointer',
-                        height: '42px',
-                        minWidth: '140px'
-                    }}
-                >
-                    <option value="all">All Statuses</option>
-                    <option value="pending">Pending</option>
-                    <option value="in progress">In Progress</option>
-                    <option value="completed">Completed</option>
-                    <option value="on hold">On Hold</option>
-                </select>
+                {/* Multi-Select Status Filter */}
+                <div style={{ position: 'relative' }}>
+                    <button
+                        onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                        style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px',
+                            padding: '10px 16px',
+                            borderRadius: '12px',
+                            border: '1px solid #e2e8f0',
+                            backgroundColor: statusFilters.length > 0 ? '#eff6ff' : '#f8fafc',
+                            color: '#334155',
+                            fontWeight: 500,
+                            fontSize: '0.9rem',
+                            cursor: 'pointer',
+                            height: '42px',
+                            minWidth: '160px',
+                            justifyContent: 'space-between',
+                            transition: 'all 0.2s'
+                        }}
+                    >
+                        <span>
+                            {statusFilters.length === 0
+                                ? 'All Statuses'
+                                : `${statusFilters.length} Selected`}
+                        </span>
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ transform: showStatusDropdown ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s' }}>
+                            <path d="M2 4L6 8L10 4" stroke="#64748b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                    </button>
+
+                    {/* Dropdown Menu */}
+                    {showStatusDropdown && (
+                        <>
+                            {/* Backdrop to close on click outside */}
+                            <div
+                                onClick={() => setShowStatusDropdown(false)}
+                                style={{
+                                    position: 'fixed',
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    bottom: 0,
+                                    zIndex: 99
+                                }}
+                            />
+                            <div style={{
+                                position: 'absolute',
+                                top: '48px',
+                                right: 0,
+                                backgroundColor: 'white',
+                                borderRadius: '12px',
+                                border: '1px solid #e2e8f0',
+                                boxShadow: '0 10px 40px rgba(0,0,0,0.12)',
+                                padding: '8px 0',
+                                minWidth: '200px',
+                                zIndex: 100
+                            }}>
+                                {/* Clear All Option */}
+                                {statusFilters.length > 0 && (
+                                    <button
+                                        onClick={() => { setStatusFilters([]); setShowStatusDropdown(false); }}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '10px',
+                                            width: '100%',
+                                            padding: '10px 16px',
+                                            border: 'none',
+                                            background: 'none',
+                                            cursor: 'pointer',
+                                            fontSize: '0.85rem',
+                                            color: '#e11d48',
+                                            fontWeight: 500,
+                                            borderBottom: '1px solid #f1f5f9',
+                                            marginBottom: '4px'
+                                        }}
+                                    >
+                                        <X size={14} />
+                                        Clear All Filters
+                                    </button>
+                                )}
+
+                                {/* Status Options */}
+                                {[
+                                    { value: 'in_progress', label: 'In Progress', color: '#3b82f6' },
+                                    { value: 'pending', label: 'Pending', color: '#f59e0b' },
+                                    { value: 'completed', label: 'Completed', color: '#10b981' },
+                                    { value: 'on_hold', label: 'On Hold', color: '#ef4444' }
+                                ].map(status => (
+                                    <label
+                                        key={status.value}
+                                        style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px',
+                                            padding: '10px 16px',
+                                            cursor: 'pointer',
+                                            transition: 'background 0.15s',
+                                            backgroundColor: statusFilters.includes(status.value) ? '#f8fafc' : 'transparent'
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = statusFilters.includes(status.value) ? '#f8fafc' : 'transparent'}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={statusFilters.includes(status.value)}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    setStatusFilters([...statusFilters, status.value]);
+                                                } else {
+                                                    setStatusFilters(statusFilters.filter(f => f !== status.value));
+                                                }
+                                            }}
+                                            style={{
+                                                width: '18px',
+                                                height: '18px',
+                                                accentColor: status.color,
+                                                cursor: 'pointer'
+                                            }}
+                                        />
+                                        <span style={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '8px',
+                                            fontSize: '0.9rem',
+                                            fontWeight: 500,
+                                            color: '#334155'
+                                        }}>
+                                            <span style={{
+                                                width: '8px',
+                                                height: '8px',
+                                                borderRadius: '50%',
+                                                backgroundColor: status.color
+                                            }} />
+                                            {status.label}
+                                        </span>
+                                    </label>
+                                ))}
+                            </div>
+                        </>
+                    )}
+                </div>
             </div>
 
 
@@ -916,10 +1100,10 @@ const MyTasksPage = () => {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan="6" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading tasks...</td></tr>
+                            <tr><td colSpan="7" style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>Loading tasks...</td></tr>
                         ) : filteredTasks.length === 0 ? (
                             <tr>
-                                <td colSpan="6" style={{ padding: '60px', textAlign: 'center' }}>
+                                <td colSpan="7" style={{ padding: '60px', textAlign: 'center' }}>
                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', color: '#94a3b8' }}>
                                         <CheckCircle size={40} style={{ opacity: 0.5 }} />
                                         <p style={{ fontSize: '1rem', fontWeight: 500 }}>No tasks found</p>
@@ -1236,6 +1420,26 @@ const MyTasksPage = () => {
                                                         >
                                                             <AlertTriangle size={12} /> Add Issue
                                                         </button>
+                                                        <button
+                                                            onClick={() => { setTaskForNotes(task); setShowNotesModal(true); }}
+                                                            style={{
+                                                                padding: '6px 10px',
+                                                                borderRadius: '6px',
+                                                                backgroundColor: '#0ea5e9',
+                                                                color: 'white',
+                                                                border: 'none',
+                                                                fontWeight: 500,
+                                                                cursor: 'pointer',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '4px',
+                                                                fontSize: '0.75rem',
+                                                                transition: 'background-color 0.2s',
+                                                                whiteSpace: 'nowrap'
+                                                            }}
+                                                        >
+                                                            <StickyNote size={12} /> Notes
+                                                        </button>
                                                     </div>
                                                 );
                                             })()}
@@ -1462,313 +1666,17 @@ const MyTasksPage = () => {
                 )
             }
 
-            {/* View Task Modal */}
-            {
-                showViewModal && taskForView && (
-                    <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, backdropFilter: 'blur(4px)' }}>
-                        <div style={{ backgroundColor: 'var(--surface)', padding: '32px', borderRadius: '20px', width: '600px', maxWidth: '90%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-                                <div>
-                                    <h3 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>Task Details</h3>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
-                                        <span style={{
-                                            fontSize: '0.75rem', padding: '4px 10px', borderRadius: '20px',
-                                            backgroundColor: getPriorityColor(taskForView.priority).bg,
-                                            color: getPriorityColor(taskForView.priority).text, fontWeight: 600,
-                                            textTransform: 'capitalize'
-                                        }}>
-                                            {taskForView.priority || 'Medium'} Priority
-                                        </span>
-                                        <span style={{
-                                            fontSize: '0.75rem', padding: '4px 10px', borderRadius: '20px',
-                                            backgroundColor: getSubStateColor(taskForView.sub_state).bg,
-                                            color: getSubStateColor(taskForView.sub_state).text, fontWeight: 600,
-                                            textTransform: 'capitalize'
-                                        }}>
-                                            {taskForView.sub_state?.replace(/_/g, ' ') || 'Pending'}
-                                        </span>
-                                    </div>
-                                </div>
-                                <button onClick={() => { setShowViewModal(false); setTaskForView(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}>
-                                    <AlertCircle size={24} style={{ transform: 'rotate(45deg)' }} /> {/* Using AlertCircle as close icon fallback if X not imported, essentially creates an X shape roughly */}
-                                </button>
-                            </div>
 
-                            <div style={{ marginBottom: '24px' }}>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>TITLE</label>
-                                <div style={{ fontSize: '1.1rem', fontWeight: 600, color: '#1e293b' }}>{taskForView.title}</div>
-                            </div>
-
-                            <div style={{ marginBottom: '24px' }}>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>DESCRIPTION</label>
-                                <div style={{ fontSize: '1rem', color: '#334155', lineHeight: '1.6', backgroundColor: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0', whiteSpace: 'pre-wrap' }}>
-                                    {taskForView.description || 'No description provided.'}
-                                </div>
-                            </div>
-
-                            <div style={{ marginBottom: '24px' }}>
-                                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>ASSIGNED BY</label>
-                                <div style={{ fontSize: '1rem', fontWeight: 600, color: '#1e293b' }}>
-                                    {taskForView.assigned_by_name || 'Unknown Manager'}
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>START DATE & TIME</label>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#334155' }}>
-                                        <Calendar size={18} color="#64748b" />
-                                        <span>
-                                            {taskForView.start_date ? new Date(taskForView.start_date).toLocaleDateString() : '-'}
-                                            {' '}
-                                            <span style={{ fontSize: '0.9em', color: '#64748b' }}>{taskForView.start_time || ''}</span>
-                                        </span>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>DUE DATE & TIME</label>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '1rem', color: '#334155' }}>
-                                        <Clock size={18} color="#64748b" />
-                                        <span>
-                                            {taskForView.due_date ? new Date(taskForView.due_date).toLocaleDateString() : '-'}
-                                            {' '}
-                                            <span style={{ fontSize: '0.9em', color: '#64748b' }}>{taskForView.due_time || ''}</span>
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>PHASE</label>
-                                    <div style={{ fontSize: '1rem', color: '#334155', textTransform: 'capitalize' }}>
-                                        {taskForView.lifecycle_state?.replace(/_/g, ' ') || 'Requirement Refiner'}
-                                    </div>
-                                </div>
-                                <div>
-                                    {/* Placeholder or move allocated hours here if needed, but user didn't explicitly ask to move it back */}
-                                </div>
-                            </div>
-
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '24px' }}>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>ALLOCATED HOURS</label>
-                                    <div style={{ fontSize: '1rem', color: '#334155', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <Clock size={18} color="#64748b" />
-                                        {taskForView.allocated_hours ? `${taskForView.allocated_hours} hrs` : '-'}
-                                    </div>
-                                </div>
-                                <div>
-                                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#64748b', marginBottom: '4px' }}>STATUS</label>
-                                    {taskForView.closed_by_manager === true && taskForView.reassigned_to ? (
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                            <div style={{
-                                                display: 'inline-block',
-                                                fontSize: '0.9rem',
-                                                fontWeight: 700,
-                                                color: '#475569',
-                                                textTransform: 'uppercase',
-                                                backgroundColor: '#f1f5f9',
-                                                padding: '4px 10px',
-                                                borderRadius: '6px'
-                                            }}>
-                                                REASSIGNED
-                                            </div>
-                                            {taskForView.closed_reason && (
-                                                <div style={{ fontSize: '0.85rem', color: '#ef4444', marginTop: '4px', fontWeight: 500 }}>
-                                                    {taskForView.closed_reason}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <div style={{
-                                            display: 'inline-block',
-                                            fontSize: '0.9rem',
-                                            fontWeight: 700,
-                                            color: getStatusColor(taskForView.status).text,
-                                            textTransform: 'uppercase',
-                                            backgroundColor: getStatusColor(taskForView.status).bg,
-                                            padding: '4px 10px',
-                                            borderRadius: '6px'
-                                        }}>
-                                            {taskForView.status?.replace(/_/g, ' ') || 'Pending'}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {taskForView.issues && (
-                                <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#fef2f2', borderRadius: '12px', border: '1px solid #fecaca' }}>
-                                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 600, color: '#991b1b', marginBottom: '8px' }}>
-                                        <AlertTriangle size={16} /> ISSUES LOGGED
-                                    </label>
-                                    <div style={{ fontSize: '0.9rem', color: '#7f1d1d', whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
-                                        {taskForView.issues}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Guidance Documents Section */}
-                            {(() => {
-                                const validations = taskForView.phase_validations || {};
-                                const hasGuidance = Object.values(validations).some(v => v.guidance_doc_url);
-
-                                if (!hasGuidance) return null;
-
-                                return (
-                                    <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 600, color: '#1d4ed8', textTransform: 'uppercase', marginBottom: '12px' }}>
-                                            <FileText size={16} /> PHASE GUIDANCE
-                                        </label>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                            {Object.entries(validations).map(([phaseKey, data]) => {
-                                                if (!data.guidance_doc_url) return null;
-                                                // Assuming LIFECYCLE_PHASES is imported or available in scope. 
-                                                // If not, standard mapping or simple key display. 
-                                                // MyTasksPage usually has LIFECYCLE_PHASES or similar array. 
-                                                // Checking imports... MyTasksPage imports it or defines it? 
-                                                // I recall MyTasksPage defines LIFECYCLE_PHASES at the top or imports.
-                                                // Let's use a safe fallback if not.
-                                                const phaseLabel = (typeof LIFECYCLE_PHASES !== 'undefined' ? LIFECYCLE_PHASES.find(p => p.key === phaseKey)?.label : null) || phaseKey;
-
-                                                return (
-                                                    <div key={phaseKey} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #dbeafe' }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#1e40af' }}>{phaseLabel}:</span>
-                                                            <span style={{ fontSize: '0.9rem', color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '250px' }}>
-                                                                {data.guidance_doc_name || 'Guidance Document'}
-                                                            </span>
-                                                        </div>
-                                                        <a href={data.guidance_doc_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#2563eb', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}>
-                                                            View <ExternalLink size={12} />
-                                                        </a>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                            {/* Validations History */}
-                            {/* Validations History */}
-                            {(() => {
-                                const validations = taskForView.phase_validations || {};
-                                const legacyProof = taskForView.proof_url;
-                                const hasValidations = Object.values(validations).some(v => v.proof_url || v.proof_text);
-                                const hasLegacy = !!legacyProof && !hasValidations; // Only show legacy if no new validations
-
-                                if (!hasValidations && !hasLegacy) return null;
-
-                                return (
-                                    <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
-                                        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', fontWeight: 600, color: '#166534', marginBottom: '8px' }}>
-                                            <CheckCircle size={16} /> VALIDATION PROOFS
-                                        </label>
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                                            {/* New System: Phase Validations */}
-                                            {Object.entries(validations).map(([phaseKey, data]) => {
-                                                if (!data.proof_url && !data.proof_text) return null;
-                                                const phaseLabel = LIFECYCLE_PHASES.find(p => p.key === phaseKey)?.label || phaseKey;
-                                                return (
-                                                    <div key={phaseKey} style={{ padding: '12px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #dcfce7' }}>
-                                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: data.proof_text ? '8px' : '0' }}>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                                <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#166534' }}>{phaseLabel}:</span>
-                                                                {data.proof_url && (
-                                                                    <span style={{ fontSize: '0.85rem', color: '#15803d', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
-                                                                        {data.proof_url.split('/').pop()}
-                                                                    </span>
-                                                                )}
-                                                                {!data.proof_url && <span style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>Text Submission</span>}
-                                                            </div>
-                                                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                                                {data.proof_url && (
-                                                                    <a href={data.proof_url} target="_blank" rel="noopener noreferrer"
-                                                                        style={{ fontSize: '0.8rem', fontWeight: 600, color: '#166534', textDecoration: 'underline', whiteSpace: 'nowrap' }}>
-                                                                        View File
-                                                                    </a>
-                                                                )}
-                                                                <button
-                                                                    onClick={() => handleDeleteProof(taskForView, phaseKey)}
-                                                                    style={{
-                                                                        background: 'none',
-                                                                        border: 'none',
-                                                                        cursor: 'pointer',
-                                                                        color: '#ef4444',
-                                                                        display: 'flex',
-                                                                        alignItems: 'center',
-                                                                        padding: '4px',
-                                                                        borderRadius: '4px'
-                                                                    }}
-                                                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                                                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                                                    title="Delete Proof"
-                                                                >
-                                                                    <Trash2 size={14} />
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                        {data.proof_text && (
-                                                            <div style={{ fontSize: '0.85rem', color: '#334155', backgroundColor: '#f8fafc', padding: '10px', borderRadius: '6px', borderTop: '1px solid #f1f5f9', whiteSpace: 'pre-wrap' }}>
-                                                                {data.proof_text}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-
-                                            {/* Legacy Support */}
-                                            {hasLegacy && (
-                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', backgroundColor: 'white', borderRadius: '8px', border: '1px solid #dcfce7' }}>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <span style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b' }}>[Legacy]</span>
-                                                        <span style={{ fontSize: '0.85rem', color: '#15803d' }}>{legacyProof.split('/').pop()}</span>
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                        <a href={legacyProof} target="_blank" rel="noopener noreferrer"
-                                                            style={{ fontSize: '0.8rem', fontWeight: 600, color: '#166534', textDecoration: 'underline' }}>
-                                                            View File
-                                                        </a>
-                                                        <button
-                                                            onClick={() => handleDeleteProof(selectedTaskForView, 'LEGACY_PROOF')}
-                                                            style={{
-                                                                background: 'none',
-                                                                border: 'none',
-                                                                cursor: 'pointer',
-                                                                color: '#ef4444',
-                                                                display: 'flex',
-                                                                alignItems: 'center',
-                                                                padding: '4px',
-                                                                borderRadius: '4px'
-                                                            }}
-                                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
-                                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                                            title="Delete Legacy Proof"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                                <button
-                                    onClick={() => { setShowViewModal(false); setTaskForView(null); }}
-                                    style={{ padding: '10px 24px', borderRadius: '8px', backgroundColor: '#e2e8f0', color: '#475569', border: 'none', fontWeight: 600, cursor: 'pointer' }}
-                                >
-                                    Close
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-
+            {/* Enhanced Task Detail Overlay */}
+            <TaskDetailOverlay
+                isOpen={showViewModal}
+                onClose={() => { setShowViewModal(false); setTaskForView(null); }}
+                task={taskForView}
+                onRefresh={fetchTasks}
+                addToast={addToast}
+                userId={taskForView?.assigned_to}
+                orgId={orgId}
+            />
 
             {/* Access Request Modal */}
             {showAccessRequestModal && taskForAccess && (
@@ -1880,7 +1788,8 @@ const MyTasksPage = () => {
                         </div>
                     </div>
                 </div>
-            )}
+            )
+            }
             {/* Skill Selection Modal */}
             <SkillSelectionModal
                 isOpen={showSkillModal}
@@ -1892,6 +1801,18 @@ const MyTasksPage = () => {
                 onSkillsSaved={() => {
                     fetchTasks(); // Refresh tasks after skills saved
                 }}
+            />
+
+            {/* Task Notes Modal */}
+            <TaskNotesModal
+                isOpen={showNotesModal}
+                onClose={() => { setShowNotesModal(false); setTaskForNotes(null); }}
+                task={taskForNotes}
+                userId={taskForNotes?.assigned_to}
+                userRole="employee"
+                orgId={orgId}
+                addToast={addToast}
+                canAddNote={true}  // Employee can always add notes to their own task
             />
         </div >
     );

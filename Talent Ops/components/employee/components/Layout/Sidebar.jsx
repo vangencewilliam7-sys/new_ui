@@ -21,7 +21,8 @@ import {
     Check,
     ClipboardCheck,
     TrendingUp,
-    Ticket
+    Ticket,
+    Target
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
@@ -67,6 +68,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: Users, label: 'Project', path: '/employee-dashboard/employees' },
             { icon: Users, label: 'Team Members', path: '/employee-dashboard/team-members' },
             { icon: ListTodo, label: 'My Tasks', path: '/employee-dashboard/my-tasks' },
+            { icon: Target, label: 'Value Tasks', path: '/employee-dashboard/value-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/employee-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/employee-dashboard/project-hierarchy' },
         ],
@@ -74,6 +76,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: Users, label: 'Project', path: '/employee-dashboard/employees' },
             { icon: Users, label: 'Team Members', path: '/employee-dashboard/team-members' },
             { icon: ListTodo, label: 'My Tasks', path: '/employee-dashboard/my-tasks' },
+            { icon: Target, label: 'Value Tasks', path: '/employee-dashboard/value-tasks' },
             { icon: BarChart2, label: 'Analytics', path: '/employee-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/employee-dashboard/project-hierarchy' },
         ],
@@ -82,6 +85,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: Users, label: 'Team Members', path: '/employee-dashboard/team-members' },
             { icon: ClipboardCheck, label: 'My Tasks', path: '/employee-dashboard/my-tasks' },
             { icon: ListTodo, label: 'Team Tasks', path: '/employee-dashboard/team-tasks' },
+            { icon: Target, label: 'Value Tasks', path: '/employee-dashboard/value-tasks' },
             { icon: TrendingUp, label: 'Performance', path: '/employee-dashboard/performance' },
             { icon: BarChart2, label: 'Analytics', path: '/employee-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/employee-dashboard/project-hierarchy' },
@@ -91,6 +95,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
             { icon: Users, label: 'Team Members', path: '/employee-dashboard/team-members' },
             { icon: ClipboardCheck, label: 'My Tasks', path: '/employee-dashboard/my-tasks' },
             { icon: ListTodo, label: 'Team Tasks', path: '/employee-dashboard/team-tasks' },
+            { icon: Target, label: 'Value Tasks', path: '/employee-dashboard/value-tasks' },
             { icon: TrendingUp, label: 'Performance', path: '/employee-dashboard/performance' },
             { icon: BarChart2, label: 'Analytics', path: '/employee-dashboard/analytics' },
             { icon: Network, label: 'Hierarchy', path: '/employee-dashboard/project-hierarchy' },

@@ -94,6 +94,29 @@ const TeamTasks = ({ orgId }) => {
                 comment: 'Certification Approved via Dashboard',
                 reviewed_at: new Date()
             });
+            // 1.5 Ensure Submission Exists & Calculate Points
+            const { data: existingSub } = await supabase
+                .from('task_submissions')
+                .select('id')
+                .eq('task_id', selectedTask.id)
+                .maybeSingle();
+
+            if (!existingSub) {
+                // Auto-create submission on approval if missing (Employee didn't submit proof)
+                // Defaulting actual_hours to allocated_hours for now (Standard Completion)
+                await supabase.from('task_submissions').insert({
+                    task_id: selectedTask.id,
+                    user_id: selectedTask.assigned_to,
+                    actual_hours: selectedTask.allocated_hours || 0,
+                    submitted_at: new Date().toISOString(),
+                    status: 'approved'
+                });
+            } else {
+                // Ensure status is approved
+                await supabase.from('task_submissions')
+                    .update({ status: 'approved' })
+                    .eq('id', existingSub.id);
+            }
 
             // 2. Update Task Status
             await handleUpdateTask(selectedTask.id, 'status', 'completed');
