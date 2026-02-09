@@ -49,6 +49,7 @@ export const ManagerDashboard = () => {
 
                                 <Route path="personal-tasks" element={<ModulePage title="My Tasks" type="personal-tasks" />} />
                                 <Route path="leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
+                                <Route path="leaves/employee-info" element={<ModulePage title="Employee Leave Information" type="employee-leave-info" />} />
                                 <Route path="my-leaves" element={<MyLeavesPage />} />
                                 <Route path="employee-status" element={<ModulePage title="Employee Status" type="status" />} />
                                 <Route path="attendance-logs" element={<AttendanceLogsPage />} />

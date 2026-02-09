@@ -2015,8 +2015,64 @@ const ModulePage = ({ title, type }) => {
                                 <p style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-primary)' }}>{selectedLeaveRequest.type}</p>
                             </div>
                             <div>
-                                <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>Duration</p>
-                                <p style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--text-primary)' }}>{selectedLeaveRequest.duration}</p>
+                                <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>Breakdown</p>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                    <span style={{
+                                        padding: '6px 12px',
+                                        borderRadius: '10px',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 800,
+                                        backgroundColor: '#dcfce7',
+                                        color: '#15803d',
+                                        border: '1px solid #bbf7d0'
+                                    }}>
+                                        Paid: {(selectedLeaveRequest.duration_weekdays !== null && selectedLeaveRequest.duration_weekdays !== undefined) ? selectedLeaveRequest.duration_weekdays : (() => {
+                                            const start = new Date(selectedLeaveRequest.startDate);
+                                            const end = new Date(selectedLeaveRequest.endDate);
+                                            let count = 0;
+                                            let current = new Date(start);
+                                            while (current <= end) {
+                                                const dayOfWeek = current.getDay();
+                                                if (dayOfWeek !== 0 && dayOfWeek !== 6) count++;
+                                                current.setDate(current.getDate() + 1);
+                                            }
+                                            return count;
+                                        })()} days
+                                    </span>
+                                    <span style={{
+                                        padding: '6px 12px',
+                                        borderRadius: '10px',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 800,
+                                        backgroundColor: '#f1f5f9',
+                                        color: '#64748b',
+                                        border: '1px solid #cbd5e1'
+                                    }}>
+                                        Weekends: {(() => {
+                                            const start = new Date(selectedLeaveRequest.startDate);
+                                            const end = new Date(selectedLeaveRequest.endDate);
+                                            let weekendCount = 0;
+                                            let current = new Date(start);
+                                            while (current <= end) {
+                                                const dayOfWeek = current.getDay();
+                                                if (dayOfWeek === 0 || dayOfWeek === 6) weekendCount++;
+                                                current.setDate(current.getDate() + 1);
+                                            }
+                                            return weekendCount;
+                                        })()} days
+                                    </span>
+                                    <span style={{
+                                        padding: '6px 12px',
+                                        borderRadius: '10px',
+                                        fontSize: '0.8rem',
+                                        fontWeight: 800,
+                                        backgroundColor: '#fee2e2',
+                                        color: '#b91c1c',
+                                        border: '1px solid #fca5a5'
+                                    }}>
+                                        LOP: {selectedLeaveRequest.lop_days || 0} days
+                                    </span>
+                                </div>
                             </div>
                             <div>
                                 <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>Status</p>
@@ -2027,6 +2083,89 @@ const ModulePage = ({ title, type }) => {
                             <div style={{ gridColumn: 'span 2' }}>
                                 <p style={{ fontSize: '0.75rem', fontWeight: '700', color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '8px', letterSpacing: '0.05em' }}>Reason</p>
                                 <p style={{ fontSize: '1rem', fontWeight: '600', color: 'var(--text-primary)', lineHeight: '1.5' }}>{selectedLeaveRequest.reason}</p>
+                            </div>
+                        </div>
+
+                        {/* Day-wise Breakdown */}
+                        <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#f8fafc', borderRadius: '12px' }}>
+                            <h4 style={{ fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '16px', color: 'var(--text-primary)' }}>
+                                Day-wise Breakdown
+                            </h4>
+                            <div style={{
+                                display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: (() => {
+                                    const start = new Date(selectedLeaveRequest.startDate);
+                                    const end = new Date(selectedLeaveRequest.endDate);
+                                    let dayCount = 0;
+                                    let current = new Date(start);
+                                    while (current <= end) {
+                                        dayCount++;
+                                        current.setDate(current.getDate() + 1);
+                                    }
+                                    // Each day item is ~42px (34px height + 8px gap), show up to 7 days without scroll
+                                    return dayCount <= 7 ? 'none' : '294px';
+                                })(), overflowY: 'auto'
+                            }} className="no-scrollbar">
+                                {(() => {
+                                    const start = new Date(selectedLeaveRequest.startDate);
+                                    const end = new Date(selectedLeaveRequest.endDate);
+                                    const days = [];
+                                    let current = new Date(start);
+                                    let paidDaysLeft = (selectedLeaveRequest.duration_weekdays !== null && selectedLeaveRequest.duration_weekdays !== undefined)
+                                        ? selectedLeaveRequest.duration_weekdays
+                                        : (() => {
+                                            const s = new Date(selectedLeaveRequest.startDate);
+                                            const e = new Date(selectedLeaveRequest.endDate);
+                                            let c = 0;
+                                            let curr = new Date(s);
+                                            while (curr <= e) {
+                                                if (curr.getDay() !== 0 && curr.getDay() !== 6) c++;
+                                                curr.setDate(curr.getDate() + 1);
+                                            }
+                                            return c;
+                                        })();
+
+                                    while (current <= end) {
+                                        const dateStr = current.toLocaleDateString('en-US', { month: 'short', day: '2-digit', weekday: 'short' });
+                                        const dayOfWeek = current.getDay();
+                                        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+                                        let status = 'Leave';
+                                        let color = 'var(--text-primary)';
+                                        let bgColor = 'white';
+                                        let borderColor = '#e2e8f0';
+
+                                        if (isWeekend) {
+                                            status = 'Weekend';
+                                            color = '#64748b';
+                                            bgColor = '#f1f5f9';
+                                            borderColor = '#cbd5e1';
+                                        } else {
+                                            if (paidDaysLeft > 0) {
+                                                status = 'Paid Leave';
+                                                color = '#15803d';
+                                                bgColor = '#dcfce7';
+                                                borderColor = '#bbf7d0';
+                                                paidDaysLeft--;
+                                            } else {
+                                                status = 'Loss of Pay';
+                                                color = '#b91c1c';
+                                                bgColor = '#fee2e2';
+                                                borderColor = '#fca5a5';
+                                            }
+                                        }
+                                        days.push({ date: dateStr, status, color, bgColor, borderColor });
+                                        current.setDate(current.getDate() + 1);
+                                    }
+
+                                    return days.map((day, idx) => (
+                                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: day.bgColor, borderRadius: '8px', border: `1px solid ${day.borderColor}`, alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{day.date}</span>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: day.color }}>
+                                                {day.status}
+                                            </span>
+                                        </div>
+                                    ));
+                                })()}
                             </div>
                         </div>
 

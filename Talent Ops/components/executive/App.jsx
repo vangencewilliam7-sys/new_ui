@@ -21,6 +21,7 @@ function App() {
               <Route path="/executive-dashboard/analytics" element={<ModulePage title="Analytics" type="analytics" />} />
               <Route path="/executive-dashboard/employees" element={<ModulePage title="Employees" type="workforce" />} />
               <Route path="/executive-dashboard/tasks" element={<ExecutiveAllTasksPage />} />
+              <Route path="/executive-dashboard/leaves/employee-info" element={<ModulePage title="Employee Leave Information" type="employee-leave-info" />} />
               <Route path="/executive-dashboard/leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
               <Route path="/executive-dashboard/employee-status" element={<ModulePage title="Employee Status" type="status" />} />
               <Route path="/executive-dashboard/payslips" element={<ModulePage title="Payslips" type="payroll" />} />

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, X, Eye, Mail, Phone, MapPin, Calendar, Briefcase, Download, Edit, Users, Clock, Activity, Target, TrendingUp, ChevronRight, LayoutGrid, List, Search, CheckCircle, MoreVertical, AlertTriangle } from 'lucide-react';
 import DataTable from '../components/UI/DataTable';
 import { useToast } from '../context/ToastContext';
@@ -35,6 +36,7 @@ const ModulePage = ({ title, type }) => {
     const { addToast } = useToast();
     const { userId, userRole, orgId } = useUser();
     const { currentProject, projectRole } = useProject();
+    const navigate = useNavigate();
 
     // State for view controls
     const [searchTerm, setSearchTerm] = useState('');
@@ -513,6 +515,7 @@ const ModulePage = ({ title, type }) => {
                         }));
                     }
                 } else if (type === 'leaves') {
+                    if (!orgId) return;
                     console.log('Fetching leaves for Manager...');
 
                     // Get current user ID to filter out their own requests
@@ -582,6 +585,48 @@ const ModulePage = ({ title, type }) => {
                             });
 
                         setDbLeaves(filteredLeaves);
+                    }
+                } else if (type === 'employee-leave-info') {
+                    if (!orgId) return;
+                    try {
+                        console.log('Fetching aggregated leave info...');
+                        // Fetch all profiles
+                        const { data: profiles, error: pError } = await supabase
+                            .from('profiles')
+                            .select('id, full_name, total_leaves_balance')
+                            .eq('org_id', orgId);
+
+                        if (pError) throw pError;
+
+                        // Fetch all approved leaves
+                        const { data: leaves, error: lError } = await supabase
+                            .from('leaves')
+                            .select('employee_id, duration_weekdays, lop_days')
+                            .eq('org_id', orgId)
+                            .eq('status', 'approved');
+
+                        if (lError) throw lError;
+
+                        if (profiles) {
+                            const stats = profiles.map(profile => {
+                                const empLeaves = leaves?.filter(l => l.employee_id === profile.id) || [];
+                                const paidDays = empLeaves.reduce((sum, l) => sum + (l.duration_weekdays || 0), 0);
+                                const lopDays = empLeaves.reduce((sum, l) => sum + (l.lop_days || 0), 0);
+                                const totalTaken = paidDays + lopDays;
+
+                                return {
+                                    id: profile.id,
+                                    name: profile.full_name,
+                                    total_taken: `${totalTaken} Days`,
+                                    paid_leaves: `${paidDays} Days`,
+                                    lop_days: `${lopDays} Days`,
+                                    leaves_left: `${profile.total_leaves_balance || 0} Days`
+                                };
+                            });
+                            setDbLeaves(stats);
+                        }
+                    } catch (error) {
+                        console.error('Error fetching aggregated leave info:', error);
                     }
                 } else if (type === 'my-leaves') {
                     console.log('Fetching my leaves...');
@@ -1529,7 +1574,7 @@ const ModulePage = ({ title, type }) => {
                                     View
                                 </button>
                                 <button
-                                    onClick={() => handleAction('Approve', row)}
+                                    onClick={() => handleViewLeave(row)}
                                     style={{
                                         padding: '6px 12px',
                                         borderRadius: '6px',
@@ -1547,7 +1592,7 @@ const ModulePage = ({ title, type }) => {
                                     Approve
                                 </button>
                                 <button
-                                    onClick={() => handleAction('Reject', row)}
+                                    onClick={() => handleViewLeave(row)}
                                     style={{
                                         padding: '6px 12px',
                                         borderRadius: '6px',
@@ -1596,6 +1641,16 @@ const ModulePage = ({ title, type }) => {
                 },
             ],
             data: dbLeaves.length > 0 ? dbLeaves : leaveRequests
+        },
+        'employee-leave-info': {
+            columns: [
+                { header: 'Employee', accessor: 'name' },
+                { header: 'Total Leaves Taken', accessor: 'total_taken' },
+                { header: 'Paid Leaves', accessor: 'paid_leaves' },
+                { header: 'Loss of Pay Days', accessor: 'lop_days' },
+                { header: 'Leaves Left', accessor: 'leaves_left' }
+            ],
+            data: dbLeaves
         },
         'my-leaves': {
             columns: [
@@ -1774,11 +1829,12 @@ const ModulePage = ({ title, type }) => {
                         <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '1rem', maxWidth: '600px', fontWeight: '500', lineHeight: 1.6 }}>
                             {type === 'leaves' ? 'Review and manage team leave requests and attendance balance.' :
                                 type === 'my-leaves' ? 'Track your personal leave history and available balance.' :
-                                    `Management portal for organizational ${title ? title.toLowerCase() : 'modules'}`}
+                                    type === 'employee-leave-info' ? 'Detailed breakdown of employee leave balance and history.' :
+                                        `Management portal for organizational ${title ? title.toLowerCase() : 'modules'}`}
                         </p>
                     </div>
 
-                    {(type === 'leaves' || type === 'my-leaves') && (
+                    {(type === 'leaves' || type === 'my-leaves' || type === 'employee-leave-info') && (
                         <div style={{
                             background: 'rgba(255, 255, 255, 0.05)',
                             backdropFilter: 'blur(12px)',
@@ -1789,35 +1845,89 @@ const ModulePage = ({ title, type }) => {
                             alignItems: 'center',
                             gap: '16px'
                         }}>
-                            <button
-                                onClick={() => handleAction('Apply for Leave')}
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '10px',
-                                    padding: '12px 24px',
-                                    borderRadius: '14px',
-                                    background: 'linear-gradient(135deg, #38bdf8, #0284c7)',
-                                    color: 'white',
-                                    border: 'none',
-                                    cursor: 'pointer',
-                                    fontWeight: '800',
-                                    fontSize: '0.9rem',
-                                    boxShadow: '0 4px 12px rgba(56, 189, 248, 0.3)',
-                                    transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
-                                    whiteSpace: 'nowrap'
-                                }}
-                                onMouseEnter={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(-2px)';
-                                    e.currentTarget.style.boxShadow = '0 8px 20px rgba(56, 189, 248, 0.4)';
-                                }}
-                                onMouseLeave={(e) => {
-                                    e.currentTarget.style.transform = 'translateY(0)';
-                                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(56, 189, 248, 0.3)';
-                                }}
-                            >
-                                <Plus size={20} strokeWidth={3} /> Apply for Leave
-                            </button>
+                            {type === 'leaves' && (
+                                <button
+                                    onClick={() => navigate('/manager-dashboard/leaves/employee-info')}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '12px 24px',
+                                        borderRadius: '14px',
+                                        backgroundColor: 'rgba(255,255,255,0.1)',
+                                        color: 'white',
+                                        border: '1px solid rgba(255,255,255,0.2)',
+                                        cursor: 'pointer',
+                                        fontWeight: '800',
+                                        fontSize: '0.9rem',
+                                        backdropFilter: 'blur(4px)',
+                                        whiteSpace: 'nowrap',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.2)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'}
+                                >
+                                    <Users size={20} strokeWidth={3} /> Leave Info
+                                </button>
+                            )}
+
+                            {type === 'employee-leave-info' && (
+                                <button
+                                    onClick={() => navigate('/manager-dashboard/leaves')}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '12px 24px',
+                                        borderRadius: '14px',
+                                        backgroundColor: 'rgba(255,255,255,0.1)',
+                                        color: 'white',
+                                        border: '1px solid rgba(255,255,255,0.2)',
+                                        cursor: 'pointer',
+                                        fontWeight: '800',
+                                        fontSize: '0.9rem',
+                                        backdropFilter: 'blur(4px)',
+                                        whiteSpace: 'nowrap',
+                                        transition: 'all 0.2s'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.2)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'}
+                                >
+                                    <ChevronRight size={20} strokeWidth={3} style={{ transform: 'rotate(180deg)' }} /> Back to Requests
+                                </button>
+                            )}
+
+                            {(type === 'my-leaves') && (
+                                <button
+                                    onClick={() => handleAction('Apply for Leave')}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '10px',
+                                        padding: '12px 24px',
+                                        borderRadius: '14px',
+                                        background: 'linear-gradient(135deg, #38bdf8, #0284c7)',
+                                        color: 'white',
+                                        border: 'none',
+                                        cursor: 'pointer',
+                                        fontWeight: '800',
+                                        fontSize: '0.9rem',
+                                        boxShadow: '0 4px 12px rgba(56, 189, 248, 0.3)',
+                                        transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                                        whiteSpace: 'nowrap'
+                                    }}
+                                    onMouseEnter={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(-2px)';
+                                        e.currentTarget.style.boxShadow = '0 8px 20px rgba(56, 189, 248, 0.4)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = 'translateY(0)';
+                                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(56, 189, 248, 0.3)';
+                                    }}
+                                >
+                                    <Plus size={20} strokeWidth={3} /> Apply for Leave
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
@@ -2917,8 +3027,64 @@ const ModulePage = ({ title, type }) => {
                                     <p style={{ fontSize: '1rem', fontWeight: 600 }}>{selectedLeaveRequest.duration}</p>
                                 </div>
                                 <div>
-                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Dates</p>
-                                    <p style={{ fontSize: '1rem', fontWeight: 600 }}>{selectedLeaveRequest.dates}</p>
+                                    <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Breakdown</p>
+                                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                                        <span style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '8px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            backgroundColor: '#dcfce7',
+                                            color: '#15803d',
+                                            border: '1px solid #bbf7d0'
+                                        }}>
+                                            Paid: {(selectedLeaveRequest.duration_weekdays !== null && selectedLeaveRequest.duration_weekdays !== undefined) ? selectedLeaveRequest.duration_weekdays : (() => {
+                                                const start = new Date(selectedLeaveRequest.startDate);
+                                                const end = new Date(selectedLeaveRequest.endDate);
+                                                let count = 0;
+                                                let current = new Date(start);
+                                                while (current <= end) {
+                                                    const dayOfWeek = current.getDay();
+                                                    if (dayOfWeek !== 0 && dayOfWeek !== 6) count++;
+                                                    current.setDate(current.getDate() + 1);
+                                                }
+                                                return count;
+                                            })()} days
+                                        </span>
+                                        <span style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '8px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            backgroundColor: '#f1f5f9',
+                                            color: '#64748b',
+                                            border: '1px solid #cbd5e1'
+                                        }}>
+                                            Weekends: {(() => {
+                                                const start = new Date(selectedLeaveRequest.startDate);
+                                                const end = new Date(selectedLeaveRequest.endDate);
+                                                let weekendCount = 0;
+                                                let current = new Date(start);
+                                                while (current <= end) {
+                                                    const dayOfWeek = current.getDay();
+                                                    if (dayOfWeek === 0 || dayOfWeek === 6) weekendCount++;
+                                                    current.setDate(current.getDate() + 1);
+                                                }
+                                                return weekendCount;
+                                            })()} days
+                                        </span>
+                                        <span style={{
+                                            padding: '4px 10px',
+                                            borderRadius: '8px',
+                                            fontSize: '0.75rem',
+                                            fontWeight: 700,
+                                            backgroundColor: '#fee2e2',
+                                            color: '#b91c1c',
+                                            border: '1px solid #fca5a5'
+                                        }}>
+                                            LOP: {selectedLeaveRequest.lop_days || 0} days
+                                        </span>
+                                    </div>
                                 </div>
                                 <div>
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Status</p>
@@ -2939,6 +3105,89 @@ const ModulePage = ({ title, type }) => {
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Reason</p>
                                     <p style={{ fontSize: '1rem', fontWeight: 600, lineHeight: '1.5' }}>{selectedLeaveRequest.reason}</p>
                                 </div>
+                            </div>
+                        </div>
+
+                        {/* Day-wise Breakdown */}
+                        <div style={{ marginBottom: '32px', padding: '20px', backgroundColor: '#f8fafc', borderRadius: '12px' }}>
+                            <h4 style={{ fontSize: '1.1rem', fontWeight: 'bold', marginBottom: '16px', color: 'var(--text-primary)' }}>
+                                Day-wise Breakdown
+                            </h4>
+                            <div style={{
+                                display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: (() => {
+                                    const start = new Date(selectedLeaveRequest.startDate);
+                                    const end = new Date(selectedLeaveRequest.endDate);
+                                    let dayCount = 0;
+                                    let current = new Date(start);
+                                    while (current <= end) {
+                                        dayCount++;
+                                        current.setDate(current.getDate() + 1);
+                                    }
+                                    // Each day item is ~42px (34px height + 8px gap), show up to 7 days without scroll
+                                    return dayCount <= 7 ? 'none' : '294px';
+                                })(), overflowY: 'auto'
+                            }} className="no-scrollbar">
+                                {(() => {
+                                    const start = new Date(selectedLeaveRequest.startDate);
+                                    const end = new Date(selectedLeaveRequest.endDate);
+                                    const days = [];
+                                    let current = new Date(start);
+                                    let paidDaysLeft = (selectedLeaveRequest.duration_weekdays !== null && selectedLeaveRequest.duration_weekdays !== undefined)
+                                        ? selectedLeaveRequest.duration_weekdays
+                                        : (() => {
+                                            const s = new Date(selectedLeaveRequest.startDate);
+                                            const e = new Date(selectedLeaveRequest.endDate);
+                                            let c = 0;
+                                            let curr = new Date(s);
+                                            while (curr <= e) {
+                                                if (curr.getDay() !== 0 && curr.getDay() !== 6) c++;
+                                                curr.setDate(curr.getDate() + 1);
+                                            }
+                                            return c;
+                                        })();
+
+                                    while (current <= end) {
+                                        const dateStr = current.toLocaleDateString('en-US', { month: 'short', day: '2-digit', weekday: 'short' });
+                                        const dayOfWeek = current.getDay();
+                                        const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+                                        let status = 'Leave';
+                                        let color = 'var(--text-primary)';
+                                        let bgColor = 'white';
+                                        let borderColor = '#e2e8f0';
+
+                                        if (isWeekend) {
+                                            status = 'Weekend';
+                                            color = '#64748b';
+                                            bgColor = '#f1f5f9';
+                                            borderColor = '#cbd5e1';
+                                        } else {
+                                            if (paidDaysLeft > 0) {
+                                                status = 'Paid Leave';
+                                                color = '#15803d';
+                                                bgColor = '#dcfce7';
+                                                borderColor = '#bbf7d0';
+                                                paidDaysLeft--;
+                                            } else {
+                                                status = 'Loss of Pay';
+                                                color = '#b91c1c';
+                                                bgColor = '#fee2e2';
+                                                borderColor = '#fca5a5';
+                                            }
+                                        }
+                                        days.push({ date: dateStr, status, color, bgColor, borderColor });
+                                        current.setDate(current.getDate() + 1);
+                                    }
+
+                                    return days.map((day, idx) => (
+                                        <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', backgroundColor: day.bgColor, borderRadius: '8px', border: `1px solid ${day.borderColor}`, alignItems: 'center' }}>
+                                            <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{day.date}</span>
+                                            <span style={{ fontSize: '0.8rem', fontWeight: 700, color: day.color }}>
+                                                {day.status}
+                                            </span>
+                                        </div>
+                                    ));
+                                })()}
                             </div>
                         </div>
 

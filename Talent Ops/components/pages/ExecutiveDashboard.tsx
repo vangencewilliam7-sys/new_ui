@@ -56,6 +56,7 @@ export const ExecutiveDashboard = () => {
                                 <Route path="employees" element={<ModulePage title="Employees" type="workforce" />} />
                                 <Route path="tasks" element={<ExecutiveAllTasksPage />} />
                                 <Route path="leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
+                                <Route path="leaves/employee-info" element={<ModulePage title="Employee Leave Information" type="employee-leave-info" />} />
                                 <Route path="employee-status" element={<ModulePage title="Employee Status" type="status" />} />
                                 <Route path="attendance-logs" element={<AttendanceLogsPage />} />
                                 <Route path="payslips" element={<ModulePage title="Payslips" type="payroll" />} />

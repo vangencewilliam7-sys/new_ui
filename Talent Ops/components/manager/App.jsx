@@ -24,6 +24,7 @@ function App() {
               <Route path="/employees" element={<ModulePage title="Employees" type="workforce" />} />
               <Route path="/project-members" element={<ModulePage title="Project Team Members" type="project-members" />} />
               <Route path="/tasks" element={<ManagerAllTasksPage />} />
+              <Route path="/leaves/employee-info" element={<ModulePage title="Employee Leave Information" type="employee-leave-info" />} />
               <Route path="/leaves" element={<ModulePage title="Leave Requests" type="leaves" />} />
               <Route path="/my-leaves" element={<MyLeavesPage />} />
               <Route path="/employee-status" element={<ModulePage title="Employee Status" type="status" />} />
