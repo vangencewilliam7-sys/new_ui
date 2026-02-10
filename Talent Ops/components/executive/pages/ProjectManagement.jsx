@@ -102,7 +102,8 @@ const ProjectManagement = ({ addToast = () => { } }) => {
             const { data, error } = await supabase
                 .from('project_members')
                 .select('*, profiles:user_id(id, full_name, email)')
-                .eq('project_id', projectId);
+                .eq('project_id', projectId)
+                .eq('org_id', orgId);
             if (error) throw error;
             setProjectMembers(data || []);
         } catch (error) {
@@ -122,9 +123,32 @@ const ProjectManagement = ({ addToast = () => { } }) => {
                 .select()
                 .single();
             if (error) throw error;
+
+            // Auto-add the creator as project_manager
+            if (data && userId) {
+                const { error: pmError } = await supabase.from('project_members').insert({
+                    project_id: data.id,
+                    user_id: userId,
+                    role: 'project_manager',
+                    org_id: orgId
+                });
+                if (pmError) console.warn('Could not auto-add to project_members:', pmError);
+
+                // Sync with team_members (best effort)
+                const { error: tmError } = await supabase.from('team_members').insert({
+                    team_id: data.id,
+                    profile_id: userId,
+                    role_in_project: 'project_manager',
+                    org_id: orgId
+                });
+                if (tmError) console.warn('Could not auto-add to team_members:', tmError);
+            }
+
             setProjects([data, ...projects]);
             setNewProjectName('');
             setShowAddProject(false);
+            setSelectedProject(data);
+            fetchProjectMembers(data.id);
             addToast?.('Project created!', 'success');
         } catch (error) {
             addToast?.('Failed to create project', 'error');

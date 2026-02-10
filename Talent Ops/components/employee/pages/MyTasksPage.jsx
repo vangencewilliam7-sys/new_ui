@@ -674,6 +674,9 @@ const MyTasksPage = () => {
         const taskStatus = t.status?.toLowerCase() || '';
         const taskSubState = t.sub_state?.toLowerCase() || '';
 
+        // Hide archived tasks unless 'archived' filter is explicitly selected
+        if (taskStatus === 'archived' && !statusFilters.includes('archived')) return false;
+
         const matchesStatus = statusFilters.length === 0 || statusFilters.some(f => {
             // Exact matching for each filter type
             // IMPORTANT: status field takes precedence over sub_state

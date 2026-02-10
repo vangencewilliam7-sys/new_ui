@@ -1630,6 +1630,8 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     const filteredTasks = tasks.filter(task => {
         const matchesSearch = (task.title?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
             (task.assignee_name?.toLowerCase() || '').includes(searchQuery.toLowerCase());
+        // Hide archived tasks unless 'archived' filter is explicitly selected
+        if (task.status?.toLowerCase() === 'archived' && !statusFilters.includes('archived')) return false;
         const matchesStatus = statusFilters.includes('all') || statusFilters.includes(task.status?.toLowerCase());
 
         // Date filter: show tasks active on selected date (start_date..due_date)
