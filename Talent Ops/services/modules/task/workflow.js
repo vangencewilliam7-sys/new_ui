@@ -305,24 +305,37 @@ export const approveTaskPhase = async (task, phaseKey, orgId) => {
         [phaseKey]: {
             ...phaseData,
             status: 'approved',
+            validated: true, // Set validated to true for Green UI
             approved_at: new Date().toISOString()
         }
     };
 
+    // Determine Active Phases
+    const activePhases = task.phase_validations?.active_phases || LIFECYCLE_PHASES.map(p => p.key);
+
+    // Check if we need to advance the lifecycle state
+    let nextPhase = task.lifecycle_state;
+    const currentIndex = activePhases.indexOf(phaseKey);
+
+    if (currentIndex !== -1 && currentIndex < activePhases.length - 1) {
+        nextPhase = activePhases[currentIndex + 1];
+    }
+
+    // New Sub State Logic
     const hasOtherPending = Object.entries(updatedValidations).some(([key, val]) => key !== phaseKey && val.status === 'pending');
     const newSubState = hasOtherPending ? 'pending_validation' : 'in_progress';
 
     const updates = {
         phase_validations: updatedValidations,
         sub_state: newSubState,
+        lifecycle_state: nextPhase,
         updated_at: new Date().toISOString()
     };
 
     await supabase.from('tasks').update(updates).eq('id', task.id).eq('org_id', orgId);
 
-    // Check completion
-    const phasesToCheck = updatedValidations.active_phases || LIFECYCLE_PHASES.map(p => p.key);
-    const lastPhaseKey = phasesToCheck[phasesToCheck.length - 1];
+    // Check completion (All phases approved?)
+    const lastPhaseKey = activePhases[activePhases.length - 1];
     const isLastPhaseApproved = updatedValidations[lastPhaseKey]?.status === 'approved';
 
     if (isLastPhaseApproved && task.status !== 'completed') {

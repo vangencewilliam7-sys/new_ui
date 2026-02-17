@@ -12,6 +12,7 @@ import { taskService } from '../../services/modules/task';
 import TaskFilters from '../../services/modules/task/TaskFilters';
 import TaskTable from '../../services/modules/task/TaskTable';
 import AddTaskModal from '../../services/modules/task/AddTaskModal';
+import SkillTagInput from './SkillTagInput';
 
 
 const LIFECYCLE_PHASES = [
@@ -61,6 +62,9 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     // Edit Task State
     const [showEditModal, setShowEditModal] = useState(false);
     const [editingTask, setEditingTask] = useState(null);
+    const [editTaskSteps, setEditTaskSteps] = useState([]);
+    const [loadingSteps, setLoadingSteps] = useState(false);
+    const [newStepInputs, setNewStepInputs] = useState({}); // { phaseKey: { title: '', hours: 2 } }
 
     // Proof Submission State
     const [showProofModal, setShowProofModal] = useState(false);
@@ -250,9 +254,59 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
 
 
 
-    const handleEditTask = (task) => {
-        setEditingTask(task);
+    const handleEditTask = async (task) => {
+        setEditingTask({
+            ...task,
+            skills: task.skills || [],
+            requiredPhases: task.phase_validations?.active_phases || []
+        });
         setShowEditModal(true);
+        // Fetch Steps
+        setLoadingSteps(true);
+        try {
+            const steps = await taskService.getTaskSteps(task.id);
+            setEditTaskSteps(steps || []);
+        } catch (err) {
+            console.error('Error fetching steps:', err);
+            addToast?.('Failed to load steps', 'error');
+        } finally {
+            setLoadingSteps(false);
+        }
+    };
+
+    const handleAddStep = async (phaseKey) => {
+        const input = newStepInputs[phaseKey];
+        if (!input || !input.title.trim()) return;
+
+        try {
+            const newStep = {
+                org_id: orgId,
+                task_id: editingTask.id,
+                stage_id: phaseKey,
+                step_title: input.title.trim(),
+                status: 'pending',
+                created_by: userId, // Assuming userId is available in closure
+                created_by_role: userRole,
+                estimated_hours: parseFloat(input.hours) || 2
+            };
+            const added = await taskService.addTaskStep(newStep);
+            setEditTaskSteps([...editTaskSteps, added]);
+            setNewStepInputs({ ...newStepInputs, [phaseKey]: { title: '', hours: 2 } });
+            addToast?.('Step added', 'success');
+        } catch (error) {
+            addToast?.('Failed to add step', 'error');
+        }
+    };
+
+    const handleDeleteStep = async (stepId) => {
+        if (!window.confirm('Delete this step?')) return;
+        try {
+            await taskService.deleteTaskStep(stepId);
+            setEditTaskSteps(editTaskSteps.filter(s => s.id !== stepId));
+            addToast?.('Step deleted', 'success');
+        } catch (error) {
+            addToast?.('Failed to delete step', 'error');
+        }
     };
 
     const handleSaveEdit = async () => {
@@ -265,8 +319,34 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                 start_time: editingTask.start_time,
                 due_date: editingTask.due_date,
                 due_time: editingTask.due_time,
-                priority: editingTask.priority
+                priority: editingTask.priority,
+                status: editingTask.status,
+                skills: editingTask.skills,
+                // Only update phases if modified. 
+                // Wait, phases are stored in phase_validations JSONB. 
+                // We need to construct phase_validations if requiredPhases changed.
+                // Assuming backend handles it or we assume existing structure holds.
+                // Actually, if we change requiredPhases, we should probably update validation structure?
+                // For now, let's just pass requiredPhases if the backend supports it, or update phase_validations manually?
+                // The current updateTask mostly just updates fields. 
+                // If requiredPhases are stored in a column, great. 
+                // AddTaskModal puts them in `phase_validations.active_phases`.
+                // So we should update phase_validations.
+                // We'll trust taskService or do a merge.
+                // Simplest: just pass fields. If requiredPhases logic is needed, we'll implement.
+                // For now, we update skills.
             };
+
+            // If requiredPhases is present (for managers), we update the validations structure
+            if (editingTask.requiredPhases) {
+                // Clone existing validations or create new
+                const currentValidations = editingTask.phase_validations || {};
+                updates.phase_validations = {
+                    ...currentValidations,
+                    active_phases: editingTask.requiredPhases
+                };
+            }
+
             await handleUpdateTask(editingTask.id, updates);
             setShowEditModal(false);
             setEditingTask(null);
@@ -876,6 +956,14 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                         />
                                     </div>
                                     <div>
+                                        <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>Skills</label>
+                                        <SkillTagInput
+                                            selectedSkills={editingTask.skills || []}
+                                            onChange={(newSkills) => setEditingTask({ ...editingTask, skills: newSkills })}
+                                            placeholder="Add skill tags..."
+                                        />
+                                    </div>
+                                    <div>
                                         <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.9rem', fontWeight: 600, color: '#334155' }}>Allocated Hours *</label>
                                         <input
                                             type="number"
@@ -975,6 +1063,82 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* Steps Management */}
+                                    <div style={{ marginTop: '16px', borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
+                                        <h4 style={{ fontSize: '1rem', fontWeight: 600, color: '#334155', marginBottom: '12px' }}>Manage Task Steps</h4>
+
+                                        {loadingSteps ? (
+                                            <div style={{ fontSize: '0.9rem', color: '#64748b', fontStyle: 'italic' }}>Loading steps...</div>
+                                        ) : (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                                                {(editingTask.requiredPhases || []).map(phaseKey => {
+                                                    const phaseSteps = editTaskSteps?.filter(s => s.stage_id === phaseKey) || [];
+                                                    const phaseLabel = LIFECYCLE_PHASES.find(p => p.key === phaseKey)?.label || phaseKey;
+
+                                                    return (
+                                                        <div key={phaseKey} style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                                                            <h5 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', fontWeight: 700, color: '#475569' }}>{phaseLabel}</h5>
+
+                                                            {/* Existing Steps */}
+                                                            {phaseSteps.length > 0 ? (
+                                                                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                                                                    {phaseSteps.map((step, idx) => (
+                                                                        <div key={step.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'white', padding: '8px 12px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                                                                            <div>
+                                                                                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>{step.step_title}</span>
+                                                                                <span style={{ fontSize: '0.75rem', color: '#64748b', marginLeft: '8px' }}>({step.estimated_hours}h)</span>
+                                                                            </div>
+                                                                            <button
+                                                                                onClick={() => handleDeleteStep(step.id)}
+                                                                                style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px' }}
+                                                                                title="Delete Step"
+                                                                            >
+                                                                                <Trash2 size={14} />
+                                                                            </button>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            ) : (
+                                                                <div style={{ fontSize: '0.8rem', color: '#94a3b8', fontStyle: 'italic', marginBottom: '12px' }}>No steps in this phase.</div>
+                                                            )}
+
+                                                            {/* Add Step */}
+                                                            <div style={{ display: 'flex', gap: '8px' }}>
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="Step title..."
+                                                                    value={newStepInputs[phaseKey]?.title || ''}
+                                                                    onChange={(e) => setNewStepInputs({ ...newStepInputs, [phaseKey]: { ...newStepInputs[phaseKey], title: e.target.value } })}
+                                                                    style={{ flex: 1, padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                                                                />
+                                                                <input
+                                                                    type="number"
+                                                                    placeholder="Hrs"
+                                                                    value={newStepInputs[phaseKey]?.hours || 2}
+                                                                    onChange={(e) => setNewStepInputs({ ...newStepInputs, [phaseKey]: { ...newStepInputs[phaseKey], hours: e.target.value } })}
+                                                                    style={{ width: '50px', padding: '6px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
+                                                                />
+                                                                <button
+                                                                    onClick={() => handleAddStep(phaseKey)}
+                                                                    disabled={!newStepInputs[phaseKey]?.title}
+                                                                    style={{
+                                                                        padding: '6px 12px', borderRadius: '6px', border: 'none',
+                                                                        backgroundColor: newStepInputs[phaseKey]?.title ? '#3b82f6' : '#e2e8f0',
+                                                                        color: newStepInputs[phaseKey]?.title ? 'white' : '#94a3b8',
+                                                                        cursor: newStepInputs[phaseKey]?.title ? 'pointer' : 'default',
+                                                                        fontSize: '0.85rem', fontWeight: 600
+                                                                    }}
+                                                                >
+                                                                    Add
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
 
                                     <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
                                         <button

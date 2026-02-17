@@ -176,7 +176,8 @@ export const createTask = async ({
                 phase_validations: preparedValidations,
                 org_id: orgId,
                 allocated_hours: allocatedHrs,
-                risk_tag: newTask.riskTag
+                risk_tag: newTask.riskTag,
+                skills: newTask.skills || []
             }));
 
             const { data: createdMultiTasks, error: multiTaskError } = await supabase.from('tasks').insert(tasksToInsert).select('id');
@@ -249,7 +250,8 @@ export const createTask = async ({
                 phase_validations: preparedValidations,
                 org_id: orgId,
                 allocated_hours: allocatedHrs,
-                risk_tag: newTask.riskTag
+                risk_tag: newTask.riskTag,
+                skills: newTask.skills || []
             };
 
             const { data: createdTasks, error: taskError } = await supabase.from('tasks').insert([taskToInsert]).select('id');
@@ -321,4 +323,22 @@ export const createTask = async ({
         console.error('Service: Error creating task:', error);
         throw error;
     }
+};
+
+export const addTaskStep = async (step) => {
+    const { data, error } = await supabase.from('task_steps').insert(step).select();
+    if (error) throw error;
+    return data[0];
+};
+
+export const updateTaskStep = async (stepId, updates) => {
+    const { data, error } = await supabase.from('task_steps').update(updates).eq('id', stepId).select();
+    if (error) throw error;
+    return data[0];
+};
+
+export const deleteTaskStep = async (stepId) => {
+    const { error } = await supabase.from('task_steps').delete().eq('id', stepId);
+    if (error) throw error;
+    return true;
 };

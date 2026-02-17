@@ -332,20 +332,13 @@ const TaskDetailOverlay = ({
                 if (evidenceError) console.error('Error inserting evidence:', evidenceError);
             }
 
-            // 4. Update Task Status (Legacy/Direct columns)
-            // Store multiple file URLs as JSON array or comma-separated for legacy compatibility
+            // 2. Format file URLs
             const fileUrlsString = fileUrls.length > 0 ? JSON.stringify(fileUrls) : null;
 
-            // 2. Logic to Advance Phase (Sync with MyTasksPage logic)
-            const activePhases = task.phase_validations?.active_phases || phases.map(p => p.key);
-            const validActivePhases = activePhases.filter(pk => pk !== 'closed' && phases.some(p => p.key === pk));
+            // 3. Determine Current Phase (Do not auto-advance)
+            const currentPhase = task.lifecycle_state || 'requirement_refiner';
 
-            let currentPhase = task.lifecycle_state || 'requirement_refiner';
-            if (!validActivePhases.includes(currentPhase)) {
-                currentPhase = validActivePhases[0] || 'requirement_refiner';
-            }
-
-            // CHECK FOR EXISTING PROOFS TO APPEND
+            // Combine with existing proofs
             const existingPhaseVal = task.phase_validations?.[currentPhase] || {};
             let combinedUrls = [];
 
@@ -365,30 +358,26 @@ const TaskDetailOverlay = ({
             // Append text if exists
             const combinedText = [existingPhaseVal.proof_text, proofText].filter(Boolean).join('\n---\n');
 
-            let nextPhase = currentPhase;
-            const currentActiveIndex = validActivePhases.indexOf(currentPhase);
-
-            if (currentActiveIndex !== -1 && currentActiveIndex < validActivePhases.length - 1) {
-                // Advance to next valid phase
-                nextPhase = validActivePhases[currentActiveIndex + 1];
-            }
-
+            // Update Validation Object (Reset validated status if any)
             const updatedValidations = {
                 ...(task.phase_validations || {}),
                 [currentPhase]: {
-                    status: 'pending',
+                    status: 'pending', // Pending Manager Review
                     proof_url: combinedUrlsString,
                     proof_text: combinedText,
-                    submitted_at: new Date().toISOString()
+                    submitted_at: new Date().toISOString(),
+                    validated: false // Explicitly un-validate on new submission
                 }
             };
 
+            // Prepare Updates
             const updates = {
                 proof_text: combinedText || null,
                 proof_url: combinedUrlsString,
-                sub_state: nextPhase !== currentPhase ? 'in_progress' : 'pending_validation',
+                sub_state: 'pending_validation', // Signal ready for review
                 status: 'in_progress',
-                lifecycle_state: nextPhase,
+                // Do NOT advance lifecycle_state automatically. Manager must approve.
+                lifecycle_state: currentPhase,
                 phase_validations: updatedValidations,
                 updated_at: new Date().toISOString()
             };
@@ -1083,7 +1072,7 @@ const TaskDetailOverlay = ({
                                             borderRadius: '50%',
                                             backgroundColor: status === 'completed' ? '#10b981' :
                                                 status === 'pending_validation' ? '#f59e0b' :
-                                                    status === 'in_progress' ? '#3b82f6' : '#e2e8f0',
+                                                    status === 'in_progress' ? '#e2e8f0' : '#e2e8f0', // In Progress is now Grey (Active Border only)
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
@@ -1093,7 +1082,10 @@ const TaskDetailOverlay = ({
                                             {status === 'completed' ? (
                                                 <Check size={14} color="white" />
                                             ) : (
-                                                <Circle size={10} color={(status === 'in_progress' || status === 'pending_validation') ? 'white' : '#94a3b8'} fill={(status === 'in_progress' || status === 'pending_validation') ? 'white' : 'none'} />
+                                                <Circle size={10}
+                                                    color={(status === 'pending_validation') ? 'white' : (status === 'in_progress' ? '#3b82f6' : '#94a3b8')}
+                                                    fill={(status === 'pending_validation') ? 'white' : (status === 'in_progress' ? '#3b82f6' : 'none')}
+                                                />
                                             )}
                                         </div>
                                         <div style={{

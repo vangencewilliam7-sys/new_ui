@@ -100,6 +100,17 @@ export const getTaskById = async (taskId) => {
     return data;
 };
 
+export const getTaskSteps = async (taskId) => {
+    const { data, error } = await supabase
+        .from('task_steps')
+        .select('*')
+        .eq('task_id', taskId)
+        .order('order_index', { ascending: true }); // Better order
+
+    if (error) throw error;
+    return data;
+};
+
 /**
  * Fetch potential assignees (employees) for the task module.
  * Logic extracted from AllTasksView.fetchEmployees
