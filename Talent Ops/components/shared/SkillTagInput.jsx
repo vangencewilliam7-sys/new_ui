@@ -4,35 +4,55 @@ import { X, Plus, Tag } from 'lucide-react';
 const PREDEFINED_SKILLS = [
     'Frontend', 'Backend', 'Workflows', 'Databases',
     'Prompting', 'Non-popular LLMs', 'Fine-tuning',
-    'Data Labelling', 'Content Generation',
-    'React', 'Node.js', 'Python', 'SQL', 'TypeScript'
+    'Data Labelling', 'Content Generation'
 ];
 
 const SkillTagInput = ({ selectedSkills = [], onChange, placeholder = "Add skills..." }) => {
     const [inputValue, setInputValue] = useState('');
     const [suggestions, setSuggestions] = useState([]);
 
+    const updateSuggestions = (val) => {
+        const allAvailable = PREDEFINED_SKILLS.filter(s => !selectedSkills.includes(s));
+        if (!val.trim()) {
+            setSuggestions(allAvailable);
+        } else {
+            const filtered = allAvailable.filter(s => s.toLowerCase().includes(val.toLowerCase()));
+            setSuggestions(filtered);
+        }
+    };
+
     const handleInputChange = (e) => {
         const val = e.target.value;
         setInputValue(val);
-        if (val.trim()) {
-            const filtered = PREDEFINED_SKILLS.filter(s =>
-                s.toLowerCase().includes(val.toLowerCase()) &&
-                !selectedSkills.includes(s)
-            );
-            setSuggestions(filtered);
-        } else {
+        updateSuggestions(val);
+    };
+
+    const handleFocus = () => {
+        updateSuggestions(inputValue);
+    };
+
+    const handleBlur = () => {
+        // Delay hiding to allow click event on suggestion to fire
+        setTimeout(() => {
             setSuggestions([]);
-        }
+        }, 200);
     };
 
     const addSkill = (skill) => {
         if (!skill.trim()) return;
         if (!selectedSkills.includes(skill)) {
-            onChange([...selectedSkills, skill]);
+            const newSkills = [...selectedSkills, skill];
+            onChange(newSkills);
+
+            // Re-calculate suggestions based on new selection
+            const allAvailable = PREDEFINED_SKILLS.filter(s => !newSkills.includes(s));
+            setSuggestions(allAvailable);
+        } else {
+            setSuggestions([]);
         }
         setInputValue('');
-        setSuggestions([]);
+        // Keep focus for rapid entry - no need to clear suggestions if we want them to stay open
+        // But typically we might want to refresh them.
     };
 
     const removeSkill = (skillToRemove) => {
@@ -72,6 +92,8 @@ const SkillTagInput = ({ selectedSkills = [], onChange, placeholder = "Add skill
                     type="text"
                     value={inputValue}
                     onChange={handleInputChange}
+                    onFocus={handleFocus}
+                    onBlur={handleBlur}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             e.preventDefault();
@@ -102,7 +124,10 @@ const SkillTagInput = ({ selectedSkills = [], onChange, placeholder = "Add skill
                     {suggestions.map(s => (
                         <div
                             key={s}
-                            onClick={() => addSkill(s)}
+                            onMouseDown={(e) => {
+                                e.preventDefault(); // Prevent blur
+                                addSkill(s);
+                            }}
                             style={{
                                 padding: '8px 12px', cursor: 'pointer', fontSize: '0.9rem',
                                 transition: 'background 0.1s'

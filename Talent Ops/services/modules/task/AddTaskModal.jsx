@@ -150,7 +150,7 @@ const AddTaskModal = ({
             const scoreB = getSkillScore(b, primarySkill);
             return scoreA - scoreB; // Ascending Order (Least skilled first)
         });
-    }, [employees, newTask.skill]);
+    }, [employees, newTask.skills]);
 
     const handleAddTask = async (e) => {
         e.preventDefault();
