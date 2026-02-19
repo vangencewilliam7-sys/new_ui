@@ -47,7 +47,7 @@ export default function Footer() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, amount: 0.2 }}
             transition={{ delay: 0.3, duration: 0.5 }}
           >
             <h3 className="text-lg mb-4 text-[#121212]">Quick Links</h3>
@@ -60,21 +60,19 @@ export default function Footer() {
                 { name: 'Results', href: '#results' },
                 { name: 'About', href: '#about' }
               ].map((link, index) => (
-                <motion.li
-                  key={link.name}
-                  initial={{ opacity: 0, x: -10 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: 0.3 + index * 0.05, duration: 0.4 }}
-                >
+                <li key={link.name}>
                   <motion.a
                     href={link.href}
+                    initial={{ opacity: 0, x: -10 }}
+                    whileInView={{ opacity: 1, x: 0 }}
+                    viewport={{ once: true }}
+                    transition={{ delay: 0.3 + index * 0.05, duration: 0.4 }}
                     whileHover={{ x: 5, opacity: 1 }}
                     className="text-[#121212] opacity-60 capitalize inline-block"
                   >
                     {link.name}
                   </motion.a>
-                </motion.li>
+                </li>
               ))}
             </ul>
           </motion.div>

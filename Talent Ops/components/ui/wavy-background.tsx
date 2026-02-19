@@ -110,6 +110,36 @@ export const WavyBackground = ({
         );
     }, []);
 
+    // Optimization: Pause animation when not in viewport
+    useEffect(() => {
+        const container = canvasRef.current?.parentElement;
+        if (!container) return;
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) {
+                    if (!animationId) {
+                        render();
+                    }
+                } else {
+                    if (animationId) {
+                        cancelAnimationFrame(animationId);
+                        // @ts-ignore
+                        animationId = null;
+                    }
+                }
+            },
+            { threshold: 0 }
+        );
+
+        observer.observe(container);
+
+        return () => {
+            observer.disconnect();
+            if (animationId) cancelAnimationFrame(animationId);
+        };
+    }, []);
+
     return (
         <div
             className={cn(

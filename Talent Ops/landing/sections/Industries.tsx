@@ -105,7 +105,7 @@ export default function Industries() {
                                         <item.icon className="w-8 h-8 text-[#3b82f6] group-hover:text-white transition-colors duration-500 relative z-10" />
 
                                         {/* Shimmer / Light Scan effect */}
-                                        <div className="absolute top-0 left-[-100%] w-full h-full bg-gradient-to-r from-transparent via-white/30 to-transparent group-hover:left-[100%] transition-all duration-1000 ease-in-out" />
+                                        <div className="absolute top-0 left-[-100%] w-full h-full bg-gradient-to-r from-transparent via-white/30 to-transparent group-hover:translate-x-[200%] transition-transform duration-1000 ease-in-out will-change-transform" />
                                     </div>
 
                                     <h3 className="text-[26px] font-heading font-bold text-[#1f2937] mb-4 tracking-tight">
