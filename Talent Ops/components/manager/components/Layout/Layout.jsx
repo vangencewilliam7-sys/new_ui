@@ -5,6 +5,7 @@ import Header from './Header';
 import Chatbot from '../UI/Chatbot';
 import LoginSummaryModal from '../../../shared/LoginSummaryModal';
 import AnnouncementPopup from '../../../shared/AnnouncementPopup';
+import RiskAlertPopup from '../../../shared/RiskAlertPopup';
 import { supabase } from '../../../../lib/supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { MessageProvider } from '../../../shared/context/MessageContext';
@@ -14,6 +15,11 @@ const Layout = ({ children }) => {
     const [isCollapsed, setIsCollapsed] = React.useState(false);
     const [showLoginSummary, setShowLoginSummary] = React.useState(false);
     const [showAnnouncements, setShowAnnouncements] = React.useState(false);
+
+    // Risk Alert Popup State
+    const [showRiskPopup, setShowRiskPopup] = React.useState(false);
+    const [riskAlert, setRiskAlert] = React.useState(null);
+
     const [userId, setUserId] = React.useState(null);
     const location = useLocation();
     const { addToast } = useToast();
@@ -46,6 +52,13 @@ const Layout = ({ children }) => {
                 },
                 (payload) => {
                     console.log('Real-time notification received:', payload);
+
+                    // Check for AI Risk Alert
+                    if (payload.new && payload.new.type === 'ai_risk_alert') {
+                        setRiskAlert(payload.new);
+                        setShowRiskPopup(true);
+                    }
+
                     // setShowLoginSummary(true); 
                 }
             )
@@ -97,6 +110,11 @@ const Layout = ({ children }) => {
                     isOpen={showLoginSummary}
                     onClose={() => setShowLoginSummary(false)}
                     userId={userId}
+                />
+                <RiskAlertPopup
+                    isOpen={showRiskPopup}
+                    onClose={() => setShowRiskPopup(false)}
+                    alertData={riskAlert}
                 />
             </div>
         </MessageProvider>

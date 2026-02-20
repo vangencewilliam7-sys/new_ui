@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
-
-import { X, Upload, FileText, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { X, Upload, FileText, CheckCircle2, AlertTriangle, Sparkles, Loader2 } from 'lucide-react';
 import { taskService } from '.';
-import { useBusinessHours } from './hooks/useBusinessHours';
-import { calculateDueDateTime } from '../../../lib/businessHoursUtils';
 import SkillTagInput from '../../../components/shared/SkillTagInput';
+
+// SOLID Hooks & Utils
+import { useTaskForm } from './hooks/useTaskForm';
+import { useTaskPhases } from './hooks/useTaskPhases';
+import { useAIPlanning } from './hooks/useAIPlanning';
+import { sortEmployeesBySkill, getSkillScore } from './utils/employeeMatching';
+import AISuggestionOverlay from './components/AISuggestionOverlay';
 
 // Lifecycle phases constant
 const LIFECYCLE_PHASES = [
@@ -26,139 +30,80 @@ const AddTaskModal = ({
     addToast
 }) => {
     const [submitting, setSubmitting] = useState(false);
-    const [anchorMode, setAnchorMode] = useState('date'); // 'date' | 'hours'
 
-    // Task State
-    const [newTask, setNewTask] = useState({
-        title: '',
-        description: '',
-        assignType: 'individual',
-        assignedTo: '',
-        selectedAssignees: [],
-        startDate: new Date().toISOString().split('T')[0],
-        endDate: new Date().toISOString().split('T')[0],
-        startTime: '09:00',
-        dueTime: '17:00',
-        priority: 'Medium',
-        skills: [],
-        allocatedHours: 10,
-        pointsPerHour: 100,
-        requiredPhases: ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment'],
-        stepDuration: '2h' // Default
-    });
+    // 1. Task Form Logic (SRP: Form State & Validation)
+    const {
+        newTask, setNewTask, handleHoursChange, handleStartDateChange,
+        handleEndDateChange, resetForm
+    } = useTaskForm();
 
-    // Custom Hook for Business Hours (SOLID: SRP)
-    const { allocatedHours: calculatedHours, calculateEndDateFromHours } = useBusinessHours(
-        newTask.startDate,
-        newTask.startTime,
-        newTask.endDate,
-        newTask.dueTime
-    );
+    // 2. Task Phase Logic (SRP: Phase & Steps Management)
+    const {
+        phaseFiles, setPhaseFiles,
+        phaseDescriptions, setPhaseDescriptions,
+        taskStepsToAdd, setTaskStepsToAdd, // Exposed for now to keep render logic simple
+        activeStepPhase, setActiveStepPhase,
+        newStepInput, setNewStepInput,
+        newStepHours, setNewStepHours,
+        addStep, removeStep, resetPhases,
+        applyBatchPlan
+    } = useTaskPhases(newTask.requiredPhases);
 
-    // Sync calculated hours to task state (Forward Sync: Dates -> Hours)
+    // 3. AI Planning Logic (SRP: AI Generation Session)
+    const {
+        aiPlan, aiLoading, aiError, showOverlay, aiMetadata,
+        generatePlan, regeneratePlan, applyPlan, dismissPlan, resetAI
+    } = useAIPlanning();
+
+    // 4. Employee Sorting Strategy (SRP: Business Logic)
+    const sortedEmployees = useMemo(() => {
+        return sortEmployeesBySkill(employees, newTask.skills);
+    }, [employees, newTask.skills]);
+
+    // AI: Handle "Continue & Apply" from overlay
+    const handleAIApply = (flatSteps, metadata) => {
+        applyPlan(flatSteps, metadata);
+        applyBatchPlan(flatSteps);
+
+        // Auto-calculate allocated hours from AI steps
+        const totalHours = flatSteps.reduce((sum, s) => sum + (s.hours || 0), 0);
+        if (totalHours > 0) {
+            setNewTask(prev => ({ ...prev, allocatedHours: totalHours }));
+        }
+
+        addToast?.('AI plan applied! You can still edit the steps below.', 'success');
+    };
+
+    // AI: Handle Generate button click
+    const handleGenerateAIPlan = () => {
+        if (!newTask.title || !newTask.description) {
+            addToast?.('Please enter a task title and description first.', 'error');
+            return;
+        }
+        generatePlan(newTask.title, newTask.description, newTask.skills);
+    };
+
+    // AI: Handle Regenerate from overlay
+    const handleRegenerate = () => {
+        regeneratePlan(newTask.title, newTask.description, newTask.skills);
+    };
+
+    // Glue Logic: Ensure active phase is valid
     useEffect(() => {
-        // Only update if the calculated value is different and valid
-        if (calculatedHours && calculatedHours !== newTask.allocatedHours) {
-            setNewTask(prev => ({ ...prev, allocatedHours: calculatedHours }));
-        }
-    }, [calculatedHours]);
-
-    // Handle manual hours change (Backward Sync: Hours -> Dates)
-    const handleHoursChange = (e) => {
-        const newHours = e.target.value;
-        setNewTask(prev => ({ ...prev, allocatedHours: newHours }));
-        setAnchorMode('hours');
-
-        // Calculate and update end date/time
-        if (newHours && parseFloat(newHours) > 0) {
-            const result = calculateEndDateFromHours(newHours);
-            if (result) {
-                setNewTask(prev => ({
-                    ...prev,
-                    allocatedHours: newHours,
-                    endDate: result.dueDate,
-                    dueTime: result.dueTime.slice(0, 5) // Format HH:MM
-                }));
-            }
-        }
-    };
-
-    const handleStartDateChange = (field, value) => {
-        const updates = { [field]: value };
-
-        // If anchored to hours, shift the end date to preserve duration
-        if (anchorMode === 'hours' && newTask.allocatedHours && parseFloat(newTask.allocatedHours) > 0) {
-            const tempStart = field === 'startDate' ? value : newTask.startDate;
-            const tempTime = field === 'startTime' ? value : newTask.startTime;
-
-            if (tempStart && tempTime) {
-                const startDateTime = new Date(`${tempStart}T${tempTime}`);
-                const result = calculateDueDateTime(startDateTime, parseFloat(newTask.allocatedHours));
-                updates.endDate = result.dueDate;
-                updates.dueTime = result.dueTime.slice(0, 5);
-            }
-        }
-
-        setNewTask(prev => ({ ...prev, ...updates }));
-    };
-
-    const handleEndDateChange = (field, value) => {
-        setAnchorMode('date');
-        setNewTask(prev => ({ ...prev, [field]: value }));
-    };
-
-    // Phase & Steps State
-    const [phaseFiles, setPhaseFiles] = useState({});
-    const [phaseDescriptions, setPhaseDescriptions] = useState({});
-    const [taskStepsToAdd, setTaskStepsToAdd] = useState({});
-    const [activeStepPhase, setActiveStepPhase] = useState('requirement_refiner');
-    const [newStepInput, setNewStepInput] = useState('');
-    const [newStepHours, setNewStepHours] = useState(2);
-
-    // Reset state when modal opens/closes
-    useEffect(() => {
-        if (!isOpen) {
-            // Optional: Reset state here if we want to clear on close
-        } else {
-            // Ensure valid active step phase
-            if (newTask.requiredPhases.length > 0 && !newTask.requiredPhases.includes(activeStepPhase)) {
-                setActiveStepPhase(newTask.requiredPhases[0]);
-            }
+        if (!isOpen) return;
+        if (newTask.requiredPhases.length > 0 && !newTask.requiredPhases.includes(activeStepPhase)) {
+            setActiveStepPhase(newTask.requiredPhases[0]);
         }
     }, [isOpen, newTask.requiredPhases, activeStepPhase]);
 
-    // Helper: Enforce Single Responsibility for scoring logic
-    const getSkillScore = (employee, skillName) => {
-        if (!employee.technical_scores || !skillName) return 0;
-        // Check exact match, lowercase, or uppercase
-        return employee.technical_scores[skillName] ||
-            employee.technical_scores[skillName.toLowerCase()] ||
-            employee.technical_scores[skillName.toUpperCase()] ||
-            0;
-    };
-
-
-
-
-    const sortedEmployees = useMemo(() => {
-        if (!Array.isArray(employees)) return [];
-        const primarySkill = newTask.skills?.[0];
-        if (!primarySkill) return employees;
-
-        return [...employees].sort((a, b) => {
-            const scoreA = getSkillScore(a, primarySkill);
-            const scoreB = getSkillScore(b, primarySkill);
-            return scoreA - scoreB; // Ascending Order (Least skilled first)
-        });
-    }, [employees, newTask.skill]);
-
     const handleAddTask = async (e) => {
         e.preventDefault();
+
+        // Basic Validation
         if (!newTask.title) {
             addToast?.('Please enter a task title', 'error');
             return;
         }
-
         if (!newTask.startTime || !newTask.dueTime) {
             addToast?.('Please select start and due times', 'error');
             return;
@@ -166,25 +111,6 @@ const AddTaskModal = ({
 
         setSubmitting(true);
         try {
-            // Get sender name (could affect performance if called every time, but keeping logic same for now)
-            // Ideally senderName should be passed or cached, but we'll fetch it here to match original logic
-            // or we assume user.user_metadata.full_name if available.
-            // Original logic fetched profile. Let's use what we can.
-            // We'll trust taskService or do a quick fetch if needed. 
-            // Actually, best to fetch profile once or pass it. 
-            // For now, let's just pass 'Task Manager' or fetch if strictly needed.
-            // The original code fetched it:
-            /*
-            const { data: senderProfile } = await supabase
-                .from('profiles')
-                .select('full_name')
-                .eq('id', user.id)
-                .eq('org_id', orgId)
-                .single();
-            */
-            // I'll skip the profile fetch for now and use user.email or a placeholder if name missing, 
-            // OR strictly, I should import supabase and do it.
-            // Let's assume the service handles senderName or we pass something reasonable.
             const senderName = user?.user_metadata?.full_name || user?.email || 'Task Manager';
 
             // 1. Upload Phase Guidance Files via Service
@@ -216,36 +142,19 @@ const AddTaskModal = ({
                 senderName,
                 taskStepsToAdd,
                 employees,
-                preparedValidations
+                preparedValidations,
+                aiMetadata  // Pass AI metadata for persistence
             });
 
             addToast?.('Task assigned successfully!', 'success');
             onTaskAdded(); // Notify parent to refresh
             onClose();     // Close modal
 
-            // Reset Form
-            setNewTask({
-                title: '',
-                description: '',
-                assignType: 'individual',
-                assignedTo: '',
-                selectedAssignees: [],
-                startDate: new Date().toISOString().split('T')[0],
-                endDate: new Date().toISOString().split('T')[0],
-                startTime: '09:00',
-                dueTime: '17:00',
-                priority: 'Medium',
-                skills: [],
-                allocatedHours: 10,
-                pointsPerHour: 100,
-                requiredPhases: ['requirement_refiner', 'design_guidance', 'build_guidance', 'acceptance_criteria', 'deployment'],
-                stepDuration: '2h'
-            });
-            setPhaseFiles({});
-            setPhaseDescriptions({});
-            setTaskStepsToAdd({});
-            setNewStepInput('');
-            setNewStepHours(2);
+            // Reset Form, Phases & AI
+            resetForm();
+            resetPhases();
+            resetAI();
+
         } catch (error) {
             console.error('Error adding task:', error);
             addToast?.('Failed to assign task', 'error');
@@ -657,9 +566,42 @@ const AddTaskModal = ({
 
                             {/* Execution Steps Section */}
                             <div style={{ marginTop: '16px' }}>
-                                <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', marginBottom: '12px' }}>
-                                    📝 Pre-define Execution Steps (Optional)
-                                </label>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+                                    <label style={{ display: 'block', fontSize: '0.9rem', fontWeight: 600, color: '#334155', margin: 0 }}>
+                                        📝 Pre-define Execution Steps (Optional)
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={handleGenerateAIPlan}
+                                        disabled={aiLoading || !newTask.title || !newTask.description}
+                                        style={{
+                                            display: 'flex', alignItems: 'center', gap: '6px',
+                                            padding: '8px 16px',
+                                            borderRadius: '8px',
+                                            border: 'none',
+                                            background: (!newTask.title || !newTask.description) ? '#e2e8f0' : 'linear-gradient(135deg, #10b981, #059669)',
+                                            color: (!newTask.title || !newTask.description) ? '#94a3b8' : 'white',
+                                            fontWeight: 600,
+                                            fontSize: '0.8rem',
+                                            cursor: (aiLoading || !newTask.title || !newTask.description) ? 'not-allowed' : 'pointer',
+                                            boxShadow: (!newTask.title || !newTask.description) ? 'none' : '0 4px 12px rgba(16, 185, 129, 0.25)',
+                                            transition: 'all 0.2s',
+                                            opacity: aiLoading ? 0.7 : 1
+                                        }}
+                                    >
+                                        {aiLoading ? (
+                                            <><Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> Generating...</>
+                                        ) : (
+                                            <><Sparkles size={14} /> Generate Steps (AI)</>
+                                        )}
+                                    </button>
+                                </div>
+                                {aiError && (
+                                    <div style={{ padding: '8px 12px', backgroundColor: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca', color: '#dc2626', fontSize: '0.8rem', marginBottom: '12px' }}>
+                                        ⚠️ {aiError}
+                                    </div>
+                                )}
+                                <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
 
                                 {/* Step Duration Setting - Commented out per user request
                                 <div style={{ marginBottom: '16px' }}>
@@ -945,6 +887,17 @@ const AddTaskModal = ({
                     </form>
                 </div>
             </div >
+
+            {/* AI Suggestion Overlay */}
+            {showOverlay && aiPlan && (
+                <AISuggestionOverlay
+                    aiPlan={aiPlan}
+                    onClose={dismissPlan}
+                    onApply={handleAIApply}
+                    onRegenerate={handleRegenerate}
+                    isRegenerating={aiLoading}
+                />
+            )}
         </div>
     );
 };

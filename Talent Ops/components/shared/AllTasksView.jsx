@@ -312,29 +312,24 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
     const handleSaveEdit = async () => {
         if (!editingTask) return;
         try {
+            const allocatedHrs = parseFloat(editingTask.allocated_hours) || 0;
+
+            // Recalculate due date/time based on new allocated hours and start date
+            const startDateStr = `${editingTask.start_date}T${editingTask.start_time || '09:00:00'}`;
+            const { dueDate, dueTime } = calculateDueDateTime(new Date(startDateStr), allocatedHrs);
+
             const updates = {
                 title: editingTask.title,
                 description: editingTask.description,
+                allocated_hours: allocatedHrs,
+                assigned_to: editingTask.assigned_to || null,
                 start_date: editingTask.start_date,
                 start_time: editingTask.start_time,
-                due_date: editingTask.due_date,
-                due_time: editingTask.due_time,
+                due_date: dueDate,
+                due_time: dueTime,
                 priority: editingTask.priority,
                 status: editingTask.status,
                 skills: editingTask.skills,
-                // Only update phases if modified. 
-                // Wait, phases are stored in phase_validations JSONB. 
-                // We need to construct phase_validations if requiredPhases changed.
-                // Assuming backend handles it or we assume existing structure holds.
-                // Actually, if we change requiredPhases, we should probably update validation structure?
-                // For now, let's just pass requiredPhases if the backend supports it, or update phase_validations manually?
-                // The current updateTask mostly just updates fields. 
-                // If requiredPhases are stored in a column, great. 
-                // AddTaskModal puts them in `phase_validations.active_phases`.
-                // So we should update phase_validations.
-                // We'll trust taskService or do a merge.
-                // Simplest: just pass fields. If requiredPhases logic is needed, we'll implement.
-                // For now, we update skills.
             };
 
             // If requiredPhases is present (for managers), we update the validations structure
@@ -739,7 +734,7 @@ const AllTasksView = ({ userRole = 'employee', projectRole = 'employee', userId,
                         </div>
 
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'flex-end' }}>
-                            {(userRole === 'manager' || userRole === 'executive') && (!effectiveProjectRole || effectiveProjectRole === 'manager' || effectiveProjectRole === 'team_lead') && (
+                            {(userRole === 'manager' || userRole === 'executive') && (!effectiveProjectRole || effectiveProjectRole === 'manager' || effectiveProjectRole === 'team_lead' || effectiveProjectRole === 'executive') && (
                                 <button
                                     onClick={() => setShowAddTaskModal(true)}
                                     style={{

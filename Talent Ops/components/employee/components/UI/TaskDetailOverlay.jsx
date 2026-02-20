@@ -741,6 +741,51 @@ const TaskDetailOverlay = ({
                         </p>
                     </div>
 
+                    {/* Time Details Grid */}
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                        gap: '16px',
+                        marginBottom: '32px'
+                    }}>
+                        {/* Start Time */}
+                        <div style={{ padding: '16px', backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Start Date & Time</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#334155', fontWeight: 600, fontSize: '0.95rem' }}>
+                                    <Calendar size={16} strokeWidth={2.5} color="#3b82f6" />
+                                    {task?.start_date ? new Date(task.start_date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : 'Not set'}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '0.9rem', paddingLeft: '24px' }}>
+                                    {task?.start_time ? task.start_time.slice(0, 5) : '--:--'}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Due Time */}
+                        <div style={{ padding: '16px', backgroundColor: 'white', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>Due Date & Time</div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#334155', fontWeight: 600, fontSize: '0.95rem' }}>
+                                    <Calendar size={16} strokeWidth={2.5} color="#ef4444" />
+                                    {task?.due_date ? new Date(task.due_date).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) : 'Not set'}
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#64748b', fontSize: '0.9rem', paddingLeft: '24px' }}>
+                                    {task?.due_time ? task.due_time.slice(0, 5) : '--:--'}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Duration */}
+                        <div style={{ padding: '16px', backgroundColor: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#3b82f6', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>Wait Time</div>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1e40af', display: 'flex', alignItems: 'baseline', gap: '4px' }}>
+                                {task?.allocated_hours || 0}
+                                <span style={{ fontSize: '0.9rem', fontWeight: 600, color: '#60a5fa' }}>hrs</span>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Reassignment Info */}
                     {(task.reassigned_from || task.reassigned_to || task.access_reason === 'Reassigned by manager') && (
                         <div style={{

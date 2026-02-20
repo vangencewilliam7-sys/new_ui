@@ -163,6 +163,16 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                     byPhase[p.key] = formatted.filter(t => t.lifecycle_state === p.key).length;
                 });
                 setStats({ pending, approved, total: formatted.length, byPhase });
+
+                // --- BULK SYNC ALL TASKS FOR MONITORING ---
+                // This ensures every task has a baseline snapshot in the DB
+                const allIds = formatted.map(t => t.id);
+                if (allIds.length > 0) {
+                    riskService.syncDailyRisks(allIds).then(() => {
+                        // After sync, fetch the full data map
+                        fetchRiskDataForTasks(formatted);
+                    });
+                }
             }
 
             // Fetch Team Analytics (Time & Effort)

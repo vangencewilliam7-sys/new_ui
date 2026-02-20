@@ -147,7 +147,8 @@ export const createTask = async ({
     senderName,
     taskStepsToAdd,
     employees,
-    preparedValidations
+    preparedValidations,
+    aiMetadata  // NEW: AI planning metadata (risks, assumptions, model)
 }) => {
     try {
         if (newTask.assignType === 'multi') {
@@ -163,10 +164,10 @@ export const createTask = async ({
             const tasksToInsert = newTask.selectedAssignees.map(empId => ({
                 title: newTask.title,
                 description: newTask.description,
-                assigned_to: empId,
+                assigned_to: empId || null,
                 assigned_by: user.id,
                 assigned_by_name: senderName,
-                project_id: effectiveProjectId,
+                project_id: effectiveProjectId || null,
                 start_date: newTask.startDate,
                 start_time: newTask.startTime,
                 due_date: dueDate,
@@ -177,7 +178,8 @@ export const createTask = async ({
                 org_id: orgId,
                 allocated_hours: allocatedHrs,
                 risk_tag: newTask.riskTag,
-                skills: newTask.skills || []
+                skills: newTask.skills || [],
+                ...(aiMetadata ? { ai_metadata: aiMetadata } : {})
             }));
 
             const { data: createdMultiTasks, error: multiTaskError } = await supabase.from('tasks').insert(tasksToInsert).select('id');
@@ -237,10 +239,10 @@ export const createTask = async ({
             const taskToInsert = {
                 title: newTask.title,
                 description: newTask.description,
-                assigned_to: newTask.assignType === 'individual' ? newTask.assignedTo : null,
+                assigned_to: newTask.assignType === 'individual' && newTask.assignedTo ? newTask.assignedTo : null,
                 assigned_by: user.id,
                 assigned_by_name: senderName,
-                project_id: effectiveProjectId,
+                project_id: effectiveProjectId || null,
                 start_date: newTask.startDate,
                 start_time: newTask.startTime,
                 due_date: dueDate,
@@ -251,7 +253,8 @@ export const createTask = async ({
                 org_id: orgId,
                 allocated_hours: allocatedHrs,
                 risk_tag: newTask.riskTag,
-                skills: newTask.skills || []
+                skills: newTask.skills || [],
+                ...(aiMetadata ? { ai_metadata: aiMetadata } : {})
             };
 
             const { data: createdTasks, error: taskError } = await supabase.from('tasks').insert([taskToInsert]).select('id');
