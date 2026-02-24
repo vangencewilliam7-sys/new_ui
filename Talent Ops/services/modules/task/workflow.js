@@ -1,4 +1,5 @@
 import { supabase } from '../../../lib/supabaseClient';
+import { uploadMultipleFiles } from '../../storageService';
 
 /**
  * Task Workflow
@@ -19,25 +20,9 @@ const getPhaseIndex = (phase) => LIFECYCLE_PHASES.findIndex(p => p.key === phase
 /**
  * Submit Proof for a task phase.
  * 
- * UNIFIED handler — used by TaskDetailOverlay, MyTasksPage, and AllTasksView.
- * Supports:
- *   - Single file (proofFile) or multiple files (proofFiles array)
- *   - Text-only submissions
- *   - Merging with existing proof URLs for the same phase
- *   - Active-phases-aware phase advancement
- *   - task_submissions + task_evidence recording
- *   - orgId for task_submissions table
- * 
- * @param {object} params
- * @param {object} params.task - The full task object
- * @param {object} params.user - The authenticated user { id, ... }
- * @param {File|null} params.proofFile - Single file (legacy compat)
- * @param {File[]|null} params.proofFiles - Multiple files
- * @param {string} params.proofText - Proof description text
- * @param {number|string} params.proofHours - Actual hours spent (optional)
- * @param {string} params.orgId - Organization ID
- * @param {function} params.onProgress - Progress callback (0-100)
- * @returns {Promise<object>} - { updatedValidations, pointData }
+ * FOLLOWS SOLID PRINCIPLES:
+ * - SRP: Storage logic moved to StorageService.
+ * - Dependency Inversion: Workflow logic depends on an abstraction (service) not raw bucket calls.
  */
 export const submitTaskProof = async ({
     task,
@@ -62,29 +47,22 @@ export const submitTaskProof = async ({
         let evidenceRecords = [];
 
         if (filesToUpload.length > 0) {
-            for (let i = 0; i < filesToUpload.length; i++) {
-                const file = filesToUpload[i];
-                const fileName = `${task.id}_${Date.now()}_${file.name}`;
-                const filePath = `${user.id}/${fileName}`;
+            // Use the new StorageService to handle sanitization and upload
+            // We use a clean nested path [org]/[user]/[task] for organization
+            // and original naming (with light sanitization) for the file.
+            const uploadResults = await uploadMultipleFiles({
+                bucket: 'task-proofs',
+                path: `${orgId || 'no-org'}/${user.id}/${task.id}`,
+                files: filesToUpload,
+                onProgress: (p) => onProgress?.(Math.round(p * 0.6) + 10) // 10% to 70% range
+            });
 
-                onProgress?.(Math.round(((i + 0.5) / filesToUpload.length) * 60) + 10); // 10-70%
-
-                const { error: uploadError } = await supabase.storage
-                    .from('task-proofs')
-                    .upload(filePath, file, { cacheControl: '3600', upsert: false });
-
-                if (uploadError) throw uploadError;
-
-                const { data: { publicUrl } } = supabase.storage.from('task-proofs').getPublicUrl(filePath);
-                newFileUrls.push(publicUrl);
-                evidenceRecords.push({
-                    file_url: publicUrl,
-                    file_type: file.type || 'application/octet-stream',
-                    file_name: file.name
-                });
-
-                onProgress?.(Math.round(((i + 1) / filesToUpload.length) * 60) + 10);
-            }
+            newFileUrls = uploadResults.map(r => r.publicUrl);
+            evidenceRecords = uploadResults.map(r => ({
+                file_url: r.publicUrl,
+                file_type: r.fileType,
+                file_name: r.fileName
+            }));
         }
 
         // ── 2. Determine Current Phase ──
