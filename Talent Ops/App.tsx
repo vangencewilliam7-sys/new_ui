@@ -13,6 +13,10 @@ import FullRankingPage from './components/performance/FullRankingPage';
 // @ts-ignore
 import { ThemeProvider } from './components/shared/context/ThemeContext';
 import { supabase } from './lib/supabaseClient';
+import { RequestDemoPage } from './landing/sections/RequestDemoPage';
+// @ts-ignore
+import PricingPage from './landing/sections/PricingPage';
+import { StylesInjection } from './landing/styles/StylesInjection';
 
 function App() {
     useEffect(() => {
@@ -54,8 +58,11 @@ function App() {
 
     return (
         <Router>
+            <StylesInjection />
             <Routes>
                 <Route path="/" element={<LandingPage />} />
+                <Route path="/request-demo" element={<RequestDemoPage />} />
+                <Route path="/pricing" element={<PricingPage />} />
 
                 {/* Wrap application routes with ThemeProvider */}
                 <Route element={<ThemeProvider><Outlet /></ThemeProvider>}>

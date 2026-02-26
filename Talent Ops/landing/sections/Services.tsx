@@ -120,10 +120,10 @@ export default function Services() {
                     </motion.span>
                     <div className="flex justify-center w-full overflow-visible">
                         <motion.h2
-                            initial={{ opacity: 0, y: 20 }}
+                            initial={{ opacity: 0, y: 30 }}
                             whileInView={{ opacity: 1, y: 0 }}
                             viewport={{ once: true, amount: 0.1 }}
-                            transition={{ duration: 0.8, delay: 0.2 }}
+                            transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
                             className="text-xl md:text-3xl lg:text-4xl xl:text-5xl font-display font-bold text-[#FFEEDE] mb-10 leading-[1.1] tracking-tight whitespace-nowrap shrink-0 text-center"
                         >
                             A Unified Intelligence System for <span className="text-[#E6D3C4] italic">Workforce Decisions</span>

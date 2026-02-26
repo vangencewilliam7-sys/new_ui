@@ -27,19 +27,20 @@ const industries = [
 
 export default function Industries() {
     return (
-        <section id="industries" className="py-32 px-6 lg:px-12 bg-[#F8F7F4] relative overflow-hidden">
+        <section id="industries" className="py-20 px-6 lg:px-12 bg-[#F8F7F4] relative overflow-hidden">
             {/* Background Decorative Element */}
             <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full pointer-events-none opacity-[0.03]">
                 <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(#3b82f6_1px,transparent_1px)] [background-size:40px_40px]" />
             </div>
 
             <div className="max-w-7xl mx-auto relative z-10">
-                <div className="text-center mb-24">
+                <div className="text-center mb-16">
                     <motion.h2
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 30 }}
                         whileInView={{ opacity: 1, y: 0 }}
-                        viewport={{ once: true }}
-                        className="text-[42px] md:text-[48px] lg:text-[52px] mb-6 text-[#1f2937] font-heading font-semibold tracking-tight leading-[1.15]"
+                        viewport={{ once: true, amount: 0.2 }}
+                        transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+                        className="text-[32px] md:text-[38px] lg:text-[42px] mb-6 text-[#1f2937] font-heading font-semibold tracking-tight leading-[1.15]"
                     >
                         Designed for Organizations That Scale
                     </motion.h2>

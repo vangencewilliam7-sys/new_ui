@@ -66,19 +66,17 @@ function PainPointCard({ point, index }: { point: typeof painPoints[0]; index: n
 
 export default function Problem() {
   return (
-    <section id="problem" className="py-32 px-6 lg:px-12 bg-white">
+    <section id="problem" className="py-20 px-6 lg:px-12 bg-white">
       <div className="max-w-7xl mx-auto">
-        <motion.div
+        <motion.h2
           initial={{ opacity: 0, y: 30 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true, amount: 0.2 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-20"
+          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          className="text-[32px] md:text-[38px] lg:text-[42px] mb-12 text-[#1f2937] font-heading font-semibold tracking-tight leading-[1.15] text-center"
         >
-          <h2 className="text-[42px] md:text-[48px] lg:text-[52px] mb-6 text-[#1f2937] font-heading font-semibold tracking-tight leading-[1.15] whitespace-nowrap">
-            Why Workforce Management Becomes Challenging at Scale
-          </h2>
-        </motion.div>
+          Why Workforce Management Gets Harder at Scale
+        </motion.h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {painPoints.map((point, index) => (

@@ -16,6 +16,9 @@ const STYLES = `
   --cta-dark: #2563eb;
 
   /* Fonts */
+  --font-playfair: 'Playfair Display', serif;
+  --font-cormorant: 'Cormorant Garamond', serif;
+  --font-space: 'Space Grotesk', sans-serif;
   --font-redhat: 'Red Hat Display', sans-serif;
   --font-leckerli: 'Leckerli One', cursive;
   --font-satisfy: 'Satisfy', cursive;

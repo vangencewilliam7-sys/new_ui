@@ -1,6 +1,7 @@
 import React, { forwardRef, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useNavigate } from 'react-router-dom';
 
 interface ComponentProps {
     label?: string;
@@ -13,7 +14,13 @@ export const GlowButton = forwardRef<HTMLButtonElement | HTMLAnchorElement, Comp
     ({ label = "Generate", onClick, className, href }, ref) => {
         const [isClicked, setIsClicked] = useState(false);
 
+        const navigate = useNavigate();
+
         const handleClick = (e: React.MouseEvent) => {
+            if (href && href.startsWith('/')) {
+                e.preventDefault();
+                navigate(href);
+            }
             setIsClicked(true);
             setTimeout(() => setIsClicked(false), 200);
             onClick?.();

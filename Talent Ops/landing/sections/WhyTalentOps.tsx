@@ -43,7 +43,7 @@ export default function WhyTalentOps() {
   const statsInView = useInView(statsRef, { once: true, amount: 0.5 });
 
   return (
-    <section id="about" className="py-32 px-6 lg:px-12 bg-[#f7f7f9]">
+    <section id="about" className="py-20 px-6 lg:px-12 bg-[#f7f7f9]">
       <div className="max-w-7xl mx-auto">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
           <motion.div
@@ -52,9 +52,15 @@ export default function WhyTalentOps() {
             viewport={{ once: true, amount: 0.3 }}
             transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
           >
-            <h2 className="text-[42px] md:text-[48px] lg:text-[52px] mb-6 text-[#1f2937] font-heading font-semibold tracking-tight leading-[1.15]">
+            <motion.h2
+              initial={{ opacity: 0, y: 30 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.2 }}
+              transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+              className="text-[42px] md:text-[48px] lg:text-[52px] mb-6 text-[#1f2937] font-heading font-semibold tracking-tight leading-[1.15]"
+            >
               Why TalentOps
-            </h2>
+            </motion.h2>
             <p className="text-[18px] text-[rgba(31,41,55,0.85)] font-serif leading-[1.7] mb-8 max-w-[640px]">
               We don't just advise—we build, implement, and optimize alongside you.
             </p>
@@ -80,24 +86,24 @@ export default function WhyTalentOps() {
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, amount: 0.3 }}
             transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-            className="relative"
+            className="relative max-w-[520px] mx-auto w-full"
           >
             <motion.div
               ref={statsRef}
               whileHover={{ scale: 1.02 }}
               transition={{ duration: 0.3 }}
-              className="aspect-square rounded-2xl bg-gradient-to-br from-[#a5c9ff] to-[#e3f2fd] p-12 flex items-center justify-center shadow-xl"
+              className="rounded-2xl bg-gradient-to-br from-[#a5c9ff] to-[#e3f2fd] py-14 px-10 flex items-center justify-center shadow-lg"
             >
-              <div className="text-center">
-                <div className="text-6xl md:text-7xl text-[#121212] mb-4 tracking-tight">
+              <div className="text-center text-ink">
+                <div className="text-6xl md:text-7xl mb-4 tracking-tight font-heading font-bold">
                   <AnimatedStat value={100} suffix="+" isInView={statsInView} />
                 </div>
-                <div className="text-xl text-[#121212] opacity-80">Organizations Transformed</div>
-                <div className="mt-8 pt-8 border-t border-[#121212] opacity-20">
-                  <div className="text-4xl text-[#121212] mb-2 tracking-tight">
+                <div className="text-xl opacity-80 font-serif">Organizations Transformed</div>
+                <div className="mt-8 pt-8 border-t border-ink/10">
+                  <div className="text-4xl mb-2 tracking-tight font-heading font-bold">
                     <AnimatedStat value={15} suffix="+" isInView={statsInView} />
                   </div>
-                  <div className="text-[#121212] opacity-60">Years Combined Experience</div>
+                  <div className="text-base opacity-60 font-serif">Years Combined Experience</div>
                 </div>
               </div>
             </motion.div>

@@ -1,8 +1,11 @@
 import React from 'react';
 import { ArrowRight } from 'lucide-react';
 import { motion, useInView } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 
 export default function FinalCTA() {
+  const navigate = useNavigate();
+
   return (
     <section id="cta" className="py-32 px-6 lg:px-12 bg-gradient-to-br from-[#121212] to-[#2a2a2a] relative overflow-hidden">
       {/* Grid pattern overlay */}
@@ -27,14 +30,21 @@ export default function FinalCTA() {
         transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
         className="relative max-w-4xl mx-auto text-center"
       >
-        <h2 className="text-[42px] md:text-[52px] lg:text-[60px] mb-6 text-white font-heading font-semibold tracking-tight leading-[1.15]">
+        <motion.h2
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.2 }}
+          transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+          className="text-[42px] md:text-[52px] lg:text-[60px] mb-6 text-white font-heading font-semibold tracking-tight leading-[1.15]"
+        >
           Build Structure Into Your Growth
-        </h2>
+        </motion.h2>
         <p className="text-[18px] md:text-[20px] text-white/90 font-serif leading-[1.7] mb-12 max-w-[640px] mx-auto">
           Stop managing talent by instinct. Start building with intention.
         </p>
 
         <motion.button
+          onClick={() => navigate('/request-demo')}
           whileHover={{ scale: 1.05, boxShadow: "0 20px 50px rgba(255, 255, 255, 0.2)" }}
           whileTap={{ scale: 0.98 }}
           transition={{ duration: 0.2 }}

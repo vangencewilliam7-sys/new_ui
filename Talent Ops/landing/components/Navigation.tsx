@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-export function Navigation() {
+interface NavigationProps {
+    isDark?: boolean;
+}
+
+export function Navigation({ isDark = false }: NavigationProps) {
     const [scrolled, setScrolled] = useState(false)
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
     const navigate = useNavigate()
@@ -19,41 +23,56 @@ export function Navigation() {
         setIsMobileMenuOpen(false)
     };
 
+    const isSolid = scrolled || isDark;
+
     return (
         <nav
-            className={`fixed top-0 left-0 right-0 z-[10000] transition-all duration-300 font-display ${scrolled
+            className={`fixed top-0 left-0 right-0 z-[10000] transition-all duration-300 font-display ${isSolid
                 ? 'py-3 bg-white/90 backdrop-blur-md border-b border-[#dadada] shadow-sm'
                 : 'py-5 bg-transparent border-transparent'
                 }`}
         >
             <div className="container mx-auto px-6 md:px-12 flex items-center justify-between">
                 <div className="flex items-center gap-2 cursor-pointer" onClick={() => navigate('/')}>
-                    <span className={`text-xl md:text-2xl font-display font-bold tracking-tighter transition-colors ${scrolled ? 'text-[#1f2937]' : 'text-white'
+                    <span className={`text-xl md:text-2xl font-display font-bold tracking-tighter transition-colors ${isSolid ? 'text-[#1f2937]' : 'text-white'
                         }`}>
                         Talent<span className="text-[#3b82f6] font-leckerli">Ops</span>
                     </span>
                 </div>
 
                 {/* Desktop Navigation */}
-                <div className="hidden md:flex gap-10">
+                <div className="hidden md:flex gap-8">
                     {[
-                        { name: 'Problem', href: '#problem' },
-                        { name: 'Services', href: '#services' },
-                        { name: 'How It Works', href: '#approach' },
-                        { name: 'Industries', href: '#industries' },
-                        { name: 'Foundations', href: '#foundations' },
-                        { name: 'Results', href: '#results' }
+                        { name: 'Problem', href: '/#problem' },
+                        { name: 'Services', href: '/#services' },
+                        { name: 'How It Works', href: '/#approach' },
+                        { name: 'Foundations', href: '/#foundations' },
+                        { name: 'Pricing', href: '/pricing', isLink: true },
+                        { name: 'Results', href: '/#results' }
                     ].map((item) => (
-                        <a
-                            key={item.name}
-                            href={item.href}
-                            className={`text-[15px] font-display font-medium transition-colors ${scrolled
-                                ? 'text-[#1f2937]/70 hover:text-[#3b82f6]'
-                                : 'text-white/80 hover:text-white'
-                                }`}
-                        >
-                            {item.name}
-                        </a>
+                        item.isLink ? (
+                            <button
+                                key={item.name}
+                                onClick={() => navigate(item.href)}
+                                className={`text-[15px] font-display font-medium transition-colors ${isSolid
+                                    ? 'text-[#1f2937]/70 hover:text-[#3b82f6]'
+                                    : 'text-white/80 hover:text-white'
+                                    }`}
+                            >
+                                {item.name}
+                            </button>
+                        ) : (
+                            <a
+                                key={item.name}
+                                href={item.href}
+                                className={`text-[15px] font-display font-medium transition-colors ${isSolid
+                                    ? 'text-[#1f2937]/70 hover:text-[#3b82f6]'
+                                    : 'text-white/80 hover:text-white'
+                                    }`}
+                            >
+                                {item.name}
+                            </a>
+                        )
                     ))}
                 </div>
 
@@ -61,7 +80,7 @@ export function Navigation() {
                 <div className="hidden md:flex items-center gap-4">
                     <button
                         onClick={handleLoginClick}
-                        className={`text-[15px] font-display font-bold transition-colors px-4 py-2 ${scrolled
+                        className={`text-[15px] font-display font-bold transition-colors px-4 py-2 ${isSolid
                             ? 'text-[#1f2937] hover:text-[#3b82f6]'
                             : 'text-white hover:text-white/80'
                             }`}
@@ -69,10 +88,7 @@ export function Navigation() {
                         Sign In
                     </button>
                     <button
-                        onClick={() => {
-                            const el = document.getElementById('cta');
-                            el?.scrollIntoView({ behavior: 'smooth' });
-                        }}
+                        onClick={() => navigate('/request-demo')}
                         className="bg-[#3b82f6] text-white px-6 py-2.5 rounded-full font-display font-bold text-[15px] hover:bg-[#2563eb] transition-all shadow-sm hover:shadow-md"
                     >
                         Request a Demo
@@ -117,8 +133,7 @@ export function Navigation() {
                         <button
                             onClick={() => {
                                 setIsMobileMenuOpen(false);
-                                const el = document.getElementById('cta');
-                                el?.scrollIntoView({ behavior: 'smooth' });
+                                navigate('/request-demo');
                             }}
                             className="bg-[#3b82f6] text-white px-6 py-3 rounded-xl font-display font-bold text-center"
                         >

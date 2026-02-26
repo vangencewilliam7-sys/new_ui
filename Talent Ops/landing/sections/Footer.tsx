@@ -1,8 +1,11 @@
 import React from 'react';
 import { Mail, Linkedin, Twitter } from 'lucide-react';
 import { motion, useInView } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 
 export default function Footer() {
+  const navigate = useNavigate();
+
   return (
     <footer className="bg-white border-t border-[#dadada] py-16 px-6 lg:px-12">
       <div className="max-w-7xl mx-auto">
@@ -107,6 +110,7 @@ export default function Footer() {
               ))}
             </ul>
             <motion.button
+              onClick={() => navigate('/request-demo')}
               whileHover={{ scale: 1.05, backgroundColor: "#2a2a2a" }}
               whileTap={{ scale: 0.95 }}
               transition={{ duration: 0.2 }}

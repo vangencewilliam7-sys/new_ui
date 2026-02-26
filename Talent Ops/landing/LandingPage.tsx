@@ -13,6 +13,7 @@ const Industries = lazy(() => import('./sections/Industries'));
 const Foundations = lazy(() => import('./sections/Foundations'));
 const Results = lazy(() => import('./sections/Results'));
 const WhyTalentOps = lazy(() => import('./sections/WhyTalentOps'));
+const PricingSummary = lazy(() => import('./sections/PricingSummary'));
 const FinalCTA = lazy(() => import('./sections/FinalCTA'));
 const Footer = lazy(() => import('./sections/Footer'));
 const ScrollProgress = lazy(() => import('./sections/ScrollProgress'));
@@ -22,8 +23,6 @@ const LoadingSection = () => <div className="min-h-screen bg-[#f7f7f9]" />;
 export function LandingPage() {
     return (
         <SmoothScroll>
-            <StylesInjection />
-
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
@@ -47,6 +46,7 @@ export function LandingPage() {
                         <Foundations />
                         <Results />
                         <WhyTalentOps />
+                        <PricingSummary />
                         <FinalCTA />
                     </Suspense>
                 </main>

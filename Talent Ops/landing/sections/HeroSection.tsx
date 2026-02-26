@@ -1,4 +1,5 @@
 import React, { useRef } from 'react'
+import { motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
 import { useScrollReveal } from '../hooks/useScrollReveal'
 import { Navigation } from '../components/Navigation'
@@ -39,20 +40,30 @@ export function HeroSection() {
                 >
                     <div className="flex flex-col items-center gap-6 md:gap-8 text-center">
                         <div className="flex flex-col items-center">
-                            <h1 className="reveal-fade font-display font-medium text-white text-[clamp(2.5rem,7vw,5rem)] leading-[1.1] flex flex-col items-center">
+                            <motion.h1
+                                initial={{ opacity: 0, y: 30 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+                                className="font-display font-medium text-white text-[clamp(2.5rem,7vw,5rem)] leading-[1.1] flex flex-col items-center"
+                            >
                                 <span className="block">A Workforce</span>
                                 <span className="block">Intelligence Platform</span>
                                 <span className="text-[0.9em] block">for Scaling Organizations</span>
-                            </h1>
+                            </motion.h1>
 
-                            <p className="reveal-fade text-lg md:text-xl text-white/90 font-display font-normal mt-6 max-w-2xl mx-auto leading-relaxed">
+                            <motion.p
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                                className="text-lg md:text-xl text-white/90 font-display font-normal mt-6 max-w-2xl mx-auto leading-relaxed"
+                            >
                                 Gain real-time visibility into hiring needs, team capacity, performance, and retention so leaders can make confident workforce decisions as the organization scales.
-                            </p>
+                            </motion.p>
                         </div>
 
                         <div className="reveal-fade flex justify-center">
                             <GlowButton
-                                href="#cta"
+                                href="/request-demo"
                                 label="Request a Demo"
                             />
                         </div>

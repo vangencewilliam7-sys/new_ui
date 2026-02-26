@@ -1,4 +1,5 @@
 import React, { useRef } from 'react'
+import { motion } from 'framer-motion'
 import { useScrollReveal } from '../hooks/useScrollReveal'
 
 export function HowItWorksSection() {
@@ -27,8 +28,24 @@ export function HowItWorksSection() {
         <section ref={sectionRef} id="how-it-works" className="py-24 bg-white px-6 overflow-hidden">
             <div className="container mx-auto max-w-6xl">
                 <div className="text-center mb-20">
-                    <h2 className="reveal-fade text-sm font-bold tracking-[0.2em] uppercase text-[#3b82f6] mb-4">Process</h2>
-                    <h3 className="reveal-fade text-3xl md:text-5xl font-extrabold text-[#1f2937] leading-tight text-center">How It Works</h3>
+                    <motion.h2
+                        initial={{ opacity: 0, y: 20 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true, amount: 0.1 }}
+                        transition={{ duration: 0.6 }}
+                        className="text-sm font-bold tracking-[0.2em] uppercase text-[#3b82f6] mb-4"
+                    >
+                        Process
+                    </motion.h2>
+                    <motion.h3
+                        initial={{ opacity: 0, y: 30 }}
+                        whileInView={{ opacity: 1, y: 0 }}
+                        viewport={{ once: true, amount: 0.1 }}
+                        transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
+                        className="text-2xl md:text-4xl font-extrabold text-[#1f2937] leading-tight text-center"
+                    >
+                        How It Works
+                    </motion.h3>
                 </div>
 
                 <div className="relative">
