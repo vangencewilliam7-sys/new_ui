@@ -138,7 +138,7 @@ const EmployeeRecognitionBoard = ({ compact = false }) => {
     return (
         <div style={{
             backgroundColor: 'white',
-            borderRadius: '24px',
+            borderRadius: '8px',
             padding: '24px',
             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)',
             border: '1px solid #f1f5f9',
@@ -146,7 +146,7 @@ const EmployeeRecognitionBoard = ({ compact = false }) => {
         }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ padding: '10px', backgroundColor: '#fff7ed', borderRadius: '12px' }}>
+                    <div style={{ padding: '10px', backgroundColor: '#fff7ed', borderRadius: '4px' }}>
                         <Star size={24} color="#ea580c" fill="#ea580c" />
                     </div>
                     <div>
@@ -154,7 +154,7 @@ const EmployeeRecognitionBoard = ({ compact = false }) => {
                         <p style={{ fontSize: '0.85rem', color: '#64748b', margin: 0, fontWeight: 500 }}>Highest task completion rates across all projects</p>
                     </div>
                 </div>
-                <div style={{ padding: '6px 12px', borderRadius: '20px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>
+                <div style={{ padding: '6px 12px', borderRadius: '4px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>
                     {new Date().toLocaleString('default', { month: 'long' })}
                 </div>
             </div>
@@ -170,7 +170,7 @@ const EmployeeRecognitionBoard = ({ compact = false }) => {
                         <div key={emp.id} style={{
                             position: 'relative',
                             padding: '20px',
-                            borderRadius: '20px',
+                            borderRadius: '6px',
                             background: index === 0 && !compact ? 'linear-gradient(to bottom right, #fff, #fffbeb)' : 'white',
                             border: index === 0 ? '2px solid #fcd34d' : '1px solid #e2e8f0',
                             display: 'flex',
@@ -187,7 +187,7 @@ const EmployeeRecognitionBoard = ({ compact = false }) => {
                             <div style={{
                                 width: '48px',
                                 height: '48px',
-                                borderRadius: '14px',
+                                borderRadius: '4px',
                                 background: style.bg,
                                 display: 'flex',
                                 alignItems: 'center',
@@ -220,7 +220,7 @@ const EmployeeRecognitionBoard = ({ compact = false }) => {
                                     gap: '8px',
                                     background: '#f8fafc',
                                     padding: '4px 10px',
-                                    borderRadius: '8px',
+                                    borderRadius: '4px',
                                     border: '1px solid #e2e8f0',
                                     fontSize: '0.75rem',
                                     color: '#475569',

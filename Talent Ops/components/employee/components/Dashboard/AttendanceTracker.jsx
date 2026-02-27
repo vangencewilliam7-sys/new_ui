@@ -21,45 +21,37 @@ const AttendanceTracker = () => {
             if (!userId || !orgId) return;
 
             try {
-                const today = new Date().toISOString().split('T')[0];
-                const { data, error } = await supabase
-                    .from('attendance')
-                    .select('*')
-                    .eq('employee_id', userId)
-                    .eq('org_id', orgId)
-                    .eq('date', today)
-                    .maybeSingle();
+                // Now fetching status via RPC - UI no longer knows about the 'attendance' table
+                const { data, error } = await supabase.rpc('get_my_attendance_status');
 
                 if (error) {
-                    console.error('Error fetching attendance:', error);
+                    console.error('Error fetching attendance status:', error);
                     return;
                 }
 
                 if (data) {
-                    // Parse Check In Time
+                    setCurrentTask(data.current_task || '');
+
                     if (data.clock_in) {
                         const [h, m, s] = data.clock_in.split(':');
                         const inTime = new Date();
                         inTime.setHours(h, m, s || 0);
                         setCheckInTime(inTime);
 
-                        // If NOT checked out yet
                         if (!data.clock_out) {
                             setStatus('checked-in');
                             setUserStatus('Online');
                             setLastActive('Now');
 
-                            // Calculate elapsed time
                             const now = new Date();
                             const diff = Math.floor((now - inTime) / 1000);
                             setElapsedTime(diff > 0 ? diff : 0);
                         } else {
-                            // Already checked out
                             const [oh, om, os] = data.clock_out.split(':');
                             const outTime = new Date();
                             outTime.setHours(oh, om, os || 0);
                             setCheckOutTime(outTime);
-                            setStatus('checked-out'); // Or 'completed'
+                            setStatus('checked-out');
                             setUserStatus('Offline');
                             setLastActive(formatTime(outTime));
                         }
@@ -126,83 +118,66 @@ const AttendanceTracker = () => {
     };
 
     const handleMainAction = async () => {
-        if (!userId) {
-            addToast('User ID not found. Please refresh.', 'error');
-            return;
-        }
-
-        const now = new Date();
-        const timeString = now.toTimeString().split(' ')[0]; // HH:MM:SS
-        const dateString = now.toISOString().split('T')[0];
-
         try {
             if (status === 'checked-out') {
-                // CHECK IN
-                const { error } = await supabase.from('attendance').insert({
-                    employee_id: userId,
-                    org_id: orgId,
-                    date: dateString,
-                    clock_in: timeString
-                });
+                // CHECK IN via RPC
+                const { data, error } = await supabase.rpc('check_in');
 
-                if (error) throw error;
+                if (error) {
+                    addToast(error.message || 'Check-in failed', 'error');
+                    return;
+                }
 
-                setStatus('checked-in');
-                setCheckInTime(now);
-                setCheckOutTime(null);
-                setElapsedTime(0);
+                if (data && data.error) {
+                    addToast(data.error, 'error');
+                    return;
+                }
 
-                // Update Context
-                setUserStatus('Online');
-                setLastActive('Now');
-
-                addToast('Checked in successfully', 'success');
+                if (data && data.success) {
+                    setStatus('checked-in');
+                    setCheckInTime(new Date());
+                    setCheckOutTime(null);
+                    setElapsedTime(0);
+                    setUserStatus('Online');
+                    setLastActive('Now');
+                    addToast('Checked in successfully', 'success');
+                }
             } else if (status === 'checked-in' || status === 'break') {
                 // TRIGGER CONFIRMATION
                 setShowConfirmModal(true);
             }
         } catch (error) {
             console.error('Error updating attendance:', error);
-            addToast('Failed to update attendance', 'error');
+            addToast('Unexpected error occurred', 'error');
         }
     };
 
     const performCheckOut = async () => {
-        const now = new Date();
-        const timeString = now.toTimeString().split(' ')[0];
-        const dateString = now.toISOString().split('T')[0];
-
         try {
-            // Calculate total hours
-            let totalHours = 0;
-            if (checkInTime) {
-                const diffMs = now - checkInTime; // Difference in milliseconds
-                totalHours = (diffMs / (1000 * 60 * 60)).toFixed(2); // Convert to hours, 2 decimal places
+            // CHECK OUT via RPC
+            const { data, error } = await supabase.rpc('check_out');
+
+            if (error) {
+                addToast(error.message || 'Check-out failed', 'error');
+                return;
             }
 
-            const { error } = await supabase
-                .from('attendance')
-                .update({
-                    clock_out: timeString,
-                    total_hours: totalHours
-                })
-                .eq('employee_id', userId)
-                .eq('org_id', orgId)
-                .eq('date', dateString);
+            if (data && data.error) {
+                addToast(data.error, 'error');
+                return;
+            }
 
-            if (error) throw error;
-
-            setStatus('checked-out');
-            setCheckOutTime(now);
-
-            // Update Context
-            setUserStatus('Offline');
-            setLastActive(formatTime(now));
-
-            addToast('Checked out successfully', 'success');
+            if (data && data.success) {
+                const now = new Date();
+                setStatus('checked-out');
+                setCheckOutTime(now);
+                setUserStatus('Offline');
+                setLastActive(formatTime(now));
+                addToast('Checked out successfully', 'success');
+            }
         } catch (error) {
             console.error('Error updating attendance:', error);
-            addToast('Failed to update attendance', 'error');
+            addToast('Unexpected error occurred', 'error');
         } finally {
             setShowConfirmModal(false);
         }
@@ -227,12 +202,12 @@ const AttendanceTracker = () => {
     return (
         <div style={{
             backgroundColor: '#ffffff',
-            borderRadius: '32px',
-            padding: '40px',
+            borderRadius: '8px',
+            padding: '24px',
             color: '#0f172a',
             display: 'flex',
             flexDirection: 'column',
-            gap: '32px',
+            gap: '20px',
             boxShadow: '0 4px 24px rgba(0,0,0,0.02)',
             border: '1px solid #eef2f6',
             position: 'relative',
@@ -259,9 +234,9 @@ const AttendanceTracker = () => {
                     </div>
 
                     <h2 style={{ fontSize: '2.4rem', fontWeight: 800, color: '#0f172a', marginBottom: '8px', letterSpacing: '-0.04em', lineHeight: 1 }}>Work Session</h2>
-                    <p style={{ fontSize: '1rem', fontWeight: 600, color: '#94a3b8', marginBottom: '40px' }}>{dateString}</p>
+                    <p style={{ fontSize: '1rem', fontWeight: 600, color: '#94a3b8', marginBottom: '24px' }}>{dateString}</p>
 
-                    <div style={{ display: 'flex', gap: '48px' }}>
+                    <div style={{ display: 'flex', gap: '32px' }}>
                         {/* Check In Card */}
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <p style={{ fontSize: '0.75rem', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Started at</p>
@@ -284,11 +259,11 @@ const AttendanceTracker = () => {
                         onClick={handleMainAction}
                         disabled={status === 'checked-out' && checkOutTime}
                         style={{
-                            width: '200px',
-                            height: '200px',
+                            width: '180px',
+                            height: '180px',
                             borderRadius: '50%',
                             backgroundColor: '#ffffff',
-                            border: '12px solid #f8fafc',
+                            border: '10px solid #f8fafc',
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
@@ -400,7 +375,7 @@ const AttendanceTracker = () => {
                     marginTop: '8px',
                     padding: '24px',
                     backgroundColor: '#f8fafc',
-                    borderRadius: '24px',
+                    borderRadius: '10px',
                     border: '1px solid #f1f5f9',
                     display: 'flex',
                     alignItems: 'center',
@@ -408,7 +383,7 @@ const AttendanceTracker = () => {
                     position: 'relative',
                     zIndex: 1
                 }}>
-                    <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '14px', boxShadow: '0 4px 6px rgba(0,0,0,0.04)', color: '#0ea5e9' }}>
+                    <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.04)', color: '#0ea5e9' }}>
                         <Clock size={20} />
                     </div>
                     <div style={{ flex: 1 }}>
@@ -420,22 +395,6 @@ const AttendanceTracker = () => {
                             onChange={(e) => {
                                 setCurrentTask(e.target.value);
                                 setUserTask(e.target.value);
-                            }}
-                            onBlur={async () => {
-                                if (userId && currentTask) {
-                                    const today = new Date().toISOString().split('T')[0];
-                                    const { error } = await supabase
-                                        .from('attendance')
-                                        .update({ current_task: currentTask })
-                                        .eq('employee_id', userId)
-                                        .eq('org_id', orgId)
-                                        .eq('date', today);
-
-                                    if (error) {
-                                        console.error('Error saving task:', error);
-                                        addToast('Failed to save task', 'error');
-                                    }
-                                }
                             }}
                             style={{
                                 width: '100%',
@@ -453,7 +412,7 @@ const AttendanceTracker = () => {
                         onClick={toggleBreak}
                         style={{
                             padding: '14px 24px',
-                            borderRadius: '16px',
+                            borderRadius: '8px',
                             backgroundColor: status === 'break' ? '#0f172a' : '#ffffff',
                             color: status === 'break' ? '#ffffff' : '#1e293b',
                             fontSize: '0.95rem',
@@ -490,7 +449,7 @@ const AttendanceTracker = () => {
                     <div style={{
                         backgroundColor: 'white',
                         padding: '40px',
-                        borderRadius: '32px',
+                        borderRadius: '8px',
                         width: '400px',
                         textAlign: 'center',
                         color: '#1e293b',
@@ -512,7 +471,7 @@ const AttendanceTracker = () => {
                                 onClick={() => setShowConfirmModal(false)}
                                 style={{
                                     padding: '16px 24px',
-                                    borderRadius: '16px',
+                                    borderRadius: '8px',
                                     border: '1px solid #e2e8f0',
                                     backgroundColor: 'white',
                                     color: '#64748b',
@@ -528,7 +487,7 @@ const AttendanceTracker = () => {
                                 onClick={performCheckOut}
                                 style={{
                                     padding: '16px 24px',
-                                    borderRadius: '16px',
+                                    borderRadius: '8px',
                                     border: 'none',
                                     backgroundColor: '#ef4444',
                                     color: 'white',

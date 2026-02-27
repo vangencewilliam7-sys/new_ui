@@ -15,7 +15,7 @@ const MembersModal = ({
 }) => {
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', width: '90%', maxHeight: '80vh', background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
+            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '400px', width: '90%', maxHeight: '80vh', background: 'white', borderRadius: '6px', padding: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
                 <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Group Members ({members.length})</h2>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}><X size={20} /></button>
@@ -64,7 +64,7 @@ const MembersModal = ({
                 {isTeamChat && !isCurrentUserAdmin && (
                     <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e5e7eb' }}>
                         <button onClick={onLeave}
-                            style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #dc2626', background: 'white', cursor: 'pointer', fontSize: '14px', color: '#dc2626', fontWeight: '600' }}>
+                            style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #dc2626', background: 'white', cursor: 'pointer', fontSize: '14px', color: '#dc2626', fontWeight: '600' }}>
                             Leave Group
                         </button>
                     </div>

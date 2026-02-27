@@ -55,13 +55,15 @@ const SettingsDemo = () => {
                 .from('avatars')
                 .getPublicUrl(filePath);
 
-            // Update Profile
-            const { error: updateError } = await supabase
-                .from('profiles')
-                .update({ avatar_url: publicUrl })
-                .eq('id', userProfile.id);
+            // Update Profile via RPC
+            const { data: rpcData, error: updateError } = await supabase.rpc('update_my_profile', {
+                p_phone: userProfile.phone || '',
+                p_location: userProfile.location || '',
+                p_avatar_url: publicUrl
+            });
 
             if (updateError) throw updateError;
+            if (rpcData && !rpcData.success) throw new Error(rpcData.error);
 
             // Update local state
             setUserProfile({ ...userProfile, avatar_url: publicUrl });
@@ -82,93 +84,63 @@ const SettingsDemo = () => {
 
     const fetchUserProfile = async () => {
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('*')
-                    .eq('id', user.id)
-                    .single();
+            const { data: rpcResponse, error } = await supabase.rpc('get_my_profile_details');
 
-                if (profile) {
-                    const fullProfile = { ...profile, email: user.email };
-                    setUserProfile(fullProfile);
-                    setEditedProfile(fullProfile);
+            if (error) throw error;
+            if (rpcResponse && !rpcResponse.success) throw new Error(rpcResponse.error);
 
-                    // Fetch department name if department exists
-                    if (profile.department) {
-                        const { data: dept } = await supabase
-                            .from('departments')
-                            .select('department_name')
-                            .eq('id', profile.department)
-                            .single();
+            const profileData = rpcResponse.data;
 
-                        if (dept) {
-                            setDepartmentName(dept.department_name);
-                        }
-                    }
+            if (profileData) {
+                // Populate profile state
+                const fullProfile = {
+                    ...profileData,
+                    id: profileData.id,
+                    email: profileData.email,
+                    full_name: profileData.full_name,
+                    phone: profileData.phone,
+                    location: profileData.location,
+                    avatar_url: profileData.avatar_url,
+                    role: profileData.role,
+                    job_title: profileData.job_title,
+                    employment_type: profileData.employment_type,
+                    department: profileData.department_name
+                };
 
-                    // Fetch primary project from team_id (which is actually project_id)
-                    let primaryProject = null;
-                    if (profile.team_id) {
-                        const { data: project } = await supabase
-                            .from('projects')
-                            .select('name')
-                            .eq('id', profile.team_id)
-                            .single();
+                setUserProfile(fullProfile);
+                setEditedProfile(fullProfile);
 
-                        if (project) {
-                            primaryProject = {
-                                projectName: project.name,
-                                role: 'Member' // Default role for primary project
-                            };
-                        }
-                    }
+                setDepartmentName(profileData.department_name);
 
-                    // Fetch additional project assignments with roles from project_members
-                    const { data: projectAssignments } = await supabase
-                        .from('project_members')
-                        .select(`
-                            project_role,
-                            projects:project_id (
-                                name
-                            )
-                        `)
-                        .eq('employee_id', user.id);
+                const allProjects = [];
+                if (profileData.primary_project) {
+                    allProjects.push({
+                        projectName: profileData.primary_project,
+                        role: 'Member'
+                    });
+                }
 
-                    // Combine primary project with additional assignments
-                    const allProjects = [];
-                    if (primaryProject) {
-                        allProjects.push(primaryProject);
-                    }
-                    if (projectAssignments && projectAssignments.length > 0) {
-                        const additionalProjects = projectAssignments
-                            .filter(assignment => assignment.projects?.name !== primaryProject?.projectName)
-                            .map(assignment => ({
-                                projectName: assignment.projects?.name || 'Unknown Project',
-                                role: assignment.project_role || 'Member'
-                            }));
-                        allProjects.push(...additionalProjects);
-                    }
+                if (profileData.project_assignments && profileData.project_assignments.length > 0) {
+                    const additionalProjects = profileData.project_assignments
+                        .filter(p => p.projectName !== profileData.primary_project)
+                        .map(p => ({
+                            projectName: p.projectName,
+                            role: p.role || 'Member'
+                        }));
+                    allProjects.push(...additionalProjects);
+                }
 
-                    if (allProjects.length > 0) {
-                        setProjectRoles(allProjects);
-                    }
+                if (allProjects.length > 0) {
+                    setProjectRoles(allProjects);
+                }
 
-                    // Fetch compensation data
-                    const { data: financeData } = await supabase
-                        .from('employee_finance')
-                        .select('basic_salary, hra, allowances')
-                        .eq('employee_id', user.id)
-                        .single();
-
-                    if (financeData) {
-                        setCompensationData(financeData);
-                    }
+                if (profileData.compensation) {
+                    setCompensationData(profileData.compensation);
                 }
             }
         } catch (error) {
-            console.error('Error fetching profile:', error);
+            console.error('Error fetching profile via RPC:', error);
+            setMessage({ type: 'error', text: 'Failed to load profile data' });
         } finally {
             setLoading(false);
         }
@@ -176,16 +148,17 @@ const SettingsDemo = () => {
 
     const handleSaveProfile = async () => {
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({
-                    phone: editedProfile.phone,
-                    location: editedProfile.location
-                })
-                .eq('id', userProfile.id);
+            // Update Profile via RPC
+            const { data, error } = await supabase.rpc('update_my_profile', {
+                p_phone: editedProfile.phone,
+                p_location: editedProfile.location,
+                p_avatar_url: null
+            });
 
             if (error) {
-                setMessage({ type: 'error', text: 'Failed to update profile' });
+                setMessage({ type: 'error', text: error.message });
+            } else if (data && !data.success) {
+                setMessage({ type: 'error', text: data.error || 'Failed to update profile' });
             } else {
                 setUserProfile(editedProfile);
                 setEditMode(false);

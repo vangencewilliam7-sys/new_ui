@@ -131,7 +131,7 @@ const AnalyticsDemo = () => {
     };
 
     return (
-        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '16px', paddingBottom: '24px' }}>
+        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: '24px' }}>
 
             {/* Background Decorative Elements */}
             <div style={{ position: 'fixed', top: '-100px', right: '-100px', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(14, 165, 233, 0.08) 0%, transparent 70%)', filter: 'blur(60px)', zIndex: -1 }}></div>
@@ -139,8 +139,8 @@ const AnalyticsDemo = () => {
             {/* Premium Header / Hero Section (THE BLACK BLUE BANNER) */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '16px',
-                padding: '24px',
+                borderRadius: '8px',
+                padding: '24px 32px',
                 color: '#ffffff',
                 position: 'relative',
                 overflow: 'hidden',
@@ -163,7 +163,7 @@ const AnalyticsDemo = () => {
 
                 <div style={{ position: 'relative', zIndex: 1, flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                        <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Performance Analytics</span>
+                        <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Performance Analytics</span>
                         <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '800' }}>•</span>
                         <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.85rem', fontWeight: '700' }}>{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                     </div>
@@ -179,16 +179,16 @@ const AnalyticsDemo = () => {
             </div>
 
             {/* Main Content Grid - Bento Style */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '12px' }}>
 
                 {/* Project Work Distribution (New Card) */}
                 <div style={{
                     gridColumn: 'span 4',
                     backgroundColor: '#ffffff',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     boxShadow: '0 4px 24px rgba(0,0,0,0.02)',
                     padding: '24px',
-                    border: '1px solid #eef2f6',
+                    border: '1px solid #f1f5f9',
                     display: 'flex',
                     flexDirection: 'column',
                     maxHeight: '400px',
@@ -210,7 +210,7 @@ const AnalyticsDemo = () => {
                                 marginBottom: '12px',
                                 padding: '12px 16px',
                                 backgroundColor: '#f1f5f9',
-                                borderRadius: '12px',
+                                borderRadius: '6px',
                                 fontSize: '0.85rem',
                                 color: '#334155',
                                 border: '1px solid #e2e8f0',
@@ -249,10 +249,10 @@ const AnalyticsDemo = () => {
                 <div style={{
                     gridColumn: 'span 8',
                     backgroundColor: '#ffffff',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     boxShadow: '0 4px 24px rgba(0,0,0,0.02)',
                     padding: '24px',
-                    border: '1px solid #eef2f6',
+                    border: '1px solid #f1f5f9',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
@@ -266,7 +266,7 @@ const AnalyticsDemo = () => {
                             <p style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>Overview of completed tasks per month</p>
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <span style={{ backgroundColor: '#f1f5f9', padding: '6px 12px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Last 6 Months</span>
+                            <span style={{ backgroundColor: '#f1f5f9', padding: '6px 12px', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, color: '#475569' }}>Last 6 Months</span>
                         </div>
                     </div>
 
@@ -281,7 +281,7 @@ const AnalyticsDemo = () => {
                                             height: `${Math.max(item.score * 15, 6)}px`,
                                             maxHeight: '180px',
                                             background: 'linear-gradient(to top, #0ea5e9, #6366f1)',
-                                            borderRadius: '20px 20px 8px 8px',
+                                            borderRadius: '4px 4px 2px 2px',
                                             opacity: 0.9,
                                             transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
                                             boxShadow: '0 8px 16px rgba(99, 102, 241, 0.15)',
@@ -311,7 +311,7 @@ const AnalyticsDemo = () => {
                 </div>
 
                 {/* Right Column Metrics (2 Vertical Cards) */}
-                <div style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                <div style={{ gridColumn: 'span 4', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <StatCard
                         label="Avg. Output"
                         value={`${myStats.performance}%`}
@@ -379,13 +379,13 @@ const StatCard = ({ label, value, trend, icon, color, compact, subLabel }) => {
             onMouseLeave={() => setIsHovered(false)}
             style={{
                 backgroundColor: '#ffffff',
-                padding: compact ? '16px' : '16px',
-                borderRadius: '16px',
+                padding: compact ? '16px' : '20px',
+                borderRadius: '8px',
                 border: '1px solid #eef2f6',
                 boxShadow: isHovered ? '0 20px 40px -10px rgba(0,0,0,0.06)' : '0 4px 20px rgba(0,0,0,0.01)',
                 display: 'flex',
                 flexDirection: 'column',
-                gap: compact ? '8px' : '16px',
+                gap: compact ? '6px' : '12px',
                 position: 'relative',
                 overflow: 'hidden',
                 transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -399,7 +399,7 @@ const StatCard = ({ label, value, trend, icon, color, compact, subLabel }) => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{
                     padding: compact ? '10px' : '12px',
-                    borderRadius: compact ? '14px' : '16px',
+                    borderRadius: compact ? '4px' : '6px',
                     backgroundColor: `${color}15`,
                     color: color,
                     display: 'flex',
@@ -417,7 +417,7 @@ const StatCard = ({ label, value, trend, icon, color, compact, subLabel }) => {
                         color: trend.startsWith('+') ? '#10b981' : trend.startsWith('-') ? '#ef4444' : '#64748b',
                         backgroundColor: trend.startsWith('+') ? '#f0fdf4' : trend.startsWith('-') ? '#fef2f2' : '#f8fafc',
                         padding: '4px 10px',
-                        borderRadius: '100px',
+                        borderRadius: '4px',
                         border: `1px solid ${trend.startsWith('+') ? '#dcfce7' : trend.startsWith('-') ? '#fee2e2' : '#f1f5f9'}`
                     }}>
                         {trend}

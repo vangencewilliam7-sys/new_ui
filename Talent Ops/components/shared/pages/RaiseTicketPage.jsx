@@ -217,7 +217,7 @@ const RaiseTicketPage = () => {
                 if (publicUrl) uploadedUrls.push(publicUrl);
             }
 
-            // 3. Prepare payload and insert
+            {/* 3. Prepare payload and insert */ }
             const payload = {
                 user_id: user.id,
                 org_id: profile?.org_id,
@@ -284,18 +284,18 @@ const RaiseTicketPage = () => {
             {/* Compact Header Banner */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 padding: '20px 28px',
                 color: 'white',
                 position: 'relative',
                 overflow: 'hidden',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                 marginBottom: '24px'
             }}>
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
                     <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
+                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
                             <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>/</span>
                             <span style={{ color: '#22d3ee', fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase' }}>Support Center</span>
                         </div>
@@ -315,7 +315,7 @@ const RaiseTicketPage = () => {
                         background: 'rgba(255, 255, 255, 0.05)',
                         backdropFilter: 'blur(12px)',
                         padding: '10px 14px',
-                        borderRadius: '14px',
+                        borderRadius: '8px',
                         border: '1px solid rgba(255, 255, 255, 0.1)'
                     }}>
                         {quickActions.map((action, idx) => (
@@ -325,7 +325,7 @@ const RaiseTicketPage = () => {
                                 alignItems: 'center',
                                 gap: '4px',
                                 padding: '8px 16px',
-                                borderRadius: '10px',
+                                borderRadius: '6px',
                                 cursor: 'pointer',
                                 transition: 'all 0.2s',
                                 backgroundColor: 'rgba(255,255,255,0.05)'
@@ -343,7 +343,7 @@ const RaiseTicketPage = () => {
                 {/* Left Column - Form */}
                 <div>
                     {/* Ticket Type Toggle */}
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: 'white', padding: '6px', borderRadius: '14px', border: '1px solid #e2e8f0', width: 'fit-content' }}>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', background: 'white', padding: '6px', borderRadius: '8px', border: '1px solid #e2e8f0', width: 'fit-content' }}>
                         <button
                             onClick={() => toggleTicketType('issue')}
                             style={{
@@ -351,7 +351,7 @@ const RaiseTicketPage = () => {
                                 alignItems: 'center',
                                 gap: '8px',
                                 padding: '10px 20px',
-                                borderRadius: '10px',
+                                borderRadius: '6px',
                                 border: 'none',
                                 backgroundColor: ticketType === 'issue' ? '#0f172a' : 'transparent',
                                 color: ticketType === 'issue' ? 'white' : '#64748b',
@@ -371,7 +371,7 @@ const RaiseTicketPage = () => {
                                 alignItems: 'center',
                                 gap: '8px',
                                 padding: '10px 20px',
-                                borderRadius: '10px',
+                                borderRadius: '6px',
                                 border: 'none',
                                 backgroundColor: ticketType === 'enhancement' ? '#0f172a' : 'transparent',
                                 color: ticketType === 'enhancement' ? 'white' : '#64748b',
@@ -392,7 +392,7 @@ const RaiseTicketPage = () => {
                                     alignItems: 'center',
                                     gap: '8px',
                                     padding: '10px 20px',
-                                    borderRadius: '10px',
+                                    borderRadius: '6px',
                                     border: 'none',
                                     backgroundColor: ticketType === 'review' ? '#0f172a' : 'transparent',
                                     color: ticketType === 'review' ? 'white' : '#64748b',
@@ -411,7 +411,7 @@ const RaiseTicketPage = () => {
                     {/* Form Card */}
                     <div style={{
                         backgroundColor: 'white',
-                        borderRadius: '16px',
+                        borderRadius: '8px',
                         padding: '28px',
                         border: '1px solid #e2e8f0',
                         boxShadow: '0 2px 12px rgba(0,0,0,0.03)'
@@ -433,7 +433,7 @@ const RaiseTicketPage = () => {
                                         padding: '12px 24px',
                                         background: '#0f172a',
                                         color: 'white',
-                                        borderRadius: '10px',
+                                        borderRadius: '6px',
                                         border: 'none',
                                         fontWeight: '600',
                                         cursor: 'pointer',
@@ -446,7 +446,7 @@ const RaiseTicketPage = () => {
                         ) : ticketType === 'review' ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                                 {/* Review Sub-tabs */}
-                                <div style={{ display: 'flex', gap: '4px', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '12px', width: 'fit-content' }}>
+                                <div style={{ display: 'flex', gap: '4px', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '8px', width: 'fit-content' }}>
                                     {[
                                         { id: 'open_issues', label: 'Open Issues' },
                                         { id: 'enhancements', label: 'Enhancements' },
@@ -457,7 +457,7 @@ const RaiseTicketPage = () => {
                                             onClick={() => setReviewTab(tab.id)}
                                             style={{
                                                 padding: '8px 16px',
-                                                borderRadius: '8px',
+                                                borderRadius: '6px',
                                                 border: 'none',
                                                 backgroundColor: reviewTab === tab.id ? 'white' : 'transparent',
                                                 color: reviewTab === tab.id ? '#0f172a' : '#64748b',
@@ -505,7 +505,7 @@ const RaiseTicketPage = () => {
                                                     return (
                                                         <div key={ticket.id} style={{
                                                             padding: '20px',
-                                                            borderRadius: '16px',
+                                                            borderRadius: '8px',
                                                             border: '1px solid #e2e8f0',
                                                             backgroundColor: '#f8fafc',
                                                             display: 'flex',
@@ -550,7 +550,7 @@ const RaiseTicketPage = () => {
                                                                     alignItems: 'center',
                                                                     gap: '8px',
                                                                     padding: '10px 18px',
-                                                                    borderRadius: '10px',
+                                                                    borderRadius: '6px',
                                                                     border: '1px solid #e2e8f0',
                                                                     backgroundColor: 'white',
                                                                     color: '#0f172a',
@@ -568,8 +568,8 @@ const RaiseTicketPage = () => {
                                                 })}
                                             </div>
                                         ) : (
-                                            <div style={{ textAlign: 'center', padding: '60px 20px', backgroundColor: '#f8fafc', borderRadius: '16px', border: '1px dashed #e2e8f0' }}>
-                                                <div style={{ width: '56px', height: '56px', backgroundColor: 'white', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
+                                            <div style={{ textAlign: 'center', padding: '60px 20px', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px dashed #e2e8f0' }}>
+                                                <div style={{ width: '56px', height: '56px', backgroundColor: 'white', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)' }}>
                                                     <Ticket size={24} color="#94a3b8" />
                                                 </div>
                                                 <p style={{ color: '#0f172a', fontWeight: '700', marginBottom: '4px' }}>No tickets found</p>
@@ -596,7 +596,7 @@ const RaiseTicketPage = () => {
                                                 onClick={() => setFormData({ ...formData, category: cat.value })}
                                                 style={{
                                                     padding: '14px',
-                                                    borderRadius: '12px',
+                                                    borderRadius: '8px',
                                                     border: formData.category === cat.value ? '2px solid #0f172a' : '1px solid #e2e8f0',
                                                     backgroundColor: formData.category === cat.value ? '#f8fafc' : 'white',
                                                     cursor: 'pointer',
@@ -627,7 +627,7 @@ const RaiseTicketPage = () => {
                                                     style={{
                                                         flex: 1,
                                                         padding: '12px',
-                                                        borderRadius: '10px',
+                                                        borderRadius: '6px',
                                                         border: formData.priority === p.value ? `2px solid ${p.color}` : '1px solid #e2e8f0',
                                                         backgroundColor: formData.priority === p.value ? p.bg : 'white',
                                                         cursor: 'pointer',
@@ -658,7 +658,7 @@ const RaiseTicketPage = () => {
                                         style={{
                                             width: '100%',
                                             padding: '14px 16px',
-                                            borderRadius: '10px',
+                                            borderRadius: '6px',
                                             border: '1px solid #e2e8f0',
                                             backgroundColor: '#f8fafc',
                                             fontSize: '0.95rem',
@@ -680,7 +680,7 @@ const RaiseTicketPage = () => {
                                         style={{
                                             width: '100%',
                                             padding: '14px 16px',
-                                            borderRadius: '10px',
+                                            borderRadius: '6px',
                                             border: '1px solid #e2e8f0',
                                             backgroundColor: '#f8fafc',
                                             fontSize: '0.95rem',
@@ -696,7 +696,7 @@ const RaiseTicketPage = () => {
                                     <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>Attachments (Optional)</label>
                                     <div style={{
                                         border: '2px dashed #e2e8f0',
-                                        borderRadius: '12px',
+                                        borderRadius: '8px',
                                         padding: '24px',
                                         textAlign: 'center',
                                         cursor: 'pointer',
@@ -710,7 +710,7 @@ const RaiseTicketPage = () => {
                                             id="file-upload"
                                         />
                                         <label htmlFor="file-upload" style={{ cursor: 'pointer' }}>
-                                            <div style={{ width: '48px', height: '48px', background: '#f1f5f9', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+                                            <div style={{ width: '48px', height: '48px', background: '#f1f5f9', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
                                                 <Paperclip size={22} color="#64748b" />
                                             </div>
                                             <p style={{ fontSize: '0.9rem', fontWeight: '600', color: '#374151', marginBottom: '4px' }}>Click to upload files</p>
@@ -748,7 +748,7 @@ const RaiseTicketPage = () => {
                                         onClick={() => setFormData({ subject: '', category: ticketType === 'issue' ? 'it_support' : 'feature_request', priority: 'medium', description: '' })}
                                         style={{
                                             padding: '12px 24px',
-                                            borderRadius: '10px',
+                                            borderRadius: '6px',
                                             border: '1px solid #e2e8f0',
                                             backgroundColor: 'white',
                                             color: '#64748b',
@@ -768,7 +768,7 @@ const RaiseTicketPage = () => {
                                             alignItems: 'center',
                                             gap: '8px',
                                             padding: '12px 28px',
-                                            borderRadius: '10px',
+                                            borderRadius: '6px',
                                             border: 'none',
                                             background: ticketType === 'issue' ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
                                             color: 'white',

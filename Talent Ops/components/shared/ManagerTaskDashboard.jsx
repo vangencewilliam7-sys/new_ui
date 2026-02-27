@@ -2,6 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Search, Filter, CheckCircle, XCircle, Clock, User, ChevronRight, Eye, History, X, Send, AlertTriangle, Inbox, Users, ArrowRight, BarChart3, Paperclip, FileText, ExternalLink, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabaseClient';
 import EmployeeRecognitionBoard from './EmployeeRecognitionBoard';
+import RiskBadge from './RiskBadge';
+import ActiveStatusDot from './ActiveStatusDot';
+import AIAssistantPopup from './AIAssistantPopup';
+import { riskService } from '../../services/modules/risk';
 
 // Lifecycle phases
 const LIFECYCLE_PHASES = [
@@ -44,6 +48,12 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
     const [stats, setStats] = useState({ pending: 0, approved: 0, total: 0, byPhase: {} });
     const [teamAnalytics, setTeamAnalytics] = useState({ myStats: null, teamMembers: [] });
 
+    // AI Risk & Active Status State
+    const [riskSnapshots, setRiskSnapshots] = useState({});
+    const [showAIPopup, setShowAIPopup] = useState(false);
+    const [aiPopupData, setAiPopupData] = useState(null);
+    const [analyzedTaskIds, setAnalyzedTaskIds] = useState(new Set()); // Track which tasks caused a popup to avoid spam
+
     // Proof preview modal state
     const [showProofPreview, setShowProofPreview] = useState(false);
     const [proofPreviewUrl, setProofPreviewUrl] = useState('');
@@ -55,7 +65,77 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
 
     useEffect(() => {
         fetchAllData();
+
+        // Real-time visibility into active status and task updates
+        const channel = supabase.channel('manager_dashboard_realtime')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => {
+                fetchAllTasks();
+                fetchValidationQueue();
+            })
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, [userId]);
+
+    // Check for high risk tasks and trigger AI popup
+    useEffect(() => {
+        if (!loading && allTasks.length > 0 && Object.keys(riskSnapshots).length > 0) {
+            checkForHighRisks();
+        }
+    }, [loading, riskSnapshots, allTasks]);
+
+    const checkForHighRisks = () => {
+        // Find tasks with high risk that we haven't alerted about yet
+        const highRiskTasks = allTasks.filter(task => {
+            const snapshot = riskSnapshots[task.id];
+
+            // Visibility Logic: Only alert the assigner OR high-level roles
+            const isAssigner = task.assigned_by === userId;
+            const isPrivilegedRole = userRole === 'org_manager' || userRole === 'executive' || userRole === 'admin';
+            // If they are a project manager, they should see all tasks in that project
+            const isProjectPM = task.project_id && (userRole === 'project_manager' || userRole === 'manager');
+
+            const isRelevant = isAssigner || isPrivilegedRole || isProjectPM;
+
+            return snapshot &&
+                snapshot.risk_level === 'high' &&
+                isRelevant &&
+                !analyzedTaskIds.has(task.id) &&
+                task.lifecycle_state !== 'closed' &&
+                task.lifecycle_state !== 'deployment';
+        });
+
+        if (highRiskTasks.length > 0) {
+            // Pick the most critical one (highest predicted delay)
+            const sorted = highRiskTasks.sort((a, b) => {
+                const snapA = riskSnapshots[a.id];
+                const snapB = riskSnapshots[b.id];
+                return (snapB.predicted_delay_hours || 0) - (snapA.predicted_delay_hours || 0);
+            });
+
+            const criticalTask = sorted[0];
+            const snapshot = riskSnapshots[criticalTask.id];
+
+            setAiPopupData({
+                type: 'alert',
+                message: `Task "${criticalTask.title}" is predicted to be delayed by ${snapshot.predicted_delay_hours} hours.`,
+                reasons: snapshot.reasons || [],
+                actions: snapshot.recommended_actions || [],
+                onAction: () => {
+                    setSelectedTask(criticalTask);
+                    setShowTaskModal(true);
+                    fetchTaskHistory(criticalTask.id);
+                    setShowAIPopup(false);
+                }
+            });
+            setShowAIPopup(true);
+
+            // Mark as analyzed so we don't show it again this session
+            setAnalyzedTaskIds(prev => new Set([...prev, criticalTask.id]));
+        }
+    };
 
     const fetchAllData = async () => {
         setLoading(true);
@@ -64,6 +144,45 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const fetchRiskDataForTasks = async (tasks) => {
+        if (!tasks || tasks.length === 0) return;
+        const activeTasks = tasks.filter(t => t.lifecycle_state !== 'closed' && t.lifecycle_state !== 'deployment');
+        if (activeTasks.length === 0) return;
+
+        const taskIds = activeTasks.map(t => t.id);
+        const snapshotMap = await riskService.getLatestSnapshotsForTasks(taskIds);
+
+        // Proactive: For tasks missing a snapshot, or for micro-tasks (< 1h), check metrics
+        const missingIds = taskIds.filter(id => !snapshotMap[id]);
+
+        for (const taskId of missingIds) {
+            const task = tasks.find(t => t.id === taskId);
+            try {
+                // If it's a micro-task, go straight to full analysis to get the AI popup ready
+                if (task.allocated_hours < 5) {
+                    const result = await riskService.analyzeRisk(taskId, task.title, {
+                        role: 'manager_auto',
+                        is_micro_task: task.allocated_hours < 1
+                    });
+                    snapshotMap[taskId] = result.analysis;
+                } else {
+                    // Otherwise just do the cheap math check
+                    const metrics = await riskService.computeRiskMetrics(taskId);
+                    if (metrics) {
+                        snapshotMap[taskId] = {
+                            risk_level: metrics.base_risk_level,
+                            predicted_delay_hours: metrics.predicted_delay_hours
+                        };
+                    }
+                }
+            } catch (err) {
+                console.warn(`Proactive risk check failed for ${taskId}:`, err);
+            }
+        }
+
+        setRiskSnapshots(prev => ({ ...prev, ...snapshotMap }));
     };
 
     const fetchValidationQueue = async () => {
@@ -154,6 +273,8 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                 }));
 
                 setAllTasks(formatted);
+                // Fetch risk data for these tasks
+                fetchRiskDataForTasks(formatted);
 
                 // Calculate stats
                 const pending = formatted.filter(t => t.sub_state === 'pending_validation').length;
@@ -163,6 +284,16 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                     byPhase[p.key] = formatted.filter(t => t.lifecycle_state === p.key).length;
                 });
                 setStats({ pending, approved, total: formatted.length, byPhase });
+
+                // --- BULK SYNC ALL TASKS FOR MONITORING ---
+                // This ensures every task has a baseline snapshot in the DB
+                const allIds = formatted.map(t => t.id);
+                if (allIds.length > 0) {
+                    riskService.syncDailyRisks(allIds).then(() => {
+                        // After sync, fetch the full data map
+                        fetchRiskDataForTasks(formatted);
+                    });
+                }
             }
 
             // Fetch Team Analytics (Time & Effort)
@@ -390,7 +521,7 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
             (task.sub_state?.replace('_', ' ').toLowerCase() === statusFilter.toLowerCase());
 
         return matchesSearch && matchesPhase && matchesDate && matchesStatus;
-    });
+    }).sort((a, b) => (b.is_active_now ? 1 : 0) - (a.is_active_now ? 1 : 0));
 
     // Group tasks by employee
     const tasksByEmployee = filteredTasks.reduce((acc, task) => {
@@ -569,7 +700,7 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                             <p style={{ color: 'var(--text-secondary)' }}>No tasks are pending your validation right now.</p>
                         </div>
                     ) : (
-                        validationQueue.map((task, idx) => (
+                        [...validationQueue].sort((a, b) => (b.is_active_now ? 1 : 0) - (a.is_active_now ? 1 : 0)).map((task, idx) => (
                             <div key={task.task_id || idx} style={{
                                 backgroundColor: 'var(--surface)',
                                 borderRadius: '16px',
@@ -595,6 +726,12 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                                         }}>Awaiting Approval</span>
                                     </div>
                                     <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <ActiveStatusDot
+                                            taskId={task.id || task.task_id}
+                                            isActive={task.is_active_now}
+                                            isEditable={false}
+                                            size={10}
+                                        />
                                         {task.title}
                                     </h3>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem', flexWrap: 'wrap' }}>
@@ -913,9 +1050,16 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                                                     Prior: {task.priority}
                                                 </span>
                                             </div>
-                                            <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px', lineHeight: 1.4 }}>
-                                                {task.title}
-                                            </h3>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                                <ActiveStatusDot
+                                                    taskId={task.id}
+                                                    isActive={task.is_active_now}
+                                                    isEditable={false} // Managers just view it
+                                                />
+                                                <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', margin: 0, lineHeight: 1.4 }}>
+                                                    {task.title}
+                                                </h3>
+                                            </div>
                                             <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                     <User size={14} /> {task.assignee_name}
@@ -928,6 +1072,11 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                            <RiskBadge
+                                                riskLevel={riskSnapshots[task.id]?.risk_level}
+                                                predictedDelay={riskSnapshots[task.id]?.predicted_delay_hours}
+                                                showLabel={false}
+                                            />
                                             <LifecycleProgressMini phase={task.lifecycle_state} />
                                             <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
                                                 {phaseInfo.short}
@@ -1180,14 +1329,36 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                                 <p style={{ color: 'var(--text-secondary)', lineHeight: 1.6 }}>{selectedTask.description || 'No description'}</p>
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '24px' }}>
                                 <div style={{ padding: '16px', backgroundColor: 'var(--background)', borderRadius: '12px' }}>
-                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Assigned To</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <User size={14} /> Assigned To
+                                    </div>
                                     <div style={{ fontWeight: 600 }}>{selectedTask.assignee_name}</div>
                                 </div>
                                 <div style={{ padding: '16px', backgroundColor: 'var(--background)', borderRadius: '12px' }}>
-                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Current Phase</div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <History size={14} /> Current Phase
+                                    </div>
                                     <div style={{ fontWeight: 600 }}>{getPhaseInfo(selectedTask.lifecycle_state).label}</div>
+                                </div>
+                                <div style={{ padding: '16px', backgroundColor: 'var(--background)', borderRadius: '12px' }}>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Clock size={14} /> Start Time
+                                    </div>
+                                    <div style={{ fontWeight: 600 }}>{selectedTask.started_at ? new Date(selectedTask.started_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '---'}</div>
+                                </div>
+                                <div style={{ padding: '16px', backgroundColor: 'var(--background)', borderRadius: '12px' }}>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Calendar size={14} /> Due Deadline
+                                    </div>
+                                    <div style={{ fontWeight: 600 }}>{selectedTask.due_time || '23:59'} {selectedTask.due_date ? `(${new Date(selectedTask.due_date).toLocaleDateString()})` : ''}</div>
+                                </div>
+                                <div style={{ padding: '16px', backgroundColor: 'var(--background)', borderRadius: '12px' }}>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        <Award size={14} /> Allocation
+                                    </div>
+                                    <div style={{ fontWeight: 600 }}>{selectedTask.allocated_hours || 0} hrs</div>
                                 </div>
                             </div>
 
@@ -1396,6 +1567,14 @@ const ManagerTaskDashboard = ({ userRole = 'manager', userId, addToast }) => {
                     </div>
                 )
             }
+            {/* AI Assistant Popup for Risk Alerts */}
+            {showAIPopup && aiPopupData && (
+                <AIAssistantPopup
+                    isOpen={showAIPopup}
+                    onClose={() => setShowAIPopup(false)}
+                    data={aiPopupData}
+                />
+            )}
         </div >
     );
 };

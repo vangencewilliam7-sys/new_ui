@@ -248,7 +248,7 @@ const Header = () => {
                             right: 0,
                             marginTop: '8px',
                             backgroundColor: 'white',
-                            borderRadius: '8px',
+                            borderRadius: '6px',
                             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
                             border: '1px solid var(--border)',
                             maxHeight: '400px',
@@ -303,7 +303,7 @@ const Header = () => {
                     {/* TimerWidget removed */}
                     <button
                         onClick={toggleTheme}
-                        style={{ position: 'relative', padding: '8px', borderRadius: '8px', backgroundColor: 'var(--background)', cursor: 'pointer', border: 'none' }}
+                        style={{ position: 'relative', padding: '8px', borderRadius: '6px', backgroundColor: 'var(--background)', cursor: 'pointer' }}
                         title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
                     >
                         {theme === 'dark' ? <Sun size={20} color="var(--text-secondary)" /> : <Moon size={20} color="var(--text-secondary)" />}
@@ -311,7 +311,7 @@ const Header = () => {
 
                     <button
                         onClick={() => navigate('/employee-dashboard/settings')}
-                        style={{ position: 'relative', padding: '8px', borderRadius: '8px', backgroundColor: 'var(--background)', cursor: 'pointer', border: 'none' }}
+                        style={{ position: 'relative', padding: '8px', borderRadius: '6px', backgroundColor: 'var(--background)', cursor: 'pointer' }}
                     >
                         <User size={20} color="var(--text-secondary)" />
                     </button>

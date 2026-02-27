@@ -1,42 +1,19 @@
-
-import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+dotenv.config();
+import { createClient } from '@supabase/supabase-js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, '.env') });
-
-const supabase = createClient(
-    process.env.VITE_SUPABASE_URL,
-    process.env.VITE_SUPABASE_ANON_KEY
-);
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function checkSchema() {
-    console.log('--- CHECKING SCHEMA ---');
-
-    // Try to select one row and see keys
-    const { data, error } = await supabase
-        .from('task_submissions')
-        .select('*')
-        .limit(1);
-
+    const { data, error } = await supabase.rpc('get_table_schema', { table_name_param: 'tasks' });
     if (error) {
-        console.error('Error fetching:', error);
-        return;
-    }
-
-    if (data && data.length > 0) {
-        console.log('Columns found:', Object.keys(data[0]));
+        // Fallback if no RPC
+        console.error('RPC Error, trying direct query (which might fail due to perms):', error);
     } else {
-        console.log('No data found, cannot infer columns easily via select *.');
-        // Try to insert with user_id and see error
-        const { error: insError } = await supabase.from('task_submissions').insert({
-            task_id: '00000000-0000-0000-0000-000000000000', // Dummy
-            user_id: '00000000-0000-0000-0000-000000000000'
-        });
-        console.log('Insert Test Error:', insError);
+        console.log(data);
     }
 }
-
-checkSchema();
+// Actually, creating a simpler SQL query to run directly might be easier if I can't use RPC.
+// Let's just create a function to list columns.

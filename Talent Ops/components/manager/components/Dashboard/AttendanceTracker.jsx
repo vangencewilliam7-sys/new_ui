@@ -21,45 +21,36 @@ const AttendanceTracker = () => {
             if (!userId || !orgId) return;
 
             try {
-                const today = new Date().toISOString().split('T')[0];
-                const { data, error } = await supabase
-                    .from('attendance')
-                    .select('*')
-                    .eq('employee_id', userId)
-                    .eq('org_id', orgId)
-                    .eq('date', today)
-                    .maybeSingle();
+                const { data, error } = await supabase.rpc('get_my_attendance_status');
 
                 if (error) {
-                    console.error('Error fetching attendance:', error);
+                    console.error('Error fetching attendance status:', error);
                     return;
                 }
 
                 if (data) {
-                    // Parse Check In Time
+                    setCurrentTask(data.current_task || '');
+
                     if (data.clock_in) {
                         const [h, m, s] = data.clock_in.split(':');
                         const inTime = new Date();
                         inTime.setHours(h, m, s || 0);
                         setCheckInTime(inTime);
 
-                        // If NOT checked out yet
                         if (!data.clock_out) {
                             setStatus('checked-in');
                             setUserStatus('Online');
                             setLastActive('Now');
 
-                            // Calculate elapsed time
                             const now = new Date();
                             const diff = Math.floor((now - inTime) / 1000);
                             setElapsedTime(diff > 0 ? diff : 0);
                         } else {
-                            // Already checked out
                             const [oh, om, os] = data.clock_out.split(':');
                             const outTime = new Date();
                             outTime.setHours(oh, om, os || 0);
                             setCheckOutTime(outTime);
-                            setStatus('checked-out'); // Or 'completed'
+                            setStatus('checked-out');
                             setUserStatus('Offline');
                             setLastActive(formatTime(outTime));
                         }
@@ -126,83 +117,65 @@ const AttendanceTracker = () => {
     };
 
     const handleMainAction = async () => {
-        if (!userId) {
-            addToast('User ID not found. Please refresh.', 'error');
-            return;
-        }
-
-        const now = new Date();
-        const timeString = now.toTimeString().split(' ')[0]; // HH:MM:SS
-        const dateString = now.toISOString().split('T')[0];
-
         try {
             if (status === 'checked-out') {
-                // CHECK IN
-                const { error } = await supabase.from('attendance').insert({
-                    employee_id: userId,
-                    org_id: orgId,
-                    date: dateString,
-                    clock_in: timeString
-                });
+                // CHECK IN via RPC
+                const { data, error } = await supabase.rpc('check_in');
 
-                if (error) throw error;
+                if (error) {
+                    addToast(error.message || 'Check-in failed', 'error');
+                    return;
+                }
 
-                setStatus('checked-in');
-                setCheckInTime(now);
-                setCheckOutTime(null);
-                setElapsedTime(0);
+                if (data && data.error) {
+                    addToast(data.error, 'error');
+                    return;
+                }
 
-                // Update Context
-                setUserStatus('Online');
-                setLastActive('Now');
-
-                addToast('Checked in successfully', 'success');
+                if (data && data.success) {
+                    setStatus('checked-in');
+                    setCheckInTime(new Date());
+                    setCheckOutTime(null);
+                    setElapsedTime(0);
+                    setUserStatus('Online');
+                    setLastActive('Now');
+                    addToast('Checked in successfully', 'success');
+                }
             } else if (status === 'checked-in' || status === 'break') {
-                // TRIGGER CONFIRMATION
                 setShowConfirmModal(true);
             }
         } catch (error) {
             console.error('Error updating attendance:', error);
-            addToast('Failed to update attendance', 'error');
+            addToast('Unexpected error occurred', 'error');
         }
     };
 
     const performCheckOut = async () => {
-        const now = new Date();
-        const timeString = now.toTimeString().split(' ')[0];
-        const dateString = now.toISOString().split('T')[0];
-
         try {
-            // Calculate total hours
-            let totalHours = 0;
-            if (checkInTime) {
-                const diffMs = now - checkInTime; // Difference in milliseconds
-                totalHours = (diffMs / (1000 * 60 * 60)).toFixed(2); // Convert to hours, 2 decimal places
+            // CHECK OUT via RPC
+            const { data, error } = await supabase.rpc('check_out');
+
+            if (error) {
+                addToast(error.message || 'Check-out failed', 'error');
+                return;
             }
 
-            const { error } = await supabase
-                .from('attendance')
-                .update({
-                    clock_out: timeString,
-                    total_hours: totalHours
-                })
-                .eq('employee_id', userId)
-                .eq('org_id', orgId)
-                .eq('date', dateString);
+            if (data && data.error) {
+                addToast(data.error, 'error');
+                return;
+            }
 
-            if (error) throw error;
-
-            setStatus('checked-out');
-            setCheckOutTime(now);
-
-            // Update Context
-            setUserStatus('Offline');
-            setLastActive(formatTime(now));
-
-            addToast('Checked out successfully', 'success');
+            if (data && data.success) {
+                const now = new Date();
+                setStatus('checked-out');
+                setCheckOutTime(now);
+                setUserStatus('Offline');
+                setLastActive(formatTime(now));
+                addToast('Checked out successfully', 'success');
+            }
         } catch (error) {
             console.error('Error updating attendance:', error);
-            addToast('Failed to update attendance', 'error');
+            addToast('Unexpected error occurred', 'error');
         } finally {
             setShowConfirmModal(false);
         }
@@ -289,24 +262,6 @@ const AttendanceTracker = () => {
                             onChange={(e) => {
                                 setCurrentTask(e.target.value);
                                 setUserTask(e.target.value);
-                            }}
-                            onBlur={async () => {
-                                if (userId && currentTask) {
-                                    const today = new Date().toISOString().split('T')[0];
-                                    const { error } = await supabase
-                                        .from('attendance')
-                                        .update({ current_task: currentTask })
-                                        .eq('employee_id', userId)
-                                        .eq('org_id', orgId)
-                                        .eq('date', today);
-
-                                    if (error) {
-                                        console.error('Error saving task:', error);
-                                        addToast('Failed to save task', 'error');
-                                    } else {
-                                        // Optional: addToast('Task updated', 'success');
-                                    }
-                                }
                             }}
                             style={{
                                 width: '100%',

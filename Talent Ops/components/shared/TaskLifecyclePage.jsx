@@ -298,22 +298,43 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, orgId, addToast, pro
         const currentIndex = getPhaseIndex(currentPhase);
         return (
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                {LIFECYCLE_PHASES.slice(0, -1).map((phase, idx) => (
-                    <React.Fragment key={phase.key}>
-                        <div style={{
-                            width: '28px', height: '28px', borderRadius: '50%',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '0.65rem', fontWeight: 600,
-                            backgroundColor: taskStatus === 'completed' ? '#10b981' : (idx < currentIndex ? '#10b981' : idx === currentIndex ? (subState === 'pending_validation' ? '#f59e0b' : '#3b82f6') : '#e5e7eb'),
-                            color: (taskStatus === 'completed' || idx <= currentIndex) ? 'white' : '#9ca3af'
-                        }} title={phase.label}>
-                            {idx < currentIndex ? '✓' : phase.short.charAt(0)}
-                        </div>
-                        {idx < LIFECYCLE_PHASES.length - 2 && (
-                            <div style={{ width: '16px', height: '3px', backgroundColor: idx < currentIndex ? '#10b981' : '#e5e7eb' }} />
-                        )}
-                    </React.Fragment>
-                ))}
+                {LIFECYCLE_PHASES.slice(0, -1).map((phase, idx) => {
+                    let color = '#e5e7eb'; // Grey default
+                    let textColor = '#9ca3af';
+
+                    if (taskStatus === 'completed') {
+                        color = '#10b981';
+                        textColor = 'white';
+                    } else if (idx < currentIndex) {
+                        color = '#10b981'; // Green = past approved phases
+                        textColor = 'white';
+                    } else if (idx === currentIndex) {
+                        if (subState === 'pending_validation') {
+                            color = '#f59e0b'; // Yellow = proof submitted, awaiting review
+                        } else {
+                            color = '#3b82f6'; // Blue = current active phase
+                        }
+                        textColor = 'white';
+                    }
+                    // Future phases stay grey
+
+                    return (
+                        <React.Fragment key={phase.key}>
+                            <div style={{
+                                width: '28px', height: '28px', borderRadius: '50%',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: '0.65rem', fontWeight: 600,
+                                backgroundColor: color,
+                                color: textColor
+                            }} title={phase.label}>
+                                {idx < currentIndex ? '✓' : phase.short.charAt(0)}
+                            </div>
+                            {idx < LIFECYCLE_PHASES.length - 2 && (
+                                <div style={{ width: '16px', height: '3px', backgroundColor: idx < currentIndex ? '#10b981' : '#e5e7eb' }} />
+                            )}
+                        </React.Fragment>
+                    );
+                })}
             </div>
         );
     };
@@ -692,12 +713,12 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, orgId, addToast, pro
 
                         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                             <button onClick={() => { setShowProofModal(false); setTaskForProof(null); setProofFile(null); setProofText(''); }} disabled={uploading}
-                                style={{ padding: '12px 24px', borderRadius: '10px', backgroundColor: 'var(--background)', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 600 }}>
+                                style={{ padding: '12px 24px', borderRadius: '8px', backgroundColor: 'var(--background)', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 600 }}>
                                 Cancel
                             </button>
                             <button onClick={uploadProofAndRequestValidation} disabled={(!proofFile && !proofText.trim()) || uploading}
                                 style={{
-                                    padding: '12px 24px', borderRadius: '10px',
+                                    padding: '12px 24px', borderRadius: '8px',
                                     background: (proofFile || proofText.trim()) ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#e5e7eb',
                                     color: (proofFile || proofText.trim()) ? 'white' : '#9ca3af', border: 'none', fontWeight: 600,
                                     cursor: (proofFile || proofText.trim()) ? 'pointer' : 'not-allowed',
@@ -715,7 +736,7 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, orgId, addToast, pro
             {/* Task Details Modal */}
             {showTaskModal && selectedTask && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div style={{ backgroundColor: 'var(--surface)', padding: '32px', borderRadius: '16px', width: '600px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
+                    <div style={{ backgroundColor: 'var(--surface)', padding: '32px', borderRadius: '12px', width: '600px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
                             <h3 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Task Details</h3>
                             <button onClick={() => setShowTaskModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><X size={24} /></button>
@@ -726,7 +747,7 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, orgId, addToast, pro
                         </div>
 
                         {selectedTask.proof_url && (
-                            <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+                            <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                     <FileText size={24} color="#16a34a" />
                                     <div>
@@ -781,7 +802,7 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, orgId, addToast, pro
                     alignItems: 'center', justifyContent: 'center', zIndex: 1002
                 }}>
                     <div style={{
-                        backgroundColor: 'white', borderRadius: '20px', padding: '28px',
+                        backgroundColor: 'white', borderRadius: '12px', padding: '28px',
                         width: '100%', maxWidth: '500px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
                     }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -798,7 +819,7 @@ const TaskLifecyclePage = ({ userRole = 'employee', userId, orgId, addToast, pro
                                 value={newTask.title}
                                 onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
                                 placeholder="Enter task title"
-                                style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid #e5e7eb', fontSize: '0.95rem', boxSizing: 'border-box' }}
+                                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '0.95rem', boxSizing: 'border-box' }}
                             />
                         </div>
 

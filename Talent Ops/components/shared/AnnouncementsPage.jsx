@@ -48,101 +48,31 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
         try {
             if (showLoader || announcements.length === 0) setLoading(true);
 
-            // 1. Fetch User Profile to get team_id
+            // 1. Fetch User Profile to get team_id (still useful for UI context if needed, but RPC handles data)
             const { data: profile } = await supabase
                 .from('profiles')
                 .select('team_id, full_name')
                 .eq('id', userId)
-                .eq('org_id', orgId)
                 .single();
             if (profile) {
                 setUserTeamId(profile.team_id);
                 setSenderName(profile.full_name || 'System Announcement');
             }
 
-            // 2. Fetch Announcements
-            const { data, error } = await supabase
-                .from('announcements')
-                .select('*')
-                .eq('org_id', orgId)
-                .order('event_date', { ascending: true });
+            // 2. Fetch Announcements via RPC
+            // The RPC handles:
+            // - Filtering by Org ID
+            // - Filtering by Visibility (Team/Employee/All)
+            // - Calculating Status (Future/Active/Completed)
+            // - Sorting
+            const { data, error } = await supabase.rpc('get_my_announcements');
 
             if (error) throw error;
 
             if (data) {
-                // Auto-update statuses based on date
-                const today = new Date();
-                today.setHours(0, 0, 0, 0);
-
-                const updates = data.filter(event => {
-                    const eventDate = new Date(event.event_date);
-                    eventDate.setHours(0, 0, 0, 0);
-
-                    // Logic: Future -> Active -> Completed
-                    // We only upgrade status, never downgrade (to respect manual completion or logic)
-                    // If DB is 'future' and Date is Today -> Update to 'active'
-                    // If DB is 'future'/'active' and Date is Past -> Update to 'completed'
-
-                    if (event.status === 'future') {
-                        if (eventDate.getTime() === today.getTime()) return true; // targeted: active
-                        if (eventDate < today) return true; // targeted: completed
-                    }
-                    if (event.status === 'active') {
-                        if (eventDate < today) return true; // targeted: completed
-                    }
-                    return false;
-                }).map(event => {
-                    const eventDate = new Date(event.event_date);
-                    eventDate.setHours(0, 0, 0, 0);
-                    let newStatus = event.status;
-
-                    if (eventDate.getTime() === today.getTime()) newStatus = 'active';
-                    else if (eventDate < today) newStatus = 'completed';
-
-                    return { id: event.id, status: newStatus };
-                });
-
-                if (updates.length > 0) {
-                    // Perform updates in background
-                    updates.forEach(async (update) => {
-                        await supabase.from('announcements').update({ status: update.status }).eq('id', update.id).eq('org_id', orgId);
-                    });
-
-                    // Update local data immediately
-                    data.forEach(d => {
-                        const update = updates.find(u => u.id === d.id);
-                        if (update) d.status = update.status;
-                    });
-                }
-
-                const visibleEvents = data.filter(a => {
-                    // Executives and Managers see all
-                    if (userRole === 'executive' || userRole === 'manager') return true;
-
-                    // All Logic - Visible to Everyone
-                    if (a.event_for === 'all') return true;
-
-                    let targetTeams = [];
-                    let targetEmployees = [];
-                    try {
-                        targetTeams = typeof a.teams === 'string' ? JSON.parse(a.teams) : (a.teams || []);
-                        targetEmployees = typeof a.employees === 'string' ? JSON.parse(a.employees) : (a.employees || []);
-                    } catch (e) {
-                        console.error("Error parsing targets", e);
-                    }
-
-                    // Always allow visibility if user is in targets or is potentially the creator
-                    // (Note: there is no creator_id column, so we rely on target list inclusion)
-                    if (a.event_for === 'team') {
-                        return targetTeams.includes(userTeamId);
-                    } else if (a.event_for === 'employee' || a.event_for === 'specific') {
-                        const isInTarget = targetEmployees.some(id => String(id) === String(userId));
-                        return isInTarget;
-                    }
-                    return false;
-                });
-
-                setAnnouncements(visibleEvents);
+                // RPC returns 'status' calculated dynamically. 
+                // We no longer need the client-side auto-update logic here.
+                setAnnouncements(data);
             }
         } catch (err) {
             console.error('Error loading announcements:', err);
@@ -214,12 +144,8 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
 
                 const eventDateStr = event.event_date;
 
-                let effectiveStatus = event.status;
-                if (!effectiveStatus || effectiveStatus === 'future') {
-                    if (eventDateStr > todayStr) effectiveStatus = 'future';
-                    else if (eventDateStr === todayStr) effectiveStatus = 'active';
-                    else effectiveStatus = 'completed';
-                }
+                // Client-side status recalculation removed. We trust the RPC.
+                const effectiveStatus = event.status;
 
                 if (activeTab === 'upcoming') return effectiveStatus === 'future';
                 if (activeTab === 'active') return effectiveStatus === 'active';
@@ -339,60 +265,33 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
     const handleAddEvent = async (e) => {
         e.preventDefault();
         try {
-            // Determine initial status based on date
-            const today = new Date().toISOString().split('T')[0];
-            const nowTime = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
-
+            // Apply defaults for Announcement
             let finalDate = newEvent.date;
             let finalTime = newEvent.time;
             let finalLocation = newEvent.location;
 
-            // Apply defaults for Announcement
             if (createType === 'announcement') {
-                finalDate = today;
-                finalTime = nowTime;
-                finalLocation = 'Broadcast'; // Convention marker
+                const today = new Date();
+                finalDate = today.toISOString().split('T')[0];
+                finalTime = today.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' });
+                finalLocation = 'Broadcast';;
             }
 
-            let initialStatus = 'future';
-            if (finalDate === today) initialStatus = 'active';
-            else if (finalDate < today) initialStatus = 'completed';
-
-            // Ensure creator is included in employee list for privacy-scoped events
-            let finalEmployees = (eventScope === 'employee' || eventScope === 'my_team') ? [...selectedEmployees] : [];
-            if (eventScope === 'employee' || eventScope === 'my_team') {
-                if (!finalEmployees.includes(userId)) {
-                    finalEmployees.push(userId);
-                }
-            }
-
+            // Call RPC: create_announcement_event
             const payload = {
-                title: newEvent.title,
-                event_date: finalDate,
-                event_time: finalTime,
-                location: finalLocation,
-                message: newEvent.message,
-                event_for: eventScope === 'my_team' ? 'employee' : eventScope,
-                teams: eventScope === 'team' ? selectedTeams : [],
-                employees: finalEmployees,
-                status: initialStatus,
-                org_id: orgId
+                p_title: newEvent.title,
+                p_date: finalDate,
+                p_time: finalTime,
+                p_location: finalLocation,
+                p_message: newEvent.message,
+                p_event_for: eventScope === 'my_team' ? 'employee' : eventScope,
+                p_target_teams: eventScope === 'team' ? selectedTeams : [], // JSON array
+                p_target_employees: (eventScope === 'employee' || eventScope === 'my_team') ? selectedEmployees : [] // JSON array
             };
 
-            let response = await supabase.from('announcements').insert(payload);
+            const { data, error } = await supabase.rpc('create_announcement_event', payload);
 
-            if (response.error && (
-                response.error.message.includes('column "status" of relation "announcements" does not exist') ||
-                response.error.message.includes("Could not find the 'status' column")
-            )) {
-                // Retry without status
-                // We'll remove status field
-                delete payload.status;
-                response = await supabase.from('announcements').insert(payload);
-                console.warn("Status column missing, proceeding without it.");
-            }
-
-            if (response.error) throw response.error;
+            if (error) throw error;
 
             alert(createType === 'announcement' ? 'Announcement posted!' : 'Event added successfully!');
             setShowAddModal(false);
@@ -400,52 +299,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
             setEventScope('all');
             setSelectedTeams([]);
             setSelectedEmployees([]);
-            fetchData(); // Refresh list
-
-            // --- Send Notifications ---
-            if (senderName) {
-                let recipientIds = [];
-
-                if (eventScope === 'all') {
-                    // Send to everyone (except self, optional, but usually good to notify self too or filter out)
-                    recipientIds = allEmployees.map(e => e.id);
-                } else if (eventScope === 'team') {
-                    // Send to employees in selected teams
-                    recipientIds = allEmployees
-                        .filter(e => selectedTeams.includes(e.teamId))
-                        .map(e => e.id);
-                } else if (eventScope === 'employee' || eventScope === 'my_team') {
-                    // Send to specific employees
-                    recipientIds = selectedEmployees; // these are IDs
-                }
-
-                // Filter out the sender if you don't want to notify yourself (optional, keeping it commented out for testing so you see the notification)
-                // recipientIds = recipientIds.filter(id => id !== userId);
-
-                console.log('Sending notifications to:', recipientIds);
-
-                if (recipientIds.length > 0) {
-                    const notificationsData = recipientIds.map(receiverId => ({
-                        sender_id: userId,
-                        sender_name: senderName,
-                        receiver_id: receiverId,
-                        message: `New Announcement: ${newEvent.title}`,
-                        type: 'announcement',
-                        is_read: false,
-                        created_at: new Date().toISOString(),
-                        org_id: orgId
-                    }));
-
-                    const { error: notifError } = await supabase
-                        .from('notifications')
-                        .insert(notificationsData);
-
-                    if (notifError) {
-                        console.error("Error creating notifications:", notifError);
-                    }
-                }
-            }
-            // --------------------------
+            fetchData(); // Refresh list via RPC
 
         } catch (err) {
             console.error("Error adding event:", err);
@@ -458,21 +312,13 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
         if (!confirm(`Are you sure you want to mark this event as ${newStatus}?`)) return;
 
         try {
-            const { error } = await supabase
-                .from('announcements')
-                .update({ status: newStatus })
-                .eq('id', eventId)
-                .eq('org_id', orgId);
+            // Call RPC: update_announcement_status
+            const { error } = await supabase.rpc('update_announcement_status', {
+                p_announcement_id: eventId,
+                p_status: newStatus
+            });
 
-            if (error) {
-                // Graceful fallback if column missing
-                if (error.message.includes('column "status" of relation "announcements" does not exist') ||
-                    error.message.includes("Could not find the 'status' column")) {
-                    alert("The 'status' column does not exist in your database or schema cache needs refresh. Please run the migration script provided.");
-                    return;
-                }
-                throw error;
-            }
+            if (error) throw error;
 
             // Update local state immediately for better UX
             setAnnouncements(prev => prev.map(ev =>
@@ -491,7 +337,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
 
         } catch (err) {
             console.error("Error updating status:", err);
-            alert("Failed to update status. Please try again.");
+            alert("Failed to update status: " + err.message);
         }
     };
 
@@ -500,11 +346,8 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
         if (!confirm('Are you sure you want to delete this event? This action cannot be undone.')) return;
 
         try {
-            const { error } = await supabase
-                .from('announcements')
-                .delete()
-                .eq('id', eventId)
-                .eq('org_id', orgId);
+            // Call RPC: delete_announcement
+            const { error } = await supabase.rpc('delete_announcement', { p_announcement_id: eventId });
 
             if (error) throw error;
 
@@ -562,12 +405,12 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
             {/* Compact Header - Matching Leave Requests Style */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 padding: '20px 28px',
                 color: 'white',
                 position: 'relative',
                 overflow: 'hidden',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                 marginBottom: '20px'
             }}>
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
@@ -598,7 +441,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                                 background: 'linear-gradient(135deg, #f59e0b, #d97706)',
                                 color: 'white',
                                 padding: '10px 20px',
-                                borderRadius: '10px',
+                                borderRadius: '6px',
                                 fontWeight: '600',
                                 fontSize: '0.85rem',
                                 border: 'none',
@@ -626,12 +469,12 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
             {/* Toggles and Tabs */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '24px', marginBottom: '20px' }}>
                 {/* View Mode Toggle */}
-                <div style={{ display: 'flex', gap: '4px', backgroundColor: 'white', padding: '6px', borderRadius: '14px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
+                <div style={{ display: 'flex', gap: '4px', backgroundColor: 'white', padding: '6px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.02)' }}>
                     <button
                         onClick={() => setViewMode('events')}
                         style={{
                             padding: '8px 20px',
-                            borderRadius: '10px',
+                            borderRadius: '6px',
                             border: 'none',
                             backgroundColor: viewMode === 'events' ? '#0f172a' : 'transparent',
                             color: viewMode === 'events' ? 'white' : '#64748b',
@@ -649,7 +492,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                         onClick={() => setViewMode('announcements')}
                         style={{
                             padding: '8px 20px',
-                            borderRadius: '10px',
+                            borderRadius: '6px',
                             border: 'none',
                             backgroundColor: viewMode === 'announcements' ? '#0f172a' : 'transparent',
                             color: viewMode === 'announcements' ? 'white' : '#64748b',
@@ -684,7 +527,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                                     alignItems: 'center',
                                     gap: '8px',
                                     padding: '8px 16px',
-                                    borderRadius: '10px',
+                                    borderRadius: '6px',
                                     border: activeTab === tab.id ? `1px solid ${tab.color}30` : '1px solid transparent',
                                     backgroundColor: activeTab === tab.id ? `${tab.color}08` : 'transparent',
                                     color: activeTab === tab.id ? tab.color : '#64748b',
@@ -752,9 +595,9 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                             onClick={() => setSelectedEvent(event)}
                             style={{
                                 backgroundColor: 'white',
-                                borderRadius: '24px',
+                                borderRadius: '8px',
                                 padding: '32px',
-                                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.02), 0 4px 6px -2px rgba(0, 0, 0, 0.01)',
+                                boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.05)',
                                 border: '1px solid #f1f5f9',
                                 display: 'flex',
                                 flexDirection: 'column',
@@ -794,7 +637,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                                         <span style={{
                                             padding: '4px 10px',
-                                            borderRadius: '8px',
+                                            borderRadius: '6px',
                                             fontSize: '0.65rem',
                                             fontWeight: '800',
                                             textTransform: 'uppercase',
@@ -824,7 +667,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            borderRadius: '10px',
+                                            borderRadius: '6px',
                                             transition: 'all 0.2s'
                                         }}
                                         onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.backgroundColor = '#fee2e2'; }}
@@ -838,7 +681,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                             {/* Content Info */}
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', paddingLeft: '12px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#3b82f610', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: '#3b82f610', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <Calendar size={14} color="#3b82f6" />
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -850,7 +693,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#f59e0b10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: '#f59e0b10', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <Clock size={14} color="#f59e0b" />
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -860,7 +703,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                                 </div>
 
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                    <div style={{ width: '32px', height: '32px', borderRadius: '8px', backgroundColor: '#ef444410', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: '#ef444410', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <MapPin size={14} color="#ef4444" />
                                     </div>
                                     <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -897,7 +740,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                         onClick={(e) => e.stopPropagation()}
                         style={{
                             backgroundColor: 'white',
-                            borderRadius: '32px',
+                            borderRadius: '8px',
                             width: '560px',
                             maxWidth: '100%',
                             boxShadow: '0 30px 60px -12px rgba(0, 0, 0, 0.25)',
@@ -923,7 +766,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                                         <span style={{
                                             padding: '4px 12px',
-                                            borderRadius: '8px',
+                                            borderRadius: '6px',
                                             fontSize: '0.7rem',
                                             fontWeight: '800',
                                             textTransform: 'uppercase',
@@ -940,7 +783,7 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                                 <button
                                     onClick={() => setSelectedEvent(null)}
                                     style={{
-                                        background: '#f1f5f9', border: 'none', borderRadius: '12px',
+                                        background: '#f1f5f9', border: 'none', borderRadius: '6px',
                                         width: '40px', height: '40px',
                                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                                         cursor: 'pointer', color: '#64748b', transition: 'all 0.2s'
@@ -953,8 +796,8 @@ const AnnouncementsPage = ({ userRole, userId, orgId }) => {
                             </div>
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', marginBottom: '32px' }}>
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '20px', backgroundColor: '#f8fafc', borderRadius: '20px' }}>
-                                    <div style={{ width: '40px', height: '40px', borderRadius: '12px', backgroundColor: '#3b82f610', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', padding: '20px', backgroundColor: '#f8fafc', borderRadius: '8px' }}>
+                                    <div style={{ width: '40px', height: '40px', borderRadius: '6px', backgroundColor: '#3b82f610', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                                         <Calendar size={18} color="#3b82f6" />
                                     </div>
                                     <div>

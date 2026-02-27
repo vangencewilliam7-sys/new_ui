@@ -1060,7 +1060,7 @@ const ModulePage = ({ title, type }) => {
                                             color: '#fff',
                                             backgroundColor: '#8b5cf6',
                                             padding: '2px 8px',
-                                            borderRadius: '12px',
+                                            borderRadius: '6px',
                                             boxShadow: '0 2px 4px rgba(139,92,246,0.2)'
                                         }}>
                                             Project Manager
@@ -1087,7 +1087,7 @@ const ModulePage = ({ title, type }) => {
                         return (
                             <span style={{
                                 padding: '4px 8px',
-                                borderRadius: '12px',
+                                borderRadius: '6px',
                                 fontSize: '0.75rem',
                                 fontWeight: 600,
                                 backgroundColor: bgColor,
@@ -1226,7 +1226,7 @@ const ModulePage = ({ title, type }) => {
                     header: 'Stage', accessor: 'stage', render: (row) => (
                         <span style={{
                             padding: '4px 8px',
-                            borderRadius: '12px',
+                            borderRadius: '6px',
                             fontSize: '0.75rem',
                             fontWeight: 600,
                             backgroundColor: '#e0f2fe',
@@ -1286,7 +1286,7 @@ const ModulePage = ({ title, type }) => {
                     header: 'Status', accessor: 'status', render: (row) => (
                         <span style={{
                             padding: '4px 8px',
-                            borderRadius: '12px',
+                            borderRadius: '6px',
                             fontSize: '0.75rem',
                             fontWeight: 600,
                             backgroundColor: row.status === 'Approved' ? '#dcfce7' : row.status === 'Pending' ? '#fef3c7' : '#fee2e2',
@@ -1474,7 +1474,7 @@ const ModulePage = ({ title, type }) => {
             <div style={{
                 position: 'relative',
                 padding: '20px 24px',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
                 marginBottom: '16px',
                 overflow: 'hidden',
@@ -1515,7 +1515,7 @@ const ModulePage = ({ title, type }) => {
                                 background: 'linear-gradient(135deg, #38bdf8 0%, #0284c7 100%)',
                                 color: 'white',
                                 padding: '14px 28px',
-                                borderRadius: '16px',
+                                borderRadius: '8px',
                                 fontWeight: '700',
                                 display: 'flex',
                                 alignItems: 'center',
@@ -1546,7 +1546,7 @@ const ModulePage = ({ title, type }) => {
                     <div style={{
                         background: 'white',
                         padding: '16px',
-                        borderRadius: '16px',
+                        borderRadius: '8px',
                         border: '1px solid #f1f5f9',
                         boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
                         marginBottom: '16px',
@@ -1559,7 +1559,7 @@ const ModulePage = ({ title, type }) => {
                         <div style={{
                             width: '64px',
                             height: '64px',
-                            borderRadius: '20px',
+                            borderRadius: '8px',
                             background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
                             display: 'flex',
                             alignItems: 'center',
@@ -1606,7 +1606,7 @@ const ModulePage = ({ title, type }) => {
             {
                 showApplyLeaveModal && (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-                        <div className="no-scrollbar" style={{ backgroundColor: 'var(--surface)', padding: '40px', borderRadius: '32px', width: '650px', maxWidth: '95%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '1px solid var(--border)', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
+                        <div className="no-scrollbar" style={{ backgroundColor: 'var(--surface)', padding: '40px', borderRadius: '8px', width: '650px', maxWidth: '95%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '1px solid var(--border)', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
                             {/* Modal Close Button */}
                             <button
                                 onClick={() => setShowApplyLeaveModal(false)}
@@ -1627,7 +1627,7 @@ const ModulePage = ({ title, type }) => {
                                         <select
                                             value={leaveFormData.leaveType}
                                             onChange={(e) => setLeaveFormData({ ...leaveFormData, leaveType: e.target.value })}
-                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', transition: 'all 0.2s', outline: 'none', appearance: 'none' }}
+                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', transition: 'all 0.2s', outline: 'none', appearance: 'none' }}
                                             required
                                             disabled={remainingLeaves <= 0}
                                         >
@@ -1657,7 +1657,7 @@ const ModulePage = ({ title, type }) => {
                                                     endDate: prev.endDate && prev.endDate >= nextStart ? prev.endDate : nextStart
                                                 }));
                                             }}
-                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
+                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
                                             required={selectedDates.length === 0}
                                         />
                                     </div>
@@ -1668,7 +1668,7 @@ const ModulePage = ({ title, type }) => {
                                             value={leaveFormData.endDate}
                                             onChange={(e) => setLeaveFormData({ ...leaveFormData, endDate: e.target.value })}
                                             min={leaveFormData.startDate}
-                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
+                                            style={{ width: '100%', padding: '14px 16px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
                                             required={selectedDates.length === 0}
                                         />
                                     </div>
@@ -1681,12 +1681,12 @@ const ModulePage = ({ title, type }) => {
                                             type="date"
                                             value={dateToAdd}
                                             onChange={(e) => setDateToAdd(e.target.value)}
-                                            style={{ flex: 1, padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
+                                            style={{ flex: 1, padding: '14px 16px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', outline: 'none' }}
                                         />
                                         <button
                                             type="button"
                                             onClick={() => { addSelectedDate(dateToAdd); setDateToAdd(''); }}
-                                            style={{ padding: '0 24px', borderRadius: '12px', border: 'none', backgroundColor: '#0f172a', color: 'white', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s' }}
+                                            style={{ padding: '0 24px', borderRadius: '6px', border: 'none', backgroundColor: '#0f172a', color: 'white', fontWeight: '700', cursor: 'pointer', transition: 'all 0.2s' }}
                                         >
                                             Add
                                         </button>
@@ -1710,7 +1710,7 @@ const ModulePage = ({ title, type }) => {
                                         onChange={(e) => setLeaveFormData({ ...leaveFormData, reason: e.target.value })}
                                         placeholder="Please provide a valid reason for your leave request..."
                                         rows="4"
-                                        style={{ width: '100%', padding: '14px 16px', borderRadius: '12px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', resize: 'none', outline: 'none', lineHeight: '1.5' }}
+                                        style={{ width: '100%', padding: '14px 16px', borderRadius: '6px', border: '1px solid var(--border)', fontSize: '1rem', backgroundColor: 'var(--background)', color: 'var(--text-primary)', resize: 'none', outline: 'none', lineHeight: '1.5' }}
                                         required
                                     />
                                 </div>
@@ -1721,13 +1721,13 @@ const ModulePage = ({ title, type }) => {
                                     <button
                                         type="button"
                                         onClick={() => setShowApplyLeaveModal(false)}
-                                        style={{ flex: 1, padding: '16px', borderRadius: '12px', fontWeight: '700', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text-primary)', cursor: 'pointer' }}
+                                        style={{ flex: 1, padding: '16px', borderRadius: '6px', fontWeight: '700', border: '1px solid var(--border)', backgroundColor: 'var(--background)', color: 'var(--text-primary)', cursor: 'pointer' }}
                                     >
                                         Cancel
                                     </button>
                                     <button
                                         type="submit"
-                                        style={{ flex: 1, padding: '16px', borderRadius: '12px', fontWeight: '700', backgroundColor: 'var(--primary)', color: 'white', border: 'none', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(56, 189, 248, 0.4)' }}
+                                        style={{ flex: 1, padding: '16px', borderRadius: '6px', fontWeight: '700', backgroundColor: 'var(--primary)', color: 'white', border: 'none', cursor: 'pointer', boxShadow: '0 10px 15px -3px rgba(56, 189, 248, 0.4)' }}
                                     >
                                         Submit Request
                                     </button>
@@ -1741,7 +1741,7 @@ const ModulePage = ({ title, type }) => {
             {/* Leave Confirmation Modal */}
             {showConfirmationModal && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, backdropFilter: 'blur(4px)' }}>
-                    <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '24px', width: '600px', maxWidth: '90%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+                    <div style={{ backgroundColor: 'white', padding: '32px', borderRadius: '8px', width: '600px', maxWidth: '90%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
                         <div style={{ marginBottom: '24px' }}>
                             <h3 style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '8px' }}>Confirm Leave Request</h3>
                             <p style={{ color: 'var(--text-secondary)', lineHeight: '1.5' }}>
@@ -1750,7 +1750,7 @@ const ModulePage = ({ title, type }) => {
                         </div>
 
                         {/* Pending Tasks List */}
-                        <div style={{ backgroundColor: '#f8fafc', borderRadius: '16px', padding: '20px', marginBottom: '24px', border: '1px solid #e2e8f0' }}>
+                        <div style={{ backgroundColor: '#f8fafc', borderRadius: '8px', padding: '20px', marginBottom: '24px', border: '1px solid #e2e8f0' }}>
                             <h4 style={{ fontSize: '1rem', fontWeight: '700', marginBottom: '16px', color: '#334155', display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <Briefcase size={18} color="#64748b" /> Your Pending Tasks
                             </h4>
@@ -1758,7 +1758,7 @@ const ModulePage = ({ title, type }) => {
                                 {pendingTasks.length > 0 ? pendingTasks.map(task => (
                                     <div key={task.id} style={{
                                         padding: '12px',
-                                        borderRadius: '12px',
+                                        borderRadius: '6px',
                                         backgroundColor: 'white',
                                         border: '1px solid #e2e8f0',
                                         display: 'flex',
@@ -1809,7 +1809,7 @@ const ModulePage = ({ title, type }) => {
                         <div style={{ display: 'flex', gap: '16px' }}>
                             <button
                                 onClick={() => setShowConfirmationModal(false)}
-                                style={{ flex: 1, padding: '14px', borderRadius: '12px', fontWeight: '700', border: '1px solid #cbd5e1', backgroundColor: 'white', color: '#475569', cursor: 'pointer' }}
+                                style={{ flex: 1, padding: '14px', borderRadius: '6px', fontWeight: '700', border: '1px solid #cbd5e1', backgroundColor: 'white', color: '#475569', cursor: 'pointer' }}
                             >
                                 Cancel
                             </button>
@@ -1821,7 +1821,7 @@ const ModulePage = ({ title, type }) => {
                                 style={{
                                     flex: 1,
                                     padding: '14px',
-                                    borderRadius: '12px',
+                                    borderRadius: '6px',
                                     fontWeight: '700',
                                     backgroundColor: '#0f172a',
                                     color: 'white',
@@ -1843,7 +1843,7 @@ const ModulePage = ({ title, type }) => {
             {/* Leave Details Modal (Read Only) */}
             {showLeaveDetailsModal && selectedLeaveRequest && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, backdropFilter: 'blur(4px)' }}>
-                    <div className="no-scrollbar" style={{ backgroundColor: 'white', borderRadius: '32px', padding: '40px', width: '1000px', maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '1px solid var(--border)', position: 'relative' }}>
+                    <div className="no-scrollbar" style={{ backgroundColor: 'white', borderRadius: '8px', padding: '40px', width: '1000px', maxWidth: '95%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '1px solid var(--border)', position: 'relative' }}>
                         {/* Modal Close Button */}
                         <button
                             onClick={() => setShowLeaveDetailsModal(false)}
@@ -1940,7 +1940,7 @@ const ModulePage = ({ title, type }) => {
                                     <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Status</p>
                                     <span style={{
                                         padding: '4px 12px',
-                                        borderRadius: '12px',
+                                        borderRadius: '6px',
                                         fontSize: '0.875rem',
                                         fontWeight: 600,
                                         backgroundColor: selectedLeaveRequest.status === 'Approved' ? '#dcfce7' :
@@ -2048,7 +2048,7 @@ const ModulePage = ({ title, type }) => {
                                     <Briefcase size={20} color="var(--primary)" /> Tasks During Leave Period
                                 </h4>
                                 {employeeTasks.length > 0 ? (
-                                    <div style={{ border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
+                                    <div style={{ border: '1px solid var(--border)', borderRadius: '6px', overflow: 'hidden' }}>
                                         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                             <thead style={{ backgroundColor: '#f8fafc' }}>
                                                 <tr>
@@ -2084,7 +2084,7 @@ const ModulePage = ({ title, type }) => {
                                         padding: '32px',
                                         textAlign: 'center',
                                         backgroundColor: '#f8fafc',
-                                        borderRadius: '12px',
+                                        borderRadius: '6px',
                                         color: 'var(--text-secondary)'
                                     }}>
                                         No tasks scheduled during this leave period
@@ -2098,7 +2098,7 @@ const ModulePage = ({ title, type }) => {
                                 </h4>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     {pendingTasks.length > 0 ? pendingTasks.map(task => (
-                                        <div key={task.id} style={{ padding: '12px', borderRadius: '12px', background: '#f8fafc', border: '1px solid var(--border)' }}>
+                                        <div key={task.id} style={{ padding: '12px', borderRadius: '6px', background: '#f8fafc', border: '1px solid var(--border)' }}>
                                             <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>{task.title}</div>
                                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                 <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Due: {new Date(task.due_date).toLocaleDateString()}</span>
@@ -2106,7 +2106,7 @@ const ModulePage = ({ title, type }) => {
                                             </div>
                                         </div>
                                     )) : (
-                                        <div style={{ padding: '20px', textAlign: 'center', borderRadius: '12px', background: '#f8fafc', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>No pending tasks!</div>
+                                        <div style={{ padding: '20px', textAlign: 'center', borderRadius: '6px', background: '#f8fafc', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>No pending tasks!</div>
                                     )}
                                 </div>
                             </div>
@@ -2140,7 +2140,7 @@ const ModulePage = ({ title, type }) => {
             {
                 showEmployeeModal && selectedEmployee && (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                        <div style={{ backgroundColor: 'var(--surface)', borderRadius: '16px', width: '600px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+                        <div style={{ backgroundColor: 'var(--surface)', borderRadius: '8px', width: '600px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)' }}>
                             {/* Header */}
                             <div style={{ padding: '24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <h3 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Team Member Details</h3>
@@ -2165,7 +2165,7 @@ const ModulePage = ({ title, type }) => {
                                         <p style={{ color: 'var(--text-secondary)', fontSize: '1rem', marginBottom: '8px' }}>{selectedEmployee.role}</p>
                                         <span style={{
                                             padding: '4px 12px',
-                                            borderRadius: '12px',
+                                            borderRadius: '6px',
                                             fontSize: '0.75rem',
                                             fontWeight: 600,
                                             backgroundColor: selectedEmployee.status === 'Active' ? '#dcfce7' : '#fee2e2',
@@ -2238,15 +2238,15 @@ const ModulePage = ({ title, type }) => {
                                 <div>
                                     <h5 style={{ fontSize: '1rem', fontWeight: 'bold', marginBottom: '16px', color: 'var(--text-primary)' }}>Performance Metrics</h5>
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
-                                        <div style={{ padding: '16px', backgroundColor: '#dcfce7', borderRadius: '12px', textAlign: 'center' }}>
+                                        <div style={{ padding: '16px', backgroundColor: '#dcfce7', borderRadius: '6px', textAlign: 'center' }}>
                                             <p style={{ fontSize: '0.75rem', color: '#166534', marginBottom: '4px', fontWeight: 600 }}>PERFORMANCE</p>
                                             <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#166534' }}>{selectedEmployee.performance || 'N/A'}</p>
                                         </div>
-                                        <div style={{ padding: '16px', backgroundColor: '#e0f2fe', borderRadius: '12px', textAlign: 'center' }}>
+                                        <div style={{ padding: '16px', backgroundColor: '#e0f2fe', borderRadius: '6px', textAlign: 'center' }}>
                                             <p style={{ fontSize: '0.75rem', color: '#075985', marginBottom: '4px', fontWeight: 600 }}>PROJECTS</p>
                                             <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#075985' }}>{selectedEmployee.projects || 0}</p>
                                         </div>
-                                        <div style={{ padding: '16px', backgroundColor: '#fef3c7', borderRadius: '12px', textAlign: 'center' }}>
+                                        <div style={{ padding: '16px', backgroundColor: '#fef3c7', borderRadius: '6px', textAlign: 'center' }}>
                                             <p style={{ fontSize: '0.75rem', color: '#b45309', marginBottom: '4px', fontWeight: 600 }}>TASKS DONE</p>
                                             <p style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#b45309' }}>{selectedEmployee.tasksCompleted || 0}</p>
                                         </div>
@@ -2271,7 +2271,7 @@ const ModulePage = ({ title, type }) => {
             {/* Candidate Details Modal */}
             {showCandidateModal && selectedCandidate && (
                 <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                    <div className="no-scrollbar" style={{ backgroundColor: 'var(--surface)', borderRadius: '16px', width: '650px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)' }}>
+                    <div className="no-scrollbar" style={{ backgroundColor: 'var(--surface)', borderRadius: '8px', width: '650px', maxWidth: '90%', maxHeight: '90vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)' }}>
                         {/* Header */}
                         <div style={{ padding: '24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <h3 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Candidate Details</h3>
@@ -2292,7 +2292,7 @@ const ModulePage = ({ title, type }) => {
                                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                         <span style={{
                                             padding: '4px 12px',
-                                            borderRadius: '12px',
+                                            borderRadius: '6px',
                                             fontSize: '0.75rem',
                                             fontWeight: 600,
                                             backgroundColor: '#e0f2fe',
@@ -2341,7 +2341,7 @@ const ModulePage = ({ title, type }) => {
                     <div style={{
                         backgroundColor: 'white',
                         padding: '32px',
-                        borderRadius: '24px',
+                        borderRadius: '8px',
                         width: '480px',
                         boxShadow: '0 20px 50px rgba(0,0,0,0.2)',
                         display: 'flex',
@@ -2359,7 +2359,7 @@ const ModulePage = ({ title, type }) => {
                             You are about to transfer your <strong>{projectRole === 'manager' ? 'Project Manager' : 'Team Lead'}</strong> role to <strong>{selectedMemberForHandover.name}</strong>.
                         </p>
 
-                        <div style={{ backgroundColor: '#fffba0', padding: '12px 16px', borderRadius: '12px', border: '1px solid #fde047', fontSize: '0.9rem', color: '#854d0e', display: 'flex', gap: '10px' }}>
+                        <div style={{ backgroundColor: '#fffba0', padding: '12px 16px', borderRadius: '6px', border: '1px solid #fde047', fontSize: '0.9rem', color: '#854d0e', display: 'flex', gap: '10px' }}>
                             <AlertTriangle size={20} style={{ flexShrink: 0 }} />
                             <div>
                                 <strong>Warning:</strong> You will lose your current administrative privileges for this project immediately after this action.
@@ -2371,7 +2371,7 @@ const ModulePage = ({ title, type }) => {
                                 onClick={() => { setShowHandoverModal(false); setSelectedMemberForHandover(null); }}
                                 style={{
                                     padding: '12px 24px',
-                                    borderRadius: '12px',
+                                    borderRadius: '6px',
                                     border: '1px solid #e5e7eb',
                                     backgroundColor: 'white',
                                     color: '#374151',
@@ -2385,7 +2385,7 @@ const ModulePage = ({ title, type }) => {
                                 onClick={confirmHandover}
                                 style={{
                                     padding: '12px 24px',
-                                    borderRadius: '12px',
+                                    borderRadius: '6px',
                                     border: 'none',
                                     background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
                                     color: 'white',
@@ -2411,7 +2411,7 @@ const ModulePage = ({ title, type }) => {
                     <div style={{
                         backgroundColor: 'white',
                         padding: '32px',
-                        borderRadius: '24px',
+                        borderRadius: '8px',
                         width: '480px',
                         boxShadow: '0 20px 50px rgba(0,0,0,0.2)',
                         display: 'flex',
@@ -2429,7 +2429,7 @@ const ModulePage = ({ title, type }) => {
                             You are about to transfer your <strong>{(projectRole === 'manager' || projectRole === 'project_manager') ? 'Project Manager' : 'Team Lead'}</strong> role to <strong>{selectedMemberForHandover.name}</strong>.
                         </p>
 
-                        <div style={{ backgroundColor: '#fffba0', padding: '12px 16px', borderRadius: '12px', border: '1px solid #fde047', fontSize: '0.9rem', color: '#854d0e', display: 'flex', gap: '10px' }}>
+                        <div style={{ backgroundColor: '#fffba0', padding: '12px 16px', borderRadius: '6px', border: '1px solid #fde047', fontSize: '0.9rem', color: '#854d0e', display: 'flex', gap: '10px' }}>
                             <AlertTriangle size={20} style={{ flexShrink: 0 }} />
                             <div>
                                 <strong>Warning:</strong> You will lose your current administrative privileges for this project immediately after this action.
@@ -2441,7 +2441,7 @@ const ModulePage = ({ title, type }) => {
                                 onClick={() => { setShowHandoverModal(false); setSelectedMemberForHandover(null); }}
                                 style={{
                                     padding: '12px 24px',
-                                    borderRadius: '12px',
+                                    borderRadius: '6px',
                                     border: '1px solid #e5e7eb',
                                     backgroundColor: 'white',
                                     color: '#374151',
@@ -2455,7 +2455,7 @@ const ModulePage = ({ title, type }) => {
                                 onClick={confirmHandover}
                                 style={{
                                     padding: '12px 24px',
-                                    borderRadius: '12px',
+                                    borderRadius: '6px',
                                     border: 'none',
                                     background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
                                     color: 'white',

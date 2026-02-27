@@ -52,13 +52,15 @@ const SettingsDemo = () => {
                 .from('avatars')
                 .getPublicUrl(filePath);
 
-            // Update Profile
-            const { error: updateError } = await supabase
-                .from('profiles')
-                .update({ avatar_url: publicUrl })
-                .eq('id', userProfile.id);
+            // Update Profile via RPC
+            const { data: rpcData, error: updateError } = await supabase.rpc('update_my_profile', {
+                p_phone: userProfile.phone || '',
+                p_location: userProfile.location || '',
+                p_avatar_url: publicUrl
+            });
 
             if (updateError) throw updateError;
+            if (rpcData && !rpcData.success) throw new Error(rpcData.error);
 
             // Update local state
             setUserProfile({ ...userProfile, avatar_url: publicUrl });
@@ -113,16 +115,17 @@ const SettingsDemo = () => {
 
     const handleSaveProfile = async () => {
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .update({
-                    phone: editedProfile.phone,
-                    location: editedProfile.location
-                })
-                .eq('id', userProfile.id);
+            // Update Profile via RPC
+            const { data, error } = await supabase.rpc('update_my_profile', {
+                p_phone: editedProfile.phone,
+                p_location: editedProfile.location,
+                p_avatar_url: null
+            });
 
             if (error) {
-                setMessage({ type: 'error', text: 'Failed to update profile' });
+                setMessage({ type: 'error', text: error.message });
+            } else if (data && !data.success) {
+                setMessage({ type: 'error', text: data.error || 'Failed to update profile' });
             } else {
                 setUserProfile(editedProfile);
                 setEditMode(false);

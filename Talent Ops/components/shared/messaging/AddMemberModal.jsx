@@ -11,7 +11,7 @@ const AddMemberModal = ({
 }) => {
     return (
         <div className="modal-overlay" onClick={onClose}>
-            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ minWidth: '400px', maxWidth: '500px' }}>
+            <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ minWidth: '400px', maxWidth: '500px', borderRadius: '6px' }}>
                 <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                     <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#1f2937' }}>Add Member to Group</h3>
                     <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}><X size={20} /></button>
@@ -23,7 +23,7 @@ const AddMemberModal = ({
                         </div>
                     )}
                     <p style={{ marginBottom: '1rem', color: '#6b7280', fontSize: '14px' }}>Select a user to add to this group</p>
-                    <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '8px' }}>
+                    <div style={{ maxHeight: '400px', overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: '6px' }}>
                         {orgUsers.filter(u => !currentMembers.some(m => (m.id || m.user_id) === u.id)).length === 0 ? (
                             <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>All organization members are already in this group</div>
                         ) : (

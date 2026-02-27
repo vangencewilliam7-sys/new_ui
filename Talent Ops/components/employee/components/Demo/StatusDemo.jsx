@@ -321,7 +321,7 @@ const StatusDemo = () => {
         if (active && payload && payload.length) {
             const data = payload[0].payload;
             return (
-                <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+                <div style={{ backgroundColor: '#ffffff', padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
                     <p style={{ fontWeight: 'bold', marginBottom: '4px', color: '#1e293b' }}>{label}</p>
                     <p style={{ fontSize: '0.9rem', color: '#6366f1' }}>Hours: {data.hours}h</p>
                     <p style={{ fontSize: '0.8rem', color: '#64748b' }}>Status: {data.tooltipStatus}</p>
@@ -343,17 +343,17 @@ const StatusDemo = () => {
             {/* Compact Header - Matching Leave Requests Style */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '16px',
-                padding: '20px 28px',
+                borderRadius: '8px',
+                padding: '24px 32px',
                 color: 'white',
                 position: 'relative',
                 overflow: 'hidden',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)'
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)'
             }}>
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px' }}>
                     <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
+                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
                             <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>/</span>
                             <span style={{ color: '#22d3ee', fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase' }}>Activity Hub</span>
                         </div>
@@ -369,7 +369,7 @@ const StatusDemo = () => {
                         background: 'rgba(255, 255, 255, 0.05)',
                         backdropFilter: 'blur(12px)',
                         padding: '14px 20px',
-                        borderRadius: '14px',
+                        borderRadius: '6px',
                         border: '1px solid rgba(255, 255, 255, 0.1)',
                         display: 'flex',
                         alignItems: 'center',
@@ -379,7 +379,7 @@ const StatusDemo = () => {
                             <div style={{
                                 width: '48px',
                                 height: '48px',
-                                borderRadius: '14px',
+                                borderRadius: '6px',
                                 background: 'linear-gradient(135deg, #38bdf8, #818cf8)',
                                 display: 'flex',
                                 alignItems: 'center',
@@ -416,7 +416,7 @@ const StatusDemo = () => {
                 {/* Status Identity Card */}
                 <div style={{
                     backgroundColor: '#ffffff',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     padding: '24px',
                     border: '1px solid #f1f5f9',
                     boxShadow: '0 2px 12px rgba(0,0,0,0.02)',
@@ -437,7 +437,7 @@ const StatusDemo = () => {
                         ].map((item, idx) => (
                             <div key={idx} style={{
                                 padding: '16px',
-                                borderRadius: '12px',
+                                borderRadius: '6px',
                                 backgroundColor: item.bg,
                                 display: 'flex',
                                 justifyContent: 'space-between',
@@ -450,7 +450,7 @@ const StatusDemo = () => {
                                     color: item.color,
                                     padding: '4px 12px',
                                     backgroundColor: 'white',
-                                    borderRadius: '10px',
+                                    borderRadius: '4px',
                                     boxShadow: '0 2px 8px rgba(0,0,0,0.02)'
                                 }}>{item.value}</span>
                             </div>
@@ -461,7 +461,7 @@ const StatusDemo = () => {
                         marginTop: 'auto',
                         padding: '20px',
                         background: 'linear-gradient(135deg, #0ea5e9, #6366f1)',
-                        borderRadius: '14px',
+                        borderRadius: '6px',
                         color: 'white',
                         textAlign: 'center'
                     }}>
@@ -474,7 +474,7 @@ const StatusDemo = () => {
                 {/* Performance Footprint (Weekly Log) */}
                 <div style={{
                     backgroundColor: '#ffffff',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     padding: '24px',
                     border: '1px solid #f1f5f9',
                     boxShadow: '0 2px 12px rgba(0,0,0,0.02)',
@@ -487,10 +487,10 @@ const StatusDemo = () => {
                             <p style={{ color: '#64748b', fontSize: '0.8rem', fontWeight: '500' }}>{dateRangeStr}</p>
                         </div>
                         <div style={{ display: 'flex', gap: '8px' }}>
-                            <button onClick={handlePrevWeek} style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #e2e8f0', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
+                            <button onClick={handlePrevWeek} style={{ width: '36px', height: '36px', borderRadius: '4px', border: '1px solid #e2e8f0', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
                                 <ChevronLeft size={18} color="#64748b" />
                             </button>
-                            <button onClick={handleNextWeek} style={{ width: '36px', height: '36px', borderRadius: '10px', border: '1px solid #e2e8f0', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
+                            <button onClick={handleNextWeek} style={{ width: '36px', height: '36px', borderRadius: '4px', border: '1px solid #e2e8f0', backgroundColor: 'white', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }}>
                                 <ChevronRight size={18} color="#64748b" />
                             </button>
                         </div>
@@ -546,7 +546,7 @@ const StatusDemo = () => {
                         gap: '12px',
                         padding: '16px',
                         backgroundColor: '#f8fafc',
-                        borderRadius: '12px'
+                        borderRadius: '6px'
                     }}>
                         <div style={{ textAlign: 'center' }}>
                             <p style={{ fontSize: '0.7rem', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '2px' }}>Avg Hours</p>
@@ -567,7 +567,7 @@ const StatusDemo = () => {
             {/* Daily Signal Log - Compact Version */}
             <div style={{
                 backgroundColor: '#ffffff',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 padding: '24px',
                 border: '1px solid #f1f5f9',
                 boxShadow: '0 2px 12px rgba(0,0,0,0.02)'
@@ -583,7 +583,7 @@ const StatusDemo = () => {
                     {weeklyData.map((day, idx) => (
                         <div key={idx} style={{
                             padding: '16px',
-                            borderRadius: '12px',
+                            borderRadius: '6px',
                             backgroundColor: day.hours > 0 ? '#f0f9ff' : '#f8fafc',
                             border: `1px solid ${day.hours > 0 ? '#bae6fd' : '#e2e8f0'}`,
                             display: 'flex',
@@ -596,7 +596,7 @@ const StatusDemo = () => {
                             <div style={{
                                 width: '40px',
                                 height: '40px',
-                                borderRadius: '12px',
+                                borderRadius: '6px',
                                 backgroundColor: day.hours > 0 ? '#0ea5e9' : '#e2e8f0',
                                 color: 'white',
                                 display: 'flex',

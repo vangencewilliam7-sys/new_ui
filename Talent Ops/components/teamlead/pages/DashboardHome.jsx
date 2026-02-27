@@ -409,7 +409,7 @@ const DashboardHome = () => {
             onClick={onClick}
             style={{
                 backgroundColor: '#ffffff',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 padding: '16px',
                 display: 'flex',
                 flexDirection: 'column',
@@ -439,7 +439,7 @@ const DashboardHome = () => {
             <div style={{
                 width: '56px',
                 height: '56px',
-                borderRadius: '20px',
+                borderRadius: '8px',
                 backgroundColor: color + '15',
                 display: 'flex',
                 alignItems: 'center',
@@ -485,7 +485,7 @@ const DashboardHome = () => {
                 position: 'relative',
                 zIndex: 1,
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '24px',
+                borderRadius: '8px',
                 padding: '24px',
                 marginBottom: '16px',
                 display: 'flex',
@@ -508,7 +508,7 @@ const DashboardHome = () => {
 
                 <div style={{ position: 'relative', zIndex: 2, flex: 1 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                        <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '16px', fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Team Lead Overview</span>
+                        <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '8px', fontSize: '0.7rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Team Lead Overview</span>
                         <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '800' }}>•</span>
                         <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.8rem', fontWeight: '700' }}>{new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
                     </div>
@@ -524,7 +524,7 @@ const DashboardHome = () => {
                     background: 'rgba(255, 255, 255, 0.03)',
                     backdropFilter: 'blur(10px)',
                     padding: '16px 24px',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     border: '1px solid rgba(255, 255, 255, 0.05)',
                     textAlign: 'right',
                     display: 'flex',
@@ -543,7 +543,7 @@ const DashboardHome = () => {
                         style={{
                             marginTop: '20px',
                             padding: '12px 24px',
-                            borderRadius: '16px',
+                            borderRadius: '8px',
                             background: 'linear-gradient(to right, #0ea5e9, #6366f1)',
                             color: 'white',
                             border: 'none',
@@ -615,7 +615,7 @@ const DashboardHome = () => {
                     {/* Premium Calendar Widget */}
                     <div style={{
                         backgroundColor: '#ffffff',
-                        borderRadius: '32px',
+                        borderRadius: '12px',
                         padding: '32px',
                         border: '1px solid #f1f5f9',
                         boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
@@ -625,7 +625,7 @@ const DashboardHome = () => {
                             <div style={{ display: 'flex', gap: '10px' }}>
                                 <button
                                     onClick={() => handleMonthChange(-1)}
-                                    style={{ width: '36px', height: '36px', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', border: '1px solid #f1f5f9', cursor: 'pointer', transition: 'all 0.2s', color: '#64748b' }}
+                                    style={{ width: '36px', height: '36px', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', border: '1px solid #f1f5f9', cursor: 'pointer', transition: 'all 0.2s', color: '#64748b' }}
                                     onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#0f172a'; e.currentTarget.style.color = '#fff'; }}
                                     onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#f8fafc'; e.currentTarget.style.color = '#64748b'; }}
                                 >
@@ -663,7 +663,7 @@ const DashboardHome = () => {
                                             display: 'flex',
                                             alignItems: 'center',
                                             justifyContent: 'center',
-                                            borderRadius: '14px',
+                                            borderRadius: '6px',
                                             backgroundColor: isSelected ? '#0f172a' : isToday ? '#e2e8f0' : 'transparent',
                                             color: isSelected ? '#fff' : isToday ? '#1e293b' : '#475569',
                                             cursor: 'pointer',
@@ -723,7 +723,7 @@ const DashboardHome = () => {
                                             style={{
                                                 backgroundColor: '#ffffff',
                                                 padding: '20px',
-                                                borderRadius: '24px',
+                                                borderRadius: '8px',
                                                 border: '1px solid #f1f5f9',
                                                 cursor: 'pointer',
                                                 transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -781,7 +781,7 @@ const DashboardHome = () => {
                     <div style={{
                         backgroundColor: '#ffffff',
                         padding: '48px',
-                        borderRadius: '40px',
+                        borderRadius: '12px',
                         width: '100%',
                         maxWidth: '500px',
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)',

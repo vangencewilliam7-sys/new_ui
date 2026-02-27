@@ -98,7 +98,7 @@ const ManagerAllTasksPage = () => {
             {/* Premium Header Banner */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '24px',
+                borderRadius: '8px',
                 padding: '28px 32px',
                 color: 'white',
                 position: 'relative',
@@ -120,7 +120,7 @@ const ManagerAllTasksPage = () => {
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
                     <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
+                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '8px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
                             <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>/</span>
                             <span style={{ color: '#22d3ee', fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase' }}>All Tasks</span>
                         </div>
@@ -139,7 +139,7 @@ const ManagerAllTasksPage = () => {
                             background: 'rgba(255,255,255,0.05)',
                             backdropFilter: 'blur(10px)',
                             padding: '14px 20px',
-                            borderRadius: '14px',
+                            borderRadius: '8px',
                             border: '1px solid rgba(255,255,255,0.1)',
                             textAlign: 'center'
                         }}>
@@ -150,7 +150,7 @@ const ManagerAllTasksPage = () => {
                             background: 'rgba(255,255,255,0.05)',
                             backdropFilter: 'blur(10px)',
                             padding: '14px 20px',
-                            borderRadius: '14px',
+                            borderRadius: '8px',
                             border: '1px solid rgba(255,255,255,0.1)',
                             textAlign: 'center'
                         }}>
@@ -185,7 +185,7 @@ const ManagerAllTasksPage = () => {
                     padding: '80px 40px',
                     textAlign: 'center',
                     backgroundColor: 'white',
-                    borderRadius: '24px',
+                    borderRadius: '12px',
                     border: '1px dashed #cbd5e1',
                     display: 'flex',
                     flexDirection: 'column',
@@ -224,7 +224,7 @@ const ManagerAllTasksPage = () => {
                                 onClick={() => handleProjectClick(project)}
                                 style={{
                                     backgroundColor: 'white',
-                                    borderRadius: '20px',
+                                    borderRadius: '6px',
                                     border: '1px solid #e2e8f0',
                                     cursor: 'pointer',
                                     transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
@@ -256,7 +256,7 @@ const ManagerAllTasksPage = () => {
                                         <div style={{
                                             width: '56px',
                                             height: '56px',
-                                            borderRadius: '16px',
+                                            borderRadius: '8px',
                                             background: colors.bg,
                                             display: 'flex',
                                             alignItems: 'center',
@@ -270,7 +270,7 @@ const ManagerAllTasksPage = () => {
                                         </div>
                                         <div style={{
                                             padding: '5px 14px',
-                                            borderRadius: '20px',
+                                            borderRadius: '8px',
                                             backgroundColor: project.status === 'active' ? '#dcfce7' : '#f1f5f9',
                                             color: project.status === 'active' ? '#166534' : '#64748b',
                                             fontSize: '0.7rem',

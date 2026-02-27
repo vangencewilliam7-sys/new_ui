@@ -156,7 +156,7 @@ const TeamPerformance = () => {
             {/* Premium Dark Header */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 padding: '24px',
                 position: 'relative',
                 overflow: 'hidden',
@@ -183,7 +183,7 @@ const TeamPerformance = () => {
                         background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                         color: 'white',
                         padding: '4px 12px',
-                        borderRadius: '20px',
+                        borderRadius: '8px',
                         fontSize: '0.7rem',
                         fontWeight: 700,
                         letterSpacing: '0.1em',
@@ -244,7 +244,7 @@ const TeamPerformance = () => {
                     <div key={i} style={{
                         backgroundColor: 'white',
                         padding: '16px',
-                        borderRadius: '16px',
+                        borderRadius: '8px',
                         boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                         border: '1px solid #e2e8f0',
                         transition: 'transform 0.2s, box-shadow 0.2s'
@@ -261,7 +261,7 @@ const TeamPerformance = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '12px' }}>
                             <div style={{
                                 padding: '12px',
-                                borderRadius: '12px',
+                                borderRadius: '6px',
                                 backgroundColor: stat.bgColor,
                                 display: 'flex',
                                 alignItems: 'center',
@@ -294,7 +294,7 @@ const TeamPerformance = () => {
                 {/* Tasks Completed Chart */}
                 <div style={{
                     backgroundColor: 'white',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                     padding: '16px',
                     border: '1px solid #e2e8f0'
@@ -325,7 +325,7 @@ const TeamPerformance = () => {
                                         height: `${Math.max(item.count * 15, 4)}px`,
                                         maxHeight: '150px',
                                         backgroundColor: '#3b82f6',
-                                        borderRadius: '8px 8px 0 0',
+                                        borderRadius: '6px 6px 0 0',
                                         opacity: 0.9,
                                         transition: 'all 0.3s'
                                     }}
@@ -347,7 +347,7 @@ const TeamPerformance = () => {
                 {/* Lifecycle Distribution */}
                 <div style={{
                     backgroundColor: 'white',
-                    borderRadius: '16px',
+                    borderRadius: '8px',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                     padding: '16px',
                     border: '1px solid #e2e8f0'
@@ -388,7 +388,7 @@ const TeamPerformance = () => {
             {/* Team Member Performance Table */}
             <div style={{
                 backgroundColor: 'white',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 border: '1px solid #e2e8f0',
                 overflow: 'hidden'

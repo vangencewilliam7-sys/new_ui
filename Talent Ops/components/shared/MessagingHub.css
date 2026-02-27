@@ -55,7 +55,7 @@
     height: 44px;
     background: transparent;
     border: none;
-    border-radius: 12px;
+    border-radius: 6px;
     color: rgba(255, 255, 255, 0.6);
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -106,7 +106,7 @@
     gap: 10px;
     padding: 10px 14px;
     background: #f1f5f9;
-    border-radius: 12px;
+    border-radius: 6px;
     border: 1px solid transparent;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -144,7 +144,7 @@
     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
     color: white;
     border: none;
-    border-radius: 8px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
@@ -182,7 +182,7 @@
     gap: 12px;
     padding: 12px 14px;
     cursor: pointer;
-    border-radius: 12px;
+    border-radius: 6px;
     border: 1px solid transparent;
     background: #ffffff;
     margin-bottom: 8px;
@@ -283,21 +283,38 @@
 }
 
 .thread-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #e2e8f0;
-    background: #ffffff;
+    padding: 20px 24px;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+    position: relative;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    gap: 12px;
+    justify-content: space-between;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.thread-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+    background-size: 20px 20px;
+    opacity: 0.5;
+    pointer-events: none;
 }
 
 .thread-info h3 {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 700;
-    color: #0f172a;
+    color: #ffffff;
     margin: 0;
     letter-spacing: -0.025em;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .thread-type {
@@ -356,7 +373,7 @@
 .message-bubble {
     max-width: 65%;
     padding: 12px 16px;
-    border-radius: 18px;
+    border-radius: 6px;
     position: relative;
 }
 
@@ -379,7 +396,7 @@
     color: #0f172a;
     border-bottom-left-radius: 6px;
     border: 1px solid #e2e8f0;
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
 }
 
 .message-content {
@@ -399,19 +416,34 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 12px;
-    background: rgba(255, 255, 255, 0.15);
-    border-radius: 10px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
     font-size: 13px;
     color: inherit;
     text-decoration: none;
-    transition: all 0.2s ease;
-    backdrop-filter: blur(4px);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(8px);
+}
+
+.message.received .attachment-link {
+    background: #f8fafc;
+    border-color: #e2e8f0;
+    color: #3b82f6;
 }
 
 .attachment-link:hover {
-    background: rgba(255, 255, 255, 0.25);
-    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.2);
+    border-color: rgba(255, 255, 255, 0.2);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.message.received .attachment-link:hover {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    color: #2563eb;
 }
 
 .message-time {
@@ -432,7 +464,7 @@
 .date-divider span {
     padding: 6px 16px;
     background: #e2e8f0;
-    border-radius: 20px;
+    border-radius: 6px;
     font-size: 12px;
     font-weight: 600;
     color: #64748b;
@@ -461,7 +493,7 @@
     gap: 8px;
     padding: 8px 14px;
     background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
-    border-radius: 10px;
+    border-radius: 6px;
     font-size: 13px;
     color: #0f172a;
     font-weight: 500;
@@ -490,7 +522,7 @@
     padding: 12px 16px;
     background: #f1f5f9;
     border: 2px solid transparent;
-    border-radius: 24px;
+    border-radius: 6px;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -505,7 +537,7 @@
     color: #64748b;
     display: flex;
     padding: 6px;
-    border-radius: 8px;
+    border-radius: 6px;
     transition: all 0.2s ease;
 }
 
@@ -605,7 +637,7 @@
     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
     color: white;
     border: none;
-    border-radius: 12px;
+    border-radius: 6px;
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -655,13 +687,13 @@
 
 .modal-content {
     background: white;
-    border-radius: 20px;
+    border-radius: 6px;
     width: 90%;
     max-width: 480px;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.2);
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.15);
     animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -700,7 +732,7 @@
     color: #64748b;
     padding: 8px;
     display: flex;
-    border-radius: 10px;
+    border-radius: 6px;
     transition: all 0.2s ease;
 }
 
@@ -726,7 +758,7 @@
     align-items: center;
     gap: 14px;
     padding: 14px 16px;
-    border-radius: 14px;
+    border-radius: 6px;
     cursor: pointer;
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     border: 1px solid transparent;
@@ -856,7 +888,7 @@
     background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
     color: white;
     border: none;
-    border-radius: 12px;
+    border-radius: 8px;
     font-size: 15px;
     font-weight: 600;
     cursor: pointer;
@@ -874,7 +906,7 @@
    ============================================ */
 .poll-container {
     background: rgba(255, 255, 255, 0.05);
-    border-radius: 12px;
+    border-radius: 8px;
     padding: 16px;
     margin-top: 8px;
     min-width: 280px;
@@ -912,7 +944,7 @@
     cursor: pointer;
     position: relative;
     padding: 10px 12px;
-    border-radius: 8px;
+    border-radius: 6px;
     transition: all 0.2s ease;
     border: 1px solid rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.03);
@@ -1011,7 +1043,7 @@
     padding: 10px;
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
+    border-radius: 6px;
     color: #3b82f6;
     font-size: 13px;
     font-weight: 600;
@@ -1048,7 +1080,7 @@
     padding: 12px 16px;
     background: #f1f5f9;
     border: 1px solid #e2e8f0;
-    border-radius: 10px;
+    border-radius: 6px;
     font-size: 14px;
     outline: none;
     transition: all 0.2s;
@@ -1087,7 +1119,7 @@
     margin-top: 24px;
     padding: 16px;
     background: #f8fafc;
-    border-radius: 12px;
+    border-radius: 8px;
     border: 1px solid #e2e8f0;
 }
 
@@ -1142,7 +1174,7 @@ input:checked+.slider:before {
 }
 
 .slider.round {
-    border-radius: 24px;
+    border-radius: 6px;
 }
 
 .slider.round:before {

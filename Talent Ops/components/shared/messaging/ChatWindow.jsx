@@ -144,20 +144,60 @@ const ChatWindow = ({
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                         <button
                             onClick={() => { setShowSearch(!showSearch); if (showSearch) setMessageSearchQuery(''); }}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e5e7eb', background: showSearch ? '#f3f4f6' : 'white', cursor: 'pointer', fontSize: '12px', color: '#374151', fontWeight: 500, transition: 'all 0.2s' }}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '8px 14px',
+                                borderRadius: '6px',
+                                border: '1px solid rgba(255, 255, 255, 0.2)',
+                                background: showSearch ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                color: '#ffffff',
+                                fontWeight: 500,
+                                transition: 'all 0.2s',
+                                backdropFilter: 'blur(4px)'
+                            }}
                         >
                             <Search size={14} />
                             {showSearch ? 'Close Search' : 'Search'}
                         </button>
                         {(selectedConversation.type === 'team' || selectedConversation.type === 'everyone') && (
                             <button onClick={handleFetchMembers}
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontSize: '12px', color: '#374151', fontWeight: 500 }}>
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 14px',
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                                    background: 'rgba(255, 255, 255, 0.1)',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    color: '#ffffff',
+                                    fontWeight: 500,
+                                    backdropFilter: 'blur(4px)'
+                                }}>
                                 <Users size={14} /> Members
                             </button>
                         )}
                         {isCurrentUserAdmin && selectedConversation.type === 'team' && (
                             <button onClick={() => setShowGroupSettings(!showGroupSettings)}
-                                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: '1px solid #3b82f6', background: showGroupSettings ? '#eff6ff' : 'white', cursor: 'pointer', fontSize: '12px', color: '#3b82f6', fontWeight: 600 }}>
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 14px',
+                                    borderRadius: '6px',
+                                    border: '1px solid rgba(59, 130, 246, 0.5)',
+                                    background: showGroupSettings ? 'rgba(59, 130, 246, 0.3)' : 'rgba(59, 130, 246, 0.2)',
+                                    cursor: 'pointer',
+                                    fontSize: '12px',
+                                    color: '#ffffff',
+                                    fontWeight: 600,
+                                    backdropFilter: 'blur(4px)'
+                                }}>
                                 <Settings size={14} /> Settings
                             </button>
                         )}
@@ -166,16 +206,16 @@ const ChatWindow = ({
 
                 {/* ════════ Search Bar ════════ */}
                 {showSearch && (
-                    <div style={{ padding: '12px 20px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ padding: '12px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <div style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center' }}>
-                            <Search size={16} style={{ position: 'absolute', left: '12px', color: '#9ca3af' }} />
+                            <Search size={16} style={{ position: 'absolute', left: '12px', color: '#94a3b8' }} />
                             <input type="text" placeholder="Search in this conversation..." value={messageSearchQuery}
                                 onChange={(e) => setMessageSearchQuery(e.target.value)}
-                                style={{ width: '100%', padding: '8px 12px 8px 36px', borderRadius: '8px', border: '1px solid #d1d5db', fontSize: '14px', outline: 'none', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}
+                                style={{ width: '100%', padding: '10px 12px 10px 40px', borderRadius: '6px', border: '1px solid #e2e8f0', fontSize: '14px', outline: 'none', background: '#ffffff', transition: 'border-color 0.2s' }}
                                 autoFocus />
                             {messageSearchQuery && (
                                 <button onClick={() => setMessageSearchQuery('')}
-                                    style={{ position: 'absolute', right: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}>
+                                    style={{ position: 'absolute', right: '8px', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8' }}>
                                     <X size={16} />
                                 </button>
                             )}
@@ -191,17 +231,17 @@ const ChatWindow = ({
 
                 {/* ════════ Group Settings Panel (Admin Only) ════════ */}
                 {showGroupSettings && isCurrentUserAdmin && selectedConversation.type === 'team' && (
-                    <div style={{ padding: '16px 20px', background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', borderBottom: '1px solid #3b82f6', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ padding: '16px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                         <button onClick={() => setShowAddMemberModal(true)}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '8px', border: 'none', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#059669', fontWeight: 600, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '6px', border: '1px solid #10b981', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#059669', fontWeight: 600, transition: 'all 0.2s' }}>
                             <UserPlus size={16} /> Add Member
                         </button>
                         <button onClick={() => { setNewGroupName(selectedConversation.name); setShowRenameModal(true); }}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '8px', border: 'none', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#3b82f6', fontWeight: 600, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '6px', border: '1px solid #3b82f6', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#3b82f6', fontWeight: 600, transition: 'all 0.2s' }}>
                             <Edit2 size={16} /> Rename Group
                         </button>
                         <button onClick={onDeleteGroup}
-                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '8px', border: 'none', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#dc2626', fontWeight: 600, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '6px', border: '1px solid #ef4444', background: 'white', cursor: 'pointer', fontSize: '13px', color: '#dc2626', fontWeight: 600, transition: 'all 0.2s' }}>
                             <Trash2 size={16} /> Delete Group
                         </button>
                     </div>

@@ -250,7 +250,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
                     <div style={{
                         width: '40px',
                         height: '40px',
-                        borderRadius: '50%',
+                        borderRadius: '6px',
                         backgroundColor: '#e0f2fe',
                         display: 'flex',
                         alignItems: 'center',
@@ -293,7 +293,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
             render: (row) => (
                 <span style={{
                     padding: '6px 12px',
-                    borderRadius: '12px',
+                    borderRadius: '6px',
                     fontSize: '0.75rem',
                     fontWeight: 600,
                     backgroundColor: '#dcfce7',
@@ -312,7 +312,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
                         onClick={() => handleView(row)}
                         style={{
                             padding: '8px 12px',
-                            borderRadius: '8px',
+                            borderRadius: '6px',
                             fontSize: '0.875rem',
                             fontWeight: 600,
                             backgroundColor: 'white',
@@ -332,7 +332,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
                         onClick={() => handleDownload(row)}
                         style={{
                             padding: '8px 12px',
-                            borderRadius: '8px',
+                            borderRadius: '6px',
                             fontSize: '0.875rem',
                             fontWeight: 600,
                             backgroundColor: '#7c3aed',
@@ -378,18 +378,18 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
             {/* Compact Header - Matching Leave Requests Style */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 padding: '20px 28px',
                 color: 'white',
                 position: 'relative',
                 overflow: 'hidden',
-                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
                 marginBottom: '20px'
             }}>
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
                     <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
+                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
                             <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>/</span>
                             <span style={{ color: '#22d3ee', fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase' }}>Payslips</span>
                         </div>
@@ -409,7 +409,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
                                     background: 'linear-gradient(135deg, #22d3ee, #06b6d4)',
                                     color: 'white',
                                     padding: '10px 20px',
-                                    borderRadius: '10px',
+                                    borderRadius: '6px',
                                     fontWeight: '600',
                                     fontSize: '0.85rem',
                                     display: 'flex',
@@ -439,7 +439,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
                             padding: '10px 16px',
                             background: 'rgba(255, 255, 255, 0.05)',
                             backdropFilter: 'blur(12px)',
-                            borderRadius: '12px',
+                            borderRadius: '8px',
                             border: '1px solid rgba(255, 255, 255, 0.1)',
                             textAlign: 'right'
                         }}>
@@ -456,7 +456,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
             {payslips.length > 0 ? (
                 <div style={{
                     background: 'white',
-                    borderRadius: '12px',
+                    borderRadius: '8px',
                     padding: '20px',
                     boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
                     border: '1px solid #e2e8f0'
@@ -470,7 +470,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
             ) : (
                 <div style={{
                     backgroundColor: 'white',
-                    borderRadius: '12px',
+                    borderRadius: '8px',
                     padding: '120px 20px',
                     textAlign: 'center',
                     border: '2px dashed #e2e8f0',
@@ -485,7 +485,7 @@ const PayslipsPage = ({ userRole, userId, addToast, orgId }) => {
                         width: '64px',
                         height: '64px',
                         backgroundColor: '#f8fafc',
-                        borderRadius: '16px',
+                        borderRadius: '8px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',

@@ -4,9 +4,14 @@ import { supabase } from '../../../lib/supabaseClient';
 import { useProject } from '../context/ProjectContext';
 import { useUser } from '../context/UserContext';
 import { useToast } from '../context/ToastContext';
+import { taskService } from '../../../services/modules/task';
 import SkillSelectionModal from '../components/UI/SkillSelectionModal';
 import TaskNotesModal from '../../shared/TaskNotesModal';
 import TaskDetailOverlay from '../components/UI/TaskDetailOverlay';
+import ActiveStatusDot from '../../shared/ActiveStatusDot';
+import AIAssistantPopup from '../../shared/AIAssistantPopup';
+import RiskBadge from '../../shared/RiskBadge';
+import { riskService } from '../../../services/modules/risk';
 
 const LIFECYCLE_PHASES = [
     { key: 'requirement_refiner', label: 'Requirement Refiner', short: 'Req' },
@@ -62,11 +67,137 @@ const MyTasksPage = () => {
     const [showNotesModal, setShowNotesModal] = useState(false);
     const [taskForNotes, setTaskForNotes] = useState(null);
 
+    // AI Risk Coach State
+    const [showAIPopup, setShowAIPopup] = useState(false);
+    const [aiPopupData, setAiPopupData] = useState(null);
+    const [checkedRiskTaskIds, setCheckedRiskTaskIds] = useState(new Set());
+    const [riskSnapshots, setRiskSnapshots] = useState({});
+
     useEffect(() => {
         if (orgId) {
             fetchTasks();
         }
     }, [currentProject?.id, orgId]); // Refetch when project changes or org resolves
+
+    // Fetch Risk context on load
+    useEffect(() => {
+        if (!loading && tasks.length > 0) {
+            checkMyRisks();
+            fetchRiskSnapshots();
+        }
+    }, [loading, tasks]);
+
+    const fetchRiskSnapshots = async () => {
+        const activeTasks = tasks.filter(t => t.lifecycle_state !== 'closed' && t.status !== 'completed' && t.status !== 'archived');
+        if (activeTasks.length === 0) return;
+        const taskIds = activeTasks.map(t => t.id);
+        const snapshots = await riskService.getLatestSnapshotsForTasks(taskIds);
+        setRiskSnapshots(prev => ({ ...prev, ...snapshots }));
+    };
+
+    const checkMyRisks = async () => {
+        // Only analyze tasks that are actually in the current view (filtered)
+        const activeTasks = filteredTasks.filter(t =>
+            t.lifecycle_state !== 'closed' &&
+            t.status !== 'completed' &&
+            !checkedRiskTaskIds.has(t.id)
+        );
+
+        if (activeTasks.length === 0) return;
+
+        // 1. Identifying ALL Urgent/Risky Tasks
+        const urgentTasks = activeTasks.filter(t => {
+            const now = new Date();
+
+            // A. Deadline Check
+            let isDeadlineRisk = false;
+            if (t.due_date) {
+                const due = new Date(`${t.due_date}T${t.due_time || '23:59:59'}`);
+                const hoursLeft = (due - now) / (1000 * 60 * 60);
+                isDeadlineRisk = hoursLeft < 24;
+            }
+
+            // B. Allocation vs Elapsed Check (Internal Math)
+            const startedAt = t.started_at ? new Date(t.started_at) : new Date(t.created_at);
+            const elapsedHours = (now - startedAt) / (1000 * 60 * 60);
+            const isOverAllocated = t.allocated_hours > 0 && elapsedHours > t.allocated_hours;
+
+            // C. Micro-task Urgency
+            const isMicroTask = (t.allocated_hours || 0) < 5;
+
+            return isDeadlineRisk || isOverAllocated || isMicroTask;
+        });
+
+        if (urgentTasks.length > 0) {
+            const { data: { user: authUser } } = await supabase.auth.getUser();
+
+            // 2. Process ALL urgent tasks to ensure snapshots are created
+            for (const task of urgentTasks) {
+                try {
+                    let snapshot = await riskService.getLatestSnapshot(task.id);
+                    const isMicroTask = (task.allocated_hours || 0) < 5;
+
+                    // Check if snapshot is stale (re-analyze every 1h for micro, 4h for others)
+                    let isStale = false;
+                    if (snapshot) {
+                        const ageHrs = (new Date() - new Date(snapshot.computed_at)) / (1000 * 60 * 60);
+                        isStale = isMicroTask ? ageHrs > 1 : ageHrs > 4;
+                    }
+
+                    // If missing or stale analysis, trigger it
+                    if (!snapshot || isStale) {
+                        const result = await riskService.analyzeRisk(task.id, task.title, {
+                            full_name: authUser?.user_metadata?.full_name || 'Employee',
+                            role: 'employee',
+                            is_micro_task: isMicroTask
+                        });
+                        snapshot = result.analysis;
+                        setRiskSnapshots(prev => ({ ...prev, [task.id]: snapshot }));
+                    }
+
+                    // 3. Trigger Popup for the FIRST important one
+                    const shouldShowPopup = snapshot &&
+                        (snapshot.risk_level === 'high' || (isMicroTask && snapshot.risk_level === 'medium')) &&
+                        !showAIPopup;
+
+                    if (shouldShowPopup) {
+                        setAiPopupData({
+                            taskTitle: task.title,
+                            type: 'coach',
+                            message: isMicroTask
+                                ? `This micro-task is tight! You have ${Math.round(task.allocated_hours * 60)} mins allocated. Let's move fast.`
+                                : `I've performed an AI analysis on this task. At your current pace, there's a risk of delay.`,
+                            reasons: snapshot.reasons || [],
+                            recommended_actions: snapshot.recommended_actions || [],
+                            onAction: () => setShowAIPopup(false)
+                        });
+                        setShowAIPopup(true);
+                    }
+                } catch (err) {
+                    console.error(`Risk analysis failed for task ${task.id}:`, err);
+                }
+            }
+        }
+    };
+
+    const handleShowRiskAnalysis = (taskId, taskTitle) => {
+        const snapshot = riskSnapshots[taskId];
+        if (!snapshot) return;
+
+        const isMicroTask = (tasks.find(t => t.id === taskId)?.allocated_hours || 0) < 5;
+
+        setAiPopupData({
+            taskTitle: taskTitle,
+            type: 'coach',
+            message: isMicroTask
+                ? `This micro-task is tight! Let's move fast.`
+                : `Reference AI analysis for this task. At this pace, there's a risk of delay.`,
+            reasons: snapshot.reasons || [],
+            recommended_actions: snapshot.recommended_actions || snapshot.actions || [],
+            onAction: () => setShowAIPopup(false)
+        });
+        setShowAIPopup(true);
+    };
 
     const fetchTasks = async () => {
         setLoading(true);
@@ -108,6 +239,37 @@ const MyTasksPage = () => {
         }
     };
 
+
+    // Toggle the "working on it" status (green dot)
+    const toggleWorkingStatus = async (task) => {
+        const isCurrentlyWorking = task.sub_state === 'in_progress';
+        const newSubState = isCurrentlyWorking ? null : 'in_progress';
+
+        try {
+            const { error } = await supabase
+                .from('tasks')
+                .update({
+                    sub_state: newSubState,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', task.id);
+
+            if (error) throw error;
+
+            // Optimistic update
+            setTasks(prev => prev.map(t =>
+                t.id === task.id ? { ...t, sub_state: newSubState } : t
+            ));
+
+            addToast?.(
+                isCurrentlyWorking ? 'Marked as idle' : '🟢 Marked as working on this task',
+                'success'
+            );
+        } catch (err) {
+            console.error('Error toggling work status:', err);
+            addToast?.('Failed to update status', 'error');
+        }
+    };
 
 
     const openProofModal = (task) => {
@@ -160,113 +322,15 @@ const MyTasksPage = () => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) throw new Error('Not authenticated');
 
-            let proofUrl = null;
+            await taskService.submitTaskProof({
+                task: taskForProof,
+                user,
+                proofFile,
+                proofText,
+                orgId,
+                onProgress: setUploadProgress
+            });
 
-            // 1. Upload File if present
-            if (proofFile) {
-                const fileExt = proofFile.name.split('.').pop();
-                const fileName = `${taskForProof.id}_${Date.now()}.${fileExt}`;
-                const filePath = `${user.id}/${fileName}`;
-
-                setUploadProgress(30);
-
-                const { error: uploadError } = await supabase.storage
-                    .from('task-proofs')
-                    .upload(filePath, proofFile, { cacheControl: '3600', upsert: false });
-
-                if (uploadError) throw uploadError;
-
-                const { data: urlData } = supabase.storage.from('task-proofs').getPublicUrl(filePath);
-                proofUrl = urlData?.publicUrl;
-                setUploadProgress(70);
-            }
-
-            // 2. Logic to Advance Phase
-            const activePhases = taskForProof.phase_validations?.active_phases || LIFECYCLE_PHASES.map(p => p.key);
-            const validActivePhases = activePhases.filter(pk => pk !== 'closed' && LIFECYCLE_PHASES.some(p => p.key === pk));
-
-            let currentPhase = taskForProof.lifecycle_state;
-            if (!validActivePhases.includes(currentPhase)) {
-                currentPhase = validActivePhases[0] || 'requirement_refiner';
-            }
-
-            // We are submitting for 'currentPhase'.
-            // Find the NEXT phase to move to.
-            let nextPhase = currentPhase;
-            const currentActiveIndex = validActivePhases.indexOf(currentPhase);
-
-            if (currentActiveIndex !== -1 && currentActiveIndex < validActivePhases.length - 1) {
-                // Scan forward
-                for (let i = currentActiveIndex + 1; i < validActivePhases.length; i++) {
-                    const pKey = validActivePhases[i];
-                    const existingVal = taskForProof.phase_validations?.[pKey];
-                    // If this future phase has no proof, we stop here (this is our new target)
-                    if (!existingVal?.proof_url && !existingVal?.proof_text) {
-                        nextPhase = pKey;
-                        break;
-                    }
-                    // If it HAS proof, we skip it (it's already done/pre-filled), keep looking
-                    // If we reach the end, we stay on the last phase
-                    if (i === validActivePhases.length - 1) {
-                        nextPhase = validActivePhases[validActivePhases.length - 1];
-                    }
-                }
-            }
-
-            // 3. Prepare Updates
-            const existingPhaseVal = taskForProof.phase_validations?.[currentPhase] || {};
-            let combinedUrls = [];
-
-            // Parse existing URLs
-            if (existingPhaseVal.proof_url) {
-                try {
-                    const parsed = JSON.parse(existingPhaseVal.proof_url);
-                    combinedUrls = Array.isArray(parsed) ? parsed : [existingPhaseVal.proof_url];
-                } catch (e) {
-                    combinedUrls = [existingPhaseVal.proof_url];
-                }
-            }
-            // Add new URL
-            if (proofUrl) combinedUrls = [...combinedUrls, proofUrl];
-            const combinedUrlsString = combinedUrls.length > 0 ? JSON.stringify(combinedUrls) : null;
-
-            // Append text
-            const combinedText = [existingPhaseVal.proof_text, proofText].filter(Boolean).join('\n---\n');
-
-            const currentValidations = taskForProof.phase_validations || {};
-            const updatedValidations = {
-                ...currentValidations,
-                [currentPhase]: {
-                    status: 'pending',
-                    proof_url: combinedUrlsString,
-                    proof_text: combinedText,
-                    submitted_at: new Date().toISOString()
-                }
-            };
-
-            const updates = {
-                phase_validations: updatedValidations,
-                proof_url: combinedUrlsString, // Legacy compat
-                proof_text: combinedText,
-                updated_at: new Date().toISOString()
-            };
-
-            // Only update lifecycle state if we moved
-            if (nextPhase !== currentPhase) {
-                updates.lifecycle_state = nextPhase;
-                updates.sub_state = 'in_progress';
-            } else {
-                updates.sub_state = 'pending_validation';
-            }
-
-            const { error } = await supabase
-                .from('tasks')
-                .update(updates)
-                .eq('id', taskForProof.id);
-
-            if (error) throw error;
-
-            setUploadProgress(100);
             addToast('Proof submitted successfully!', 'success');
 
             // Capture task ID before clearing state
@@ -297,17 +361,12 @@ const MyTasksPage = () => {
                 }
 
                 if (updatedTask) {
-                    console.log('Updated task:', updatedTask);
-                    console.log('Phase validations:', updatedTask.phase_validations);
-
                     // Check if skills already recorded
                     const { data: existingSkills } = await supabase
                         .from('task_skills')
                         .select('id')
                         .eq('task_id', updatedTask.id)
                         .eq('employee_id', user.id);
-
-                    console.log('Existing skills:', existingSkills);
 
                     // Get the task's active phases
                     const validations = updatedTask.phase_validations || {};
@@ -319,37 +378,18 @@ const MyTasksPage = () => {
                         'deployment'
                     ];
 
-                    // Filter out 'closed' phase
                     const requiredPhases = activePhases.filter(p => p !== 'closed');
-
-                    console.log('Required active phases:', requiredPhases);
 
                     // Check if ALL active phases have proof
                     const allPhasesComplete = requiredPhases.every(phaseKey => {
                         const phaseData = validations[phaseKey];
-                        const hasProof = phaseData && (phaseData.proof_url || phaseData.proof_text);
-                        console.log(`  ${phaseKey}: ${hasProof ? '✅' : '❌'}`);
-                        return hasProof;
+                        return phaseData && (phaseData.proof_url || phaseData.proof_text);
                     });
 
-                    console.log('All required phases complete?', allPhasesComplete);
-
                     if (allPhasesComplete && (!existingSkills || existingSkills.length === 0)) {
-                        console.log('✅ Should show skill modal!');
-                        // Check if late
                         if (!isOverdue || updatedTask.access_status === 'approved') {
                             setTaskForSkills(updatedTask);
                             setShowSkillModal(true);
-                        } else {
-                            console.log('❌ Task is overdue without approval');
-                        }
-                    } else {
-                        console.log('❌ Not showing modal - conditions not met');
-                        if (existingSkills && existingSkills.length > 0) {
-                            console.log('   Reason: Skills already recorded');
-                        }
-                        if (!allPhasesComplete) {
-                            console.log('   Reason: Not all phases complete');
                         }
                     }
                 }
@@ -624,23 +664,35 @@ const MyTasksPage = () => {
                     const hasProof = validation?.proof_url || validation?.proof_text;
 
                     if (taskStatus === 'completed') {
-                        color = '#10b981';
+                        color = '#10b981'; // All green when task is completed
                     } else if (idx < currentIndex) {
                         // Past Phase
-                        if (status === 'pending') color = '#f59e0b'; // Yellow (Still Pending)
-                        else if (status === 'rejected') color = '#fee2e2'; // Red
-                        else color = '#10b981'; // Green (Approved/Default)
+                        if (status === 'approved' || (!status && hasProof)) {
+                            color = '#10b981'; // Green = Approved
+                        } else if (status === 'rejected') {
+                            color = '#ef4444'; // Red = Rejected
+                        } else if (status === 'pending' && hasProof) {
+                            color = '#f59e0b'; // Yellow = Has proof, awaiting review
+                        }
+                        // else stays grey (no proof submitted)
                     } else if (idx === currentIndex) {
                         // Current Phase
-                        if (status === 'pending' || subState === 'pending_validation') color = '#f59e0b'; // Yellow
-                        else color = '#3b82f6'; // Blue
+                        if (status === 'approved') {
+                            color = '#10b981'; // Green
+                        } else if (status === 'rejected') {
+                            color = '#ef4444'; // Red
+                        } else if (hasProof) {
+                            color = '#f59e0b'; // Yellow = Has proof, awaiting review
+                        } else {
+                            color = '#3b82f6'; // Blue = Current active phase, no proof yet
+                        }
                     } else if (hasProof) {
-                        // Future Phase but has proof (e.g. reverted state)
-                        if (status === 'pending') color = '#f59e0b';
-                        else if (status === 'rejected') color = '#fee2e2';
-                        else color = '#10b981';
+                        // Future phase but has proof (e.g. reverted state)
+                        if (status === 'approved') color = '#10b981';
+                        else if (status === 'rejected') color = '#ef4444';
+                        else color = '#f59e0b'; // Yellow = proof present
                     }
-                    // Future phases stay grey
+                    // Future phases with no proof stay grey (#e5e7eb)
 
                     return (
                         <React.Fragment key={phase.key}>
@@ -705,14 +757,14 @@ const MyTasksPage = () => {
         });
 
         return matchesSearch && matchesDate && matchesStatus;
-    });
+    }).sort((a, b) => (b.is_active_now ? 1 : 0) - (a.is_active_now ? 1 : 0));
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {/* Premium Dark Header */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 padding: '24px',
                 position: 'relative',
                 overflow: 'hidden',
@@ -739,7 +791,7 @@ const MyTasksPage = () => {
                         background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                         color: 'white',
                         padding: '4px 12px',
-                        borderRadius: '20px',
+                        borderRadius: '8px',
                         fontSize: '0.7rem',
                         fontWeight: 700,
                         letterSpacing: '0.1em',
@@ -798,7 +850,7 @@ const MyTasksPage = () => {
                 flexWrap: 'wrap',
                 backgroundColor: 'white',
                 padding: '12px 16px',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 boxShadow: '0 4px 20px rgba(0,0,0,0.03)',
                 border: '1px solid rgba(226, 232, 240, 0.8)'
             }}>
@@ -819,7 +871,7 @@ const MyTasksPage = () => {
                         style={{
                             width: '100%',
                             padding: '12px 16px 12px 42px',
-                            borderRadius: '12px',
+                            borderRadius: '8px',
                             border: '1px solid #e2e8f0',
                             fontSize: '0.9rem',
                             outline: 'none',
@@ -850,7 +902,7 @@ const MyTasksPage = () => {
                         alignItems: 'center',
                         backgroundColor: '#f8fafc',
                         border: '1px solid #e2e8f0',
-                        borderRadius: '12px',
+                        borderRadius: '8px',
                         padding: '4px',
                         transition: 'all 0.2s'
                     }}>
@@ -890,7 +942,7 @@ const MyTasksPage = () => {
                             alignItems: 'center',
                             gap: '8px',
                             padding: '10px 18px',
-                            borderRadius: '12px',
+                            borderRadius: '8px',
                             border: 'none',
                             background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                             color: 'white',
@@ -919,7 +971,7 @@ const MyTasksPage = () => {
                                 justifyContent: 'center',
                                 width: '42px',
                                 height: '42px',
-                                borderRadius: '12px',
+                                borderRadius: '8px',
                                 border: '1px solid #fee2e2',
                                 backgroundColor: '#fff1f2',
                                 color: '#e11d48',
@@ -951,7 +1003,7 @@ const MyTasksPage = () => {
                             alignItems: 'center',
                             gap: '8px',
                             padding: '10px 16px',
-                            borderRadius: '12px',
+                            borderRadius: '8px',
                             border: '1px solid #e2e8f0',
                             backgroundColor: statusFilters.length > 0 ? '#eff6ff' : '#f8fafc',
                             color: '#334155',
@@ -994,7 +1046,7 @@ const MyTasksPage = () => {
                                 top: '48px',
                                 right: 0,
                                 backgroundColor: 'white',
-                                borderRadius: '12px',
+                                borderRadius: '8px',
                                 border: '1px solid #e2e8f0',
                                 boxShadow: '0 10px 40px rgba(0,0,0,0.12)',
                                 padding: '8px 0',
@@ -1091,13 +1143,14 @@ const MyTasksPage = () => {
 
 
             {/* Tasks Table */}
-            <div style={{ backgroundColor: 'white', borderRadius: '16px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+            <div style={{ backgroundColor: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
                     <thead>
                         <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                             <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>TASK</th>
                             <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>PROJECT</th>
                             <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>PRIORITY</th>
+                            <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>RISK</th>
                             <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>LIFECYCLE</th>
                             <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>ALLOCATED HOURS</th>
                             <th style={{ padding: '16px', textAlign: 'left', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>DUE DATE</th>
@@ -1125,31 +1178,50 @@ const MyTasksPage = () => {
                                 return (
                                     <tr key={task.id} style={{ borderBottom: '1px solid #f1f5f9', transition: 'background-color 0.2s' }}>
                                         <td style={{ padding: '16px' }}>
-                                            <div>
-                                                <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.95rem' }}>
-                                                    {task.title}
+                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                                                {/* Clickable Status Dot - Click to toggle "working on it" */}
+                                                <div
+                                                    onClick={(e) => { e.stopPropagation(); toggleWorkingStatus(task); }}
+                                                    style={{
+                                                        width: '12px',
+                                                        height: '12px',
+                                                        borderRadius: '50%',
+                                                        backgroundColor: task.sub_state === 'in_progress' ? '#10b981' : '#d1d5db',
+                                                        marginTop: '5px',
+                                                        flexShrink: 0,
+                                                        cursor: 'pointer',
+                                                        boxShadow: task.sub_state === 'in_progress' ? '0 0 8px rgba(16, 185, 129, 0.6)' : 'none',
+                                                        border: task.sub_state === 'in_progress' ? '2px solid #059669' : '2px solid #9ca3af',
+                                                        transition: 'all 0.3s ease'
+                                                    }}
+                                                    title={task.sub_state === 'in_progress' ? 'Working on it ✅ (click to unset)' : 'Click to mark as working'}
+                                                />
+                                                <div>
+                                                    <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.95rem' }}>
+                                                        {task.title}
+                                                    </div>
+                                                    {reassignedLabel && (
+                                                        <div style={{
+                                                            marginTop: '6px',
+                                                            display: 'inline-flex',
+                                                            alignItems: 'center',
+                                                            padding: '2px 8px',
+                                                            borderRadius: '999px',
+                                                            backgroundColor: '#fef3c7',
+                                                            color: '#92400e',
+                                                            fontSize: '0.7rem',
+                                                            fontWeight: 600,
+                                                            whiteSpace: 'nowrap'
+                                                        }}>
+                                                            {reassignedLabel}
+                                                        </div>
+                                                    )}
+                                                    {task.description && (
+                                                        <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '250px' }}>
+                                                            {task.description}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                {reassignedLabel && (
-                                                    <div style={{
-                                                        marginTop: '6px',
-                                                        display: 'inline-flex',
-                                                        alignItems: 'center',
-                                                        padding: '2px 8px',
-                                                        borderRadius: '999px',
-                                                        backgroundColor: '#fef3c7',
-                                                        color: '#92400e',
-                                                        fontSize: '0.7rem',
-                                                        fontWeight: 600,
-                                                        whiteSpace: 'nowrap'
-                                                    }}>
-                                                        {reassignedLabel}
-                                                    </div>
-                                                )}
-                                                {task.description && (
-                                                    <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '4px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '250px' }}>
-                                                        {task.description}
-                                                    </div>
-                                                )}
                                             </div>
                                         </td>
                                         <td style={{ padding: '16px' }}>
@@ -1159,12 +1231,20 @@ const MyTasksPage = () => {
                                         </td>
                                         <td style={{ padding: '16px' }}>
                                             <span style={{
-                                                fontSize: '0.75rem', padding: '4px 10px', borderRadius: '20px',
+                                                fontSize: '0.75rem', padding: '4px 10px', borderRadius: '8px',
                                                 backgroundColor: priorityColor.bg, color: priorityColor.text, fontWeight: 600,
                                                 textTransform: 'capitalize'
                                             }}>
                                                 {task.priority || 'Medium'}
                                             </span>
+                                        </td>
+                                        <td style={{ padding: '16px' }}>
+                                            <RiskBadge
+                                                riskLevel={riskSnapshots[task.id]?.risk_level}
+                                                showLabel={false}
+                                                size="sm"
+                                                onClick={() => handleShowRiskAnalysis(task.id, task.title)}
+                                            />
                                         </td>
                                         <td style={{ padding: '16px' }}>
                                             <LifecycleProgress
@@ -1221,7 +1301,7 @@ const MyTasksPage = () => {
                                                             <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                                                                 <span style={{
                                                                     padding: '6px 12px',
-                                                                    borderRadius: '20px',
+                                                                    borderRadius: '8px',
                                                                     backgroundColor: '#f1f5f9',
                                                                     color: '#475569',
                                                                     fontSize: '0.8rem',
@@ -1257,7 +1337,7 @@ const MyTasksPage = () => {
                                                         <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                                                             <span style={{
                                                                 padding: '6px 12px',
-                                                                borderRadius: '20px',
+                                                                borderRadius: '8px',
                                                                 backgroundColor: '#dcfce7',
                                                                 color: '#166534',
                                                                 fontSize: '0.8rem',
@@ -1397,9 +1477,9 @@ const MyTasksPage = () => {
             {
                 showProofModal && taskForProof && (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, backdropFilter: 'blur(4px)' }}>
-                        <div style={{ backgroundColor: 'var(--surface)', padding: '32px', borderRadius: '20px', width: '500px', maxWidth: '90%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+                        <div style={{ backgroundColor: 'var(--surface)', padding: '32px', borderRadius: '8px', width: '500px', maxWidth: '90%', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                                <div style={{ backgroundColor: '#ede9fe', borderRadius: '12px', padding: '12px' }}>
+                                <div style={{ backgroundColor: '#ede9fe', borderRadius: '8px', padding: '12px' }}>
                                     <Upload size={24} color="#8b5cf6" />
                                 </div>
                                 <div>
@@ -1408,7 +1488,7 @@ const MyTasksPage = () => {
                                 </div>
                             </div>
 
-                            <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: '#fef3c7', borderRadius: '12px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
+                            <div style={{ marginBottom: '24px', padding: '20px', backgroundColor: '#fef3c7', borderRadius: '8px', display: 'flex', alignItems: 'flex-start', gap: '12px' }}>
                                 <AlertCircle size={20} color="#b45309" style={{ flexShrink: 0, marginTop: '2px' }} />
                                 <div style={{ fontSize: '0.9rem', color: '#92400e' }}>
                                     <strong>Proof Required:</strong> Upload documentation showing your completed work before requesting validation.
@@ -1422,7 +1502,7 @@ const MyTasksPage = () => {
                                     </label>
                                     <div style={{
                                         border: '2px dashed var(--border)',
-                                        borderRadius: '12px',
+                                        borderRadius: '8px',
                                         padding: '24px',
                                         textAlign: 'center',
                                         backgroundColor: proofFile ? '#f0fdf4' : 'var(--background)',
@@ -1476,7 +1556,7 @@ const MyTasksPage = () => {
                                         style={{
                                             width: '100%',
                                             padding: '12px',
-                                            borderRadius: '10px',
+                                            borderRadius: '6px',
                                             border: '1px solid var(--border)',
                                             backgroundColor: 'var(--background)',
                                             fontSize: '0.9rem',
@@ -1502,12 +1582,12 @@ const MyTasksPage = () => {
 
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
                                 <button onClick={() => { setShowProofModal(false); setTaskForProof(null); setProofFile(null); setProofText(''); }} disabled={uploading}
-                                    style={{ padding: '12px 24px', borderRadius: '10px', backgroundColor: 'var(--background)', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 600 }}>
+                                    style={{ padding: '12px 24px', borderRadius: '6px', backgroundColor: 'var(--background)', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 600 }}>
                                     Cancel
                                 </button>
                                 <button onClick={uploadProofAndRequestValidation} disabled={(!proofFile && !proofText.trim()) || uploading}
                                     style={{
-                                        padding: '12px 24px', borderRadius: '10px',
+                                        padding: '12px 24px', borderRadius: '6px',
                                         background: (proofFile || proofText.trim()) ? 'linear-gradient(135deg, #8b5cf6, #7c3aed)' : '#e5e7eb',
                                         color: (proofFile || proofText.trim()) ? 'white' : '#9ca3af', border: 'none', fontWeight: 600,
                                         cursor: (proofFile || proofText.trim()) ? 'pointer' : 'not-allowed',
@@ -1527,9 +1607,9 @@ const MyTasksPage = () => {
             {
                 showIssueModal && taskForIssue && (
                     <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1001, backdropFilter: 'blur(4px)' }}>
-                        <div style={{ backgroundColor: 'var(--surface)', padding: '32px', borderRadius: '20px', width: '600px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
+                        <div style={{ backgroundColor: 'var(--surface)', padding: '32px', borderRadius: '8px', width: '600px', maxWidth: '90%', maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-                                <div style={{ backgroundColor: '#fef2f2', borderRadius: '12px', padding: '12px' }}>
+                                <div style={{ backgroundColor: '#fef2f2', borderRadius: '8px', padding: '12px' }}>
                                     <AlertTriangle size={24} color="#ef4444" />
                                 </div>
                                 <div>
@@ -1539,7 +1619,7 @@ const MyTasksPage = () => {
                             </div>
 
                             {taskForIssue.issues && (
-                                <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#fef2f2', borderRadius: '12px', border: '1px solid #fecaca' }}>
+                                <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca' }}>
                                     <h4 style={{ fontSize: '0.9rem', fontWeight: 600, color: '#991b1b', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                         <AlertCircle size={16} /> Existing Issues
                                     </h4>
@@ -1561,7 +1641,7 @@ const MyTasksPage = () => {
                                     style={{
                                         width: '100%',
                                         padding: '12px',
-                                        borderRadius: '12px',
+                                        borderRadius: '8px',
                                         border: '2px solid var(--border)',
                                         fontSize: '0.9rem',
                                         resize: 'vertical',
@@ -1577,7 +1657,7 @@ const MyTasksPage = () => {
                                 <button
                                     onClick={() => { setShowIssueModal(false); setTaskForIssue(null); setIssueText(''); }}
                                     disabled={submittingIssue}
-                                    style={{ padding: '12px 24px', borderRadius: '10px', backgroundColor: 'var(--background)', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 600 }}
+                                    style={{ padding: '12px 24px', borderRadius: '6px', backgroundColor: 'var(--background)', border: '1px solid var(--border)', cursor: 'pointer', fontWeight: 600 }}
                                 >
                                     Cancel
                                 </button>
@@ -1586,7 +1666,7 @@ const MyTasksPage = () => {
                                     disabled={!issueText.trim() || submittingIssue}
                                     style={{
                                         padding: '12px 24px',
-                                        borderRadius: '10px',
+                                        borderRadius: '6px',
                                         background: issueText.trim() ? 'linear-gradient(135deg, #ef4444, #dc2626)' : '#e5e7eb',
                                         color: issueText.trim() ? 'white' : '#9ca3af',
                                         border: 'none',
@@ -1637,7 +1717,7 @@ const MyTasksPage = () => {
                 }}>
                     <div style={{
                         backgroundColor: 'white',
-                        borderRadius: '16px',
+                        borderRadius: '8px',
                         width: '100%',
                         maxWidth: '500px',
                         boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
@@ -1691,7 +1771,7 @@ const MyTasksPage = () => {
                             padding: '20px 24px',
                             backgroundColor: '#f8fafc',
                             borderTop: '1px solid #f1f5f9',
-                            borderRadius: '0 0 16px 16px',
+                            borderRadius: '0 0 8px 8px',
                             display: 'flex',
                             justifyContent: 'flex-end',
                             gap: '12px'
@@ -1755,6 +1835,15 @@ const MyTasksPage = () => {
                 addToast={addToast}
                 canAddNote={true}  // Employee can always add notes to their own task
             />
+
+            {/* AI Assistant Popup */}
+            {showAIPopup && aiPopupData && (
+                <AIAssistantPopup
+                    isOpen={showAIPopup}
+                    onClose={() => setShowAIPopup(false)}
+                    data={aiPopupData}
+                />
+            )}
         </div >
     );
 };

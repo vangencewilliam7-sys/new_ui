@@ -155,42 +155,53 @@ const ProjectManagement = ({ addToast = () => { } }) => {
         }
     };
 
-    const addMember = async (userId) => {
+    const addMember = async (targetUserId) => {
         if (!selectedProject) return;
+
+        // Pre-check: is this user already in the current member list?
+        if (projectMembers.find(m => m.user_id === targetUserId)) {
+            addToast?.('User is already a member of this project', 'info');
+            return;
+        }
 
         // Map 'consultant' to 'employee' for database compatibility
         const dbRole = selectedRole === 'consultant' ? 'employee' : selectedRole;
 
         const insertData = {
             project_id: selectedProject.id,
-            user_id: userId,
+            user_id: targetUserId,
             role: dbRole,
             org_id: orgId
         };
         console.log('🔍 Adding member with data:', insertData);
 
         try {
-            // 1. Insert into project_members
-            const { data, error } = await supabase.from('project_members').insert(insertData).select();
+            // 1. Upsert into project_members (update role if already exists)
+            const { data, error } = await supabase
+                .from('project_members')
+                .upsert(insertData, { onConflict: 'project_id,user_id' })
+                .select();
 
             if (error) {
-                console.error('Project member insert failed:', error);
+                console.error('Project member upsert failed:', error);
                 throw error;
             }
 
-            console.log('📝 Project member added:', data);
+            console.log('📝 Project member added/updated:', data);
 
-            // 2. Sync with team_members (best effort)
+            // 2. Sync with team_members (best effort, also upsert)
             const teamMemberData = {
                 team_id: selectedProject.id,
-                profile_id: userId,
+                profile_id: targetUserId,
                 role_in_project: dbRole,
                 org_id: orgId
             };
 
-            const { error: teamError } = await supabase.from('team_members').insert(teamMemberData);
+            const { error: teamError } = await supabase
+                .from('team_members')
+                .upsert(teamMemberData, { onConflict: 'team_id,profile_id' });
             if (teamError) {
-                console.warn('Team member sync warning (might already exist):', teamError);
+                console.warn('Team member sync warning:', teamError);
             } else {
                 console.log('Team member synced');
             }
@@ -201,11 +212,7 @@ const ProjectManagement = ({ addToast = () => { } }) => {
             addToast?.('Member added successfully!', 'success');
         } catch (error) {
             console.error('❌ Full error object:', error);
-            if (error.code === '23505') {
-                addToast?.('User already in this project', 'error');
-            } else {
-                addToast?.('Failed to add member: ' + (error.message || 'Unknown error'), 'error');
-            }
+            addToast?.('Failed to add member: ' + (error.message || 'Unknown error'), 'error');
         }
     };
 
@@ -560,7 +567,7 @@ const ProjectManagement = ({ addToast = () => { } }) => {
                                         <option value="completed">Completed</option>
                                         <option value="deactivated">Deactivated</option>
                                     </select>
-                                    <button onClick={() => setShowAddMember(true)} style={{
+                                    <button onClick={() => { fetchProjectMembers(selectedProject.id); setShowAddMember(true); }} style={{
                                         padding: '12px 24px',
                                         borderRadius: '12px',
                                         background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',

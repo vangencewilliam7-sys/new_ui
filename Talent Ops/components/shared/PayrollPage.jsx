@@ -42,71 +42,46 @@ const PayrollPage = ({ userRole, userId, addToast, orgId }) => {
         try {
             setLoading(true);
 
-            // Safety check: ensure orgId is valid
-            if (!orgId || orgId === 'null' || orgId === 'undefined') {
-                console.error('Invalid orgId:', orgId);
-                setPayrolls([]);
-                setLoading(false);
-                return;
+            let rpcName = '';
+
+            // Determine which RPC to call based on role
+            // Note: We use the server-validated role check inside the RPC, 
+            // but we need to know which one to ask for.
+            const isExecOrManager = ['Executive', 'Manager', 'executive', 'manager', 'admin'].includes(userRole);
+
+            if (isExecOrManager) {
+                rpcName = 'get_org_payroll_history'; // Returns everyone's data (if allowed)
+            } else {
+                rpcName = 'get_my_payroll_history'; // Returns ONLY my data
             }
 
-            // Fetch payroll records first
-            const { data: payrollData, error: payrollError } = await supabase
-                .from('payroll')
-                .select('*')
-                .eq('org_id', orgId)
-                .order('created_at', { ascending: false });
+            console.log(`Fetching payrolls using RPC: ${rpcName}`);
 
-            if (payrollError) {
-                console.error('Error fetching payrolls:', payrollError);
-                addToast('Failed to load payroll records: ' + payrollError.message, 'error');
-                return;
-            }
+            const { data, error } = await supabase.rpc(rpcName);
 
-            if (!payrollData || payrollData.length === 0) {
+            if (error) {
+                console.error('Error fetching payrolls via RPC:', error);
+                addToast('Failed to load payroll records: ' + error.message, 'error');
                 setPayrolls([]);
                 return;
             }
 
-            // Fetch employee details separately
-            const employeeIds = [...new Set(payrollData.map(p => p.employee_id))];
-            const { data: profilesData, error: profilesError } = await supabase
-                .from('profiles')
-                .select('id, full_name, email')
-                .eq('org_id', orgId)
-                .in('id', employeeIds);
-
-            if (profilesError) {
-                console.error('Error fetching profiles:', profilesError);
+            // The RPC returns specific error objects sometimes
+            if (data && data.error) {
+                console.error('RPC returned logic error:', data.error);
+                addToast(data.error, 'error');
+                setPayrolls([]);
+                return;
             }
 
-            // Create a map of employee details
-            const profilesMap = {};
-            if (profilesData) {
-                profilesData.forEach(profile => {
-                    profilesMap[profile.id] = profile;
-                });
-            }
+            // If success, data.data contains the array
+            // If the RPC returns a direct array (standard), use it. 
+            // Our RPC returns { success: true, data: [...] } structure.
+            const pData = data.data || data || [];
 
-            // Merge payroll data with employee details
-            const formattedPayrolls = payrollData.map(payroll => ({
-                id: payroll.id,
-                employee_id: payroll.employee_id,
-                name: profilesMap[payroll.employee_id]?.full_name || 'Unknown',
-                email: profilesMap[payroll.employee_id]?.email || '',
-                month: payroll.month,
-                basic_salary: payroll.basic_salary,
-                hra: payroll.hra,
-                allowances: payroll.allowances,
-                professional_tax: payroll.professional_tax,
-                deductions: payroll.deductions,
-                lop_days: payroll.lop_days,
-                net_salary: payroll.net_salary,
-                status: payroll.status,
-                created_at: payroll.created_at
-            }));
+            console.log('Payroll Data Loaded:', pData.length);
+            setPayrolls(pData);
 
-            setPayrolls(formattedPayrolls);
         } catch (error) {
             console.error('Unexpected error fetching payrolls:', error);
             addToast('Failed to load payroll records', 'error');
@@ -254,7 +229,7 @@ const PayrollPage = ({ userRole, userId, addToast, orgId }) => {
             {/* Premium Header - Reusing the Dashboard Aesthetic */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '24px',
+                borderRadius: '8px',
                 padding: '32px 40px',
                 color: 'white',
                 position: 'relative',
@@ -276,7 +251,7 @@ const PayrollPage = ({ userRole, userId, addToast, orgId }) => {
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '24px', flexWrap: 'wrap' }}>
                     <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8', fontSize: '0.85rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '16px' }}>
-                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', border: '1px solid rgba(255,255,255,0.1)' }}>Financials</span>
+                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '6px 12px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.05em', border: '1px solid rgba(255,255,255,0.1)' }}>Financials</span>
                             <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '800' }}>•</span>
                             <span style={{ color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem', fontWeight: '600' }}>Payroll Control</span>
                         </div>
@@ -293,7 +268,7 @@ const PayrollPage = ({ userRole, userId, addToast, orgId }) => {
                             background: 'rgba(255, 255, 255, 0.05)',
                             backdropFilter: 'blur(12px)',
                             padding: '16px 24px',
-                            borderRadius: '20px',
+                            borderRadius: '8px',
                             border: '1px solid rgba(255, 255, 255, 0.1)',
                             display: 'flex',
                             alignItems: 'center',
@@ -305,7 +280,7 @@ const PayrollPage = ({ userRole, userId, addToast, orgId }) => {
                                     background: 'linear-gradient(135deg, #818cf8 0%, #6366f1 100%)',
                                     color: 'white',
                                     padding: '12px 24px',
-                                    borderRadius: '14px',
+                                    borderRadius: '6px',
                                     fontWeight: '800',
                                     fontSize: '0.9rem',
                                     display: 'flex',

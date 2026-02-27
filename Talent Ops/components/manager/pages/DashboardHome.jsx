@@ -539,7 +539,7 @@ const DashboardHome = () => {
             {/* Header / Hero Section */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '24px',
+                borderRadius: '8px',
                 padding: '32px 40px',
                 color: 'white',
                 position: 'relative',
@@ -638,7 +638,7 @@ const DashboardHome = () => {
                     {/* Detailed Project Analytics List */}
                     <div style={{
                         backgroundColor: '#ffffff',
-                        borderRadius: '32px',
+                        borderRadius: '12px',
                         padding: '32px',
                         border: '1px solid #f1f5f9',
                         boxShadow: '0 4px 20px rgba(0,0,0,0.02)'
@@ -668,7 +668,7 @@ const DashboardHome = () => {
                                         gap: '16px',
                                         padding: '24px',
                                         backgroundColor: '#f8fafc',
-                                        borderRadius: '24px',
+                                        borderRadius: '12px',
                                         transition: 'all 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
                                         border: '1px solid transparent'
                                     }}
@@ -734,7 +734,7 @@ const DashboardHome = () => {
                     {/* Premium Calendar Widget */}
                     <div style={{
                         backgroundColor: '#ffffff',
-                        borderRadius: '32px',
+                        borderRadius: '12px',
                         padding: '32px',
                         border: '1px solid #f1f5f9',
                         boxShadow: '0 4px 20px rgba(0,0,0,0.02)'

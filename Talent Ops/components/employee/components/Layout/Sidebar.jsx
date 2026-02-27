@@ -135,7 +135,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
                     justifyContent: isCollapsed ? 'center' : 'flex-start',
                     gap: '10px',
                     padding: '8px 12px',
-                    borderRadius: '8px',
+                    borderRadius: '6px',
                     backgroundColor: isActive ? '#7C3AED' : 'transparent',
                     color: isActive ? 'white' : 'rgba(255,255,255,0.7)',
                     transition: 'all 0.2s ease',
@@ -208,7 +208,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
                 border: sectionKey === 'project'
                     ? '1px solid rgba(139,92,246,0.3)'
                     : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '10px',
+                borderRadius: '8px',
                 color: sectionKey === 'project' ? '#a78bfa' : 'rgba(255,255,255,0.9)',
                 cursor: 'pointer',
                 fontSize: '0.75rem',
@@ -252,7 +252,7 @@ const Sidebar = ({ isCollapsed, toggleSidebar, onMouseEnter, onMouseLeave }) => 
                 padding: '12px',
                 zIndex: 1000,
                 transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-                borderRadius: '0 24px 24px 0',
+                borderRadius: '0 8px 8px 0',
                 willChange: 'width',
                 transform: 'translateZ(0)'
             }}>

@@ -6,7 +6,7 @@ const StatCard = ({ title, value, change, trend, icon: Icon, color }) => {
         <div style={{
             padding: 'var(--spacing-lg)',
             backgroundColor: 'var(--surface)',
-            borderRadius: '16px',
+            borderRadius: '8px',
             boxShadow: 'var(--shadow-sm)',
             display: 'flex',
             flexDirection: 'column',
@@ -27,7 +27,7 @@ const StatCard = ({ title, value, change, trend, icon: Icon, color }) => {
                 <div style={{
                     width: '48px',
                     height: '48px',
-                    borderRadius: '12px',
+                    borderRadius: '6px',
                     backgroundColor: `${color}15`,
                     display: 'flex',
                     alignItems: 'center',
@@ -46,7 +46,7 @@ const StatCard = ({ title, value, change, trend, icon: Icon, color }) => {
                         color: trend === 'up' ? 'var(--success)' : 'var(--danger)',
                         backgroundColor: trend === 'up' ? '#10b98115' : '#ef444415',
                         padding: '4px 8px',
-                        borderRadius: '20px'
+                        borderRadius: '8px'
                     }}>
                         {trend === 'up' ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
                         {change}

@@ -115,7 +115,7 @@ const NotesTile = () => {
     return (
         <div style={{
             backgroundColor: '#ffffff',
-            borderRadius: '24px',
+            borderRadius: '8px',
             display: 'flex',
             flexDirection: 'column',
             height: '320px',
@@ -137,7 +137,7 @@ const NotesTile = () => {
                         <div key={note.id} style={{
                             backgroundColor: note.is_completed ? '#f8fafc' : '#ffffff',
                             padding: '16px',
-                            borderRadius: '16px',
+                            borderRadius: '8px',
                             border: note.is_completed ? '1px solid #f1f5f9' : '1px solid #e2e8f0',
                             display: 'flex',
                             alignItems: 'start',
@@ -172,7 +172,7 @@ const NotesTile = () => {
                                             style={{
                                                 width: '100%',
                                                 padding: '8px 12px',
-                                                borderRadius: '10px',
+                                                borderRadius: '6px',
                                                 border: '1px solid #0ea5e9',
                                                 fontSize: '0.95rem',
                                                 outline: 'none',
@@ -219,7 +219,7 @@ const NotesTile = () => {
                 gap: '12px',
                 padding: '16px',
                 backgroundColor: '#f8fafc',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 border: '1px solid #f1f5f9'
             }}>
                 <input
@@ -244,7 +244,7 @@ const NotesTile = () => {
                         backgroundColor: '#0ea5e9',
                         color: 'white',
                         border: 'none',
-                        borderRadius: '10px',
+                        borderRadius: '6px',
                         width: '32px',
                         height: '32px',
                         display: 'flex',

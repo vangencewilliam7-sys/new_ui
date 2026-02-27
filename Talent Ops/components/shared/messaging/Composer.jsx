@@ -103,7 +103,7 @@ const Composer = ({
                         marginBottom: '0.5rem',
                         background: '#fee2e2',
                         border: '1px solid #fca5a5',
-                        borderRadius: '8px',
+                        borderRadius: '6px',
                         color: '#b91c1c',
                         fontSize: '13px',
                         display: 'flex',
@@ -281,13 +281,13 @@ const Composer = ({
                         </div>
                         <div style={{ padding: '20px', borderTop: '1px solid #e2e8f0', display: 'flex', gap: '12px' }}>
                             <button
-                                style={{ flex: 1, padding: '12px', borderRadius: '12px', border: '1px solid #e2e8f0', background: 'white', fontWeight: '600', cursor: 'pointer' }}
+                                style={{ flex: 1, padding: '12px', borderRadius: '6px', border: '1px solid #e2e8f0', background: 'white', fontWeight: '600', cursor: 'pointer' }}
                                 onClick={() => setShowPollModal(false)}
                             >
                                 Cancel
                             </button>
                             <button
-                                style={{ flex: 1, padding: '12px', borderRadius: '12px', border: 'none', background: '#3b82f6', color: 'white', fontWeight: '700', cursor: 'pointer' }}
+                                style={{ flex: 1, padding: '12px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: 'white', fontWeight: '700', cursor: 'pointer' }}
                                 onClick={handleSendPoll}
                                 disabled={!pollQuestion.trim() || pollOptions.filter(o => o.trim()).length < 2}
                             >

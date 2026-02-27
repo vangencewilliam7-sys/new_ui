@@ -260,7 +260,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
             {/* Compact Header - Matching Leave Requests Style */}
             <div style={{
                 background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-                borderRadius: '16px',
+                borderRadius: '8px',
                 padding: '20px 28px',
                 color: 'white',
                 position: 'relative',
@@ -270,7 +270,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                 <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
                     <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
+                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Dashboard</span>
                             <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>/</span>
                             <span style={{ color: '#22d3ee', fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase' }}>Project Documents</span>
                         </div>
@@ -290,7 +290,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                 alignItems: 'center',
                                 gap: '8px',
                                 padding: '10px 20px',
-                                borderRadius: '10px',
+                                borderRadius: '6px',
                                 background: 'linear-gradient(135deg, #22d3ee, #06b6d4)',
                                 color: 'white',
                                 border: 'none',
@@ -320,7 +320,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
             <div style={{
                 padding: '20px',
                 backgroundColor: '#f8fafc',
-                borderRadius: '12px',
+                borderRadius: '6px',
                 boxShadow: '0 2px 12px rgba(0,0,0,0.03)'
             }}>
                 {/* Document Type Filters */}
@@ -341,7 +341,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                     alignItems: 'center',
                                     gap: '8px',
                                     padding: '8px 14px',
-                                    borderRadius: '20px',
+                                    borderRadius: '6px',
                                     backgroundColor: isActive ? type.color : `${type.color}10`,
                                     border: isActive ? `1px solid ${type.color}` : `1px solid ${type.color}30`,
                                     color: isActive ? 'white' : type.color,
@@ -368,7 +368,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                         borderColor: '#e2e8f0',
                         borderStyle: 'dashed',
                         borderWidth: '2px',
-                        borderRadius: '16px',
+                        borderRadius: '8px',
                         color: '#64748b',
                         backgroundColor: '#ffffff'
                     }}>
@@ -398,7 +398,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                             return (
                                 <div key={doc.id} style={{
                                     backgroundColor: 'white',
-                                    borderRadius: '16px',
+                                    borderRadius: '6px',
                                     padding: '20px',
                                     boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
                                     border: '1px solid #e2e8f0',
@@ -410,7 +410,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                             <div style={{
                                                 width: '36px',
                                                 height: '36px',
-                                                borderRadius: '10px',
+                                                borderRadius: '6px',
                                                 backgroundColor: `${typeInfo.color}15`,
                                                 border: `1px solid ${typeInfo.color}25`,
                                                 display: 'flex',
@@ -510,7 +510,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                     alignItems: 'center', justifyContent: 'center', zIndex: 1000
                 }}>
                     <div style={{
-                        backgroundColor: 'white', borderRadius: '16px', padding: '24px',
+                        backgroundColor: 'white', borderRadius: '6px', padding: '24px',
                         width: '100%', maxWidth: '450px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)'
                     }}>
                         <h2 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '20px' }}>Add New Document</h2>
@@ -522,7 +522,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                 value={newDoc.title}
                                 onChange={(e) => setNewDoc({ ...newDoc, title: e.target.value })}
                                 placeholder="Document title"
-                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '0.9rem' }}
+                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e5e7eb', fontSize: '0.9rem' }}
                             />
                         </div>
 
@@ -531,7 +531,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                             <select
                                 value={newDoc.doc_type}
                                 onChange={(e) => setNewDoc({ ...newDoc, doc_type: e.target.value })}
-                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '0.9rem' }}
+                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e5e7eb', fontSize: '0.9rem' }}
                             >
                                 {docTypes.map(type => (
                                     type.value !== 'all' && <option key={type.value} value={type.value}>{type.label}</option>
@@ -546,14 +546,14 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                 onChange={(e) => setNewDoc({ ...newDoc, content: e.target.value })}
                                 placeholder="Optional description..."
                                 rows={3}
-                                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #e5e7eb', fontSize: '0.9rem', resize: 'vertical' }}
+                                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #e5e7eb', fontSize: '0.9rem', resize: 'vertical' }}
                             />
                         </div>
 
                         <div style={{ marginBottom: '20px' }}>
                             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '6px', color: '#374151' }}>Upload File</label>
                             <div style={{
-                                border: '2px dashed #e2e8f0', borderRadius: '8px', padding: '20px',
+                                border: '2px dashed #e2e8f0', borderRadius: '6px', padding: '20px',
                                 textAlign: 'center', cursor: 'pointer', backgroundColor: '#f9fafb'
                             }}>
                                 <input
@@ -572,10 +572,10 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                         </div>
 
                         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-                            <button onClick={() => setShowAddModal(false)} disabled={uploading} style={{ padding: '10px 20px', borderRadius: '8px', border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontWeight: 600 }}>
+                            <button onClick={() => setShowAddModal(false)} disabled={uploading} style={{ padding: '10px 20px', borderRadius: '6px', border: '1px solid #e5e7eb', background: 'white', cursor: 'pointer', fontWeight: 600 }}>
                                 Cancel
                             </button>
-                            <button onClick={handleAddDocument} disabled={uploading} style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: 'white', cursor: 'pointer', fontWeight: 600, opacity: uploading ? 0.7 : 1 }}>
+                            <button onClick={handleAddDocument} disabled={uploading} style={{ padding: '10px 20px', borderRadius: '6px', border: 'none', background: 'linear-gradient(135deg, #8b5cf6, #6366f1)', color: 'white', cursor: 'pointer', fontWeight: 600, opacity: uploading ? 0.7 : 1 }}>
                                 {uploading ? 'Uploading...' : 'Add Document'}
                             </button>
                         </div>
@@ -591,7 +591,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                     padding: '20px'
                 }}>
                     <div style={{
-                        backgroundColor: 'white', borderRadius: '12px',
+                        backgroundColor: 'white', borderRadius: '6px',
                         width: '100%', maxWidth: '900px', height: '85vh',
                         display: 'flex', flexDirection: 'column',
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
@@ -603,7 +603,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                         }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                 <div style={{
-                                    padding: '8px', borderRadius: '8px', backgroundColor: '#f1f5f9',
+                                    padding: '8px', borderRadius: '6px', backgroundColor: '#f1f5f9',
                                     color: '#64748b'
                                 }}>
                                     <FileText size={20} />
@@ -625,7 +625,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                     rel="noopener noreferrer"
                                     style={{
                                         display: 'flex', alignItems: 'center', gap: '8px',
-                                        padding: '8px 16px', borderRadius: '8px',
+                                        padding: '8px 16px', borderRadius: '6px',
                                         backgroundColor: '#0f172a', color: 'white',
                                         textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600
                                     }}
@@ -635,7 +635,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                 <button
                                     onClick={() => setViewingDoc(null)}
                                     style={{
-                                        padding: '8px', borderRadius: '8px',
+                                        padding: '8px', borderRadius: '6px',
                                         border: '1px solid #e2e8f0', backgroundColor: 'white',
                                         color: '#64748b', cursor: 'pointer', display: 'flex'
                                     }}
@@ -702,7 +702,7 @@ const ProjectDocuments = ({ userRole, addToast: parentAddToast = null }) => {
                                                 rel="noopener noreferrer"
                                                 style={{
                                                     display: 'inline-flex', alignItems: 'center', gap: '8px',
-                                                    padding: '10px 20px', borderRadius: '8px',
+                                                    padding: '10px 20px', borderRadius: '6px',
                                                     backgroundColor: '#3b82f6', color: 'white',
                                                     textDecoration: 'none', fontWeight: 600
                                                 }}

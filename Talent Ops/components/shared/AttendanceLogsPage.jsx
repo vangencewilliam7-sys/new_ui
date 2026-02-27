@@ -408,32 +408,33 @@ const AttendanceLogsPage = () => {
     };
 
     const tabStyle = (active) => ({
-        padding: '12px 24px',
-        borderRadius: '12px',
+        padding: '10px 20px',
+        borderRadius: '8px',
         border: 'none',
         backgroundColor: active ? '#7c3aed' : 'transparent',
         color: active ? '#fff' : '#64748b',
         fontWeight: 600,
         cursor: 'pointer',
-        transition: 'all 0.2s'
+        transition: 'all 0.2s',
+        fontSize: '0.9rem'
     });
 
     const tableHeaderStyle = {
-        padding: '14px 16px',
+        padding: '16px 20px',
         textAlign: 'left',
-        fontWeight: 600,
-        color: '#64748b',
-        fontSize: '0.8rem',
+        fontWeight: 700,
+        color: '#475569',
+        fontSize: '0.75rem',
         textTransform: 'uppercase',
         letterSpacing: '0.05em',
-        borderBottom: '1px solid #e2e8f0'
+        borderBottom: '2px solid #f1f5f9'
     };
 
     const tableCellStyle = {
-        padding: '16px',
+        padding: '16px 20px',
         borderBottom: '1px solid #f1f5f9',
-        color: '#1e293b',
-        fontSize: '0.95rem'
+        color: '#334155',
+        fontSize: '0.9rem'
     };
 
     if (loading && !orgId) {
@@ -446,122 +447,185 @@ const AttendanceLogsPage = () => {
 
     return (
         <div style={containerStyle}>
-            {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <div>
-                    <h1 style={{ fontSize: '1.8rem', fontWeight: 700, color: '#0f172a', marginBottom: '4px' }}>
-                        Attendance Logs
-                    </h1>
-                    <p style={{ color: '#64748b', fontSize: '0.95rem' }}>
-                        Track employee attendance, working hours, and monthly reports
-                    </p>
+            {/* Premium Header Banner */}
+            <div style={{
+                background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+                borderRadius: '8px',
+                padding: '24px 32px',
+                color: 'white',
+                position: 'relative',
+                overflow: 'hidden',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                marginBottom: '24px'
+            }}>
+                {/* Subtle Mesh Pattern Overlay */}
+                <div style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    opacity: 0.1,
+                    background: 'radial-gradient(circle at 2px 2px, rgba(255,255,255,0.15) 1px, transparent 0)',
+                    backgroundSize: '24px 24px',
+                    pointerEvents: 'none'
+                }}></div>
+
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                            <span style={{ backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 10px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Organization</span>
+                            <span style={{ color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>/</span>
+                            <span style={{ color: '#22d3ee', fontSize: '0.75rem', fontWeight: '600', textTransform: 'uppercase' }}>Attendance Logs</span>
+                        </div>
+                        <h1 style={{ fontSize: '1.75rem', fontWeight: '700', marginBottom: '8px', letterSpacing: '-0.02em' }}>
+                            Attendance Intelligence
+                        </h1>
+                        <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.9rem', maxWidth: '600px', lineHeight: 1.5 }}>
+                            Comprehensive oversight of organizational presence, working patterns, and historical attendance data for insightful workforce management.
+                        </p>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                        <button
+                            onClick={exportToCSV}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                padding: '12px 24px',
+                                borderRadius: '6px',
+                                border: '1px solid rgba(255,255,255,0.1)',
+                                backgroundColor: 'rgba(255,255,255,0.05)',
+                                color: '#fff',
+                                fontWeight: '600',
+                                cursor: 'pointer',
+                                transition: 'all 0.2s',
+                                backdropFilter: 'blur(8px)'
+                            }}
+                            onMouseEnter={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)';
+                                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)';
+                            }}
+                            onMouseLeave={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.05)';
+                                e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)';
+                            }}
+                        >
+                            <Download size={18} />
+                            Export CSV
+                        </button>
+                    </div>
                 </div>
-                <button
-                    onClick={exportToCSV}
-                    style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        padding: '12px 20px',
-                        borderRadius: '12px',
-                        border: 'none',
-                        backgroundColor: '#7c3aed',
-                        color: '#fff',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                    }}
-                >
-                    <Download size={18} />
-                    Export CSV
-                </button>
             </div>
 
             {/* Stats Cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
-                <div style={{ ...cardStyle, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#f0fdf4', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Users size={24} style={{ color: '#22c55e' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '24px' }}>
+                {[
+                    { label: 'Total Workforce', value: overallStats.totalEmployees, icon: Users, color: '#22c55e', bg: '#f0fdf4' },
+                    { label: 'Total Check-ins', value: overallStats.totalPresent, icon: CheckCircle, color: '#0ea5e9', bg: '#f0f9ff' },
+                    { label: 'Avg. Daily Hours', value: `${overallStats.avgHours}h`, icon: Clock, color: '#a855f7', bg: '#faf5ff' },
+                    { label: 'Attendance Rate', value: `${overallStats.avgAttendance}%`, icon: BarChart3, color: '#eab308', bg: '#fefce8' }
+                ].map((stat, idx) => (
+                    <div key={idx} style={{
+                        backgroundColor: '#fff',
+                        borderRadius: '8px',
+                        padding: '24px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)',
+                        border: '1px solid #f1f5f9',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '16px',
+                        position: 'relative',
+                        overflow: 'hidden'
+                    }}>
+                        <div style={{
+                            position: 'absolute',
+                            top: '-20px',
+                            right: '-20px',
+                            width: '80px',
+                            height: '80px',
+                            borderRadius: '50%',
+                            background: `radial-gradient(circle, ${stat.color} 0%, transparent 70%)`,
+                            opacity: 0.05,
+                            pointerEvents: 'none'
+                        }}></div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '6px', backgroundColor: stat.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <stat.icon size={20} style={{ color: stat.color }} />
+                            </div>
+                            <p style={{ fontSize: '0.8rem', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.025em' }}>{stat.label}</p>
+                        </div>
+                        <p style={{ fontSize: '1.75rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>{stat.value}</p>
                     </div>
-                    <div>
-                        <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Total Employees</p>
-                        <p style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a' }}>{overallStats.totalEmployees}</p>
-                    </div>
-                </div>
-                <div style={{ ...cardStyle, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#f0f9ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <CheckCircle size={24} style={{ color: '#0ea5e9' }} />
-                    </div>
-                    <div>
-                        <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Total Check-ins</p>
-                        <p style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a' }}>{overallStats.totalPresent}</p>
-                    </div>
-                </div>
-                <div style={{ ...cardStyle, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#faf5ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Clock size={24} style={{ color: '#a855f7' }} />
-                    </div>
-                    <div>
-                        <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Avg. Hours/Employee</p>
-                        <p style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a' }}>{overallStats.avgHours}h</p>
-                    </div>
-                </div>
-                <div style={{ ...cardStyle, marginBottom: 0, display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ width: '48px', height: '48px', borderRadius: '12px', backgroundColor: '#fefce8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <BarChart3 size={24} style={{ color: '#eab308' }} />
-                    </div>
-                    <div>
-                        <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '4px' }}>Avg. Attendance Rate</p>
-                        <p style={{ fontSize: '1.5rem', fontWeight: 700, color: '#0f172a' }}>{overallStats.avgAttendance}%</p>
-                    </div>
-                </div>
+                ))}
             </div>
 
             {/* Controls */}
-            <div style={{ ...cardStyle, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{
+                backgroundColor: '#fff',
+                borderRadius: '8px',
+                padding: '20px 24px',
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)',
+                border: '1px solid #f1f5f9',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '24px'
+            }}>
                 {/* Month Navigator */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <button
-                        onClick={() => navigateMonth('prev')}
-                        style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            border: '1px solid #e2e8f0',
-                            backgroundColor: '#fff',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}
-                    >
-                        <ChevronLeft size={20} />
-                    </button>
-                    <div style={{ minWidth: '180px', textAlign: 'center' }}>
-                        <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                            onClick={() => navigateMonth('prev')}
+                            style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                backgroundColor: '#fff',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                        >
+                            <ChevronLeft size={18} />
+                        </button>
+                        <button
+                            onClick={() => navigateMonth('next')}
+                            style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '6px',
+                                border: '1px solid #e2e8f0',
+                                backgroundColor: '#fff',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#fff'}
+                        >
+                            <ChevronRight size={18} />
+                        </button>
+                    </div>
+                    <div style={{ textAlign: 'left' }}>
+                        <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>
                             {monthNames[selectedMonth]} {selectedYear}
                         </h2>
+                        <p style={{ margin: 0, fontSize: '0.75rem', color: '#64748b', fontWeight: '500' }}>Viewing historical period</p>
                     </div>
-                    <button
-                        onClick={() => navigateMonth('next')}
-                        style={{
-                            width: '40px',
-                            height: '40px',
-                            borderRadius: '10px',
-                            border: '1px solid #e2e8f0',
-                            backgroundColor: '#fff',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                        }}
-                    >
-                        <ChevronRight size={20} />
-                    </button>
                 </div>
 
                 {/* Tabs */}
-                <div style={{ display: 'flex', gap: '8px', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '14px' }}>
+                <div style={{ display: 'flex', gap: '4px', backgroundColor: '#f1f5f9', padding: '4px', borderRadius: '10px' }}>
                     <button style={tabStyle(activeTab === 'daily')} onClick={() => setActiveTab('daily')}>
                         <Clock size={16} style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }} />
                         Daily Logs
@@ -574,21 +638,22 @@ const AttendanceLogsPage = () => {
 
                 {/* Search */}
                 <div style={{ position: 'relative' }}>
-                    <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                    <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                     <input
                         type="text"
-                        placeholder="Search by name, email, role..."
+                        placeholder="Search by name, role..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         style={{
-                            padding: '10px 36px 10px 40px',
-                            borderRadius: '10px',
+                            padding: '10px 36px 10px 38px',
+                            borderRadius: '6px',
                             border: '1px solid #e2e8f0',
-                            fontSize: '0.9rem',
-                            width: '260px',
+                            fontSize: '0.85rem',
+                            width: '240px',
                             outline: 'none',
                             backgroundColor: '#fff',
-                            color: '#0f172a'
+                            color: '#0f172a',
+                            transition: 'all 0.2s'
                         }}
                     />
                     {searchQuery && (
@@ -608,7 +673,7 @@ const AttendanceLogsPage = () => {
                                 justifyContent: 'center'
                             }}
                         >
-                            <X size={16} style={{ color: '#94a3b8' }} />
+                            <X size={14} style={{ color: '#94a3b8' }} />
                         </button>
                     )}
                 </div>
@@ -676,10 +741,11 @@ const AttendanceLogsPage = () => {
                                 return (
                                     <div key={emp.id} style={{
                                         background: '#fff',
-                                        borderRadius: '12px',
-                                        border: '1px solid #e2e8f0',
+                                        borderRadius: '8px',
+                                        border: '1px solid #f1f5f9',
                                         overflow: 'hidden',
-                                        transition: 'all 0.3s ease'
+                                        transition: 'all 0.3s ease',
+                                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
                                     }}>
                                         {/* Employee Header - Click to expand */}
                                         <div
@@ -766,9 +832,9 @@ const AttendanceLogsPage = () => {
                                         {/* Expanded Calendar View */}
                                         {isExpanded && (
                                             <div style={{
-                                                padding: '20px',
-                                                borderTop: '1px solid #e2e8f0',
-                                                background: '#fafbfc'
+                                                padding: '24px',
+                                                borderTop: '1px solid #f1f5f9',
+                                                background: '#fcfdfe'
                                             }}>
                                                 {/* Calendar Grid */}
                                                 <div style={{
@@ -804,12 +870,15 @@ const AttendanceLogsPage = () => {
                                                                 key={idx}
                                                                 style={{
                                                                     background: colors.bg,
-                                                                    borderRadius: '8px',
-                                                                    padding: '8px',
-                                                                    minHeight: '60px',
+                                                                    borderRadius: '6px',
+                                                                    padding: '10px',
+                                                                    minHeight: '64px',
                                                                     borderLeft: `3px solid ${colors.border}`,
                                                                     position: 'relative',
-                                                                    boxShadow: isToday ? '0 0 0 2px #4f46e5' : 'none'
+                                                                    boxShadow: isToday ? '0 0 0 2px #4f46e5' : 'none',
+                                                                    display: 'flex',
+                                                                    flexDirection: 'column',
+                                                                    justifyContent: 'space-between'
                                                                 }}
                                                                 title={dayData.leaveType ? `Leave Reason: ${dayData.leaveType}` : ''}
                                                             >
@@ -846,26 +915,28 @@ const AttendanceLogsPage = () => {
                                                 <div style={{
                                                     display: 'flex',
                                                     gap: '16px',
-                                                    flexWrap: 'wrap'
+                                                    flexWrap: 'wrap',
+                                                    marginBottom: '16px'
                                                 }}>
                                                     <div style={{
                                                         flex: '1',
                                                         minWidth: '200px',
                                                         padding: '16px',
                                                         background: '#fff',
-                                                        borderRadius: '10px',
-                                                        border: '1px solid #e2e8f0'
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #f1f5f9',
+                                                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
                                                     }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                             <div style={{
-                                                                width: '6px',
-                                                                height: '40px',
+                                                                width: '4px',
+                                                                height: '32px',
                                                                 background: '#22c55e',
-                                                                borderRadius: '3px'
+                                                                borderRadius: '2px'
                                                             }} />
                                                             <div>
-                                                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Total Hours</div>
-                                                                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#22c55e' }}>
+                                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Hours</div>
+                                                                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
                                                                     {summary.totalHours}h
                                                                 </div>
                                                             </div>
@@ -877,19 +948,20 @@ const AttendanceLogsPage = () => {
                                                         minWidth: '200px',
                                                         padding: '16px',
                                                         background: '#fff',
-                                                        borderRadius: '10px',
-                                                        border: '1px solid #e2e8f0'
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #f1f5f9',
+                                                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
                                                     }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                             <div style={{
-                                                                width: '6px',
-                                                                height: '40px',
+                                                                width: '4px',
+                                                                height: '32px',
                                                                 background: '#4f46e5',
-                                                                borderRadius: '3px'
+                                                                borderRadius: '2px'
                                                             }} />
                                                             <div>
-                                                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Days Present</div>
-                                                                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#4f46e5' }}>
+                                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Days Present</div>
+                                                                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
                                                                     {summary.presentDays} days
                                                                 </div>
                                                             </div>
@@ -901,19 +973,20 @@ const AttendanceLogsPage = () => {
                                                         minWidth: '200px',
                                                         padding: '16px',
                                                         background: '#fff',
-                                                        borderRadius: '10px',
-                                                        border: '1px solid #e2e8f0'
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #f1f5f9',
+                                                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.02)'
                                                     }}>
-                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                                                             <div style={{
-                                                                width: '6px',
-                                                                height: '40px',
+                                                                width: '4px',
+                                                                height: '32px',
                                                                 background: '#f59e0b',
-                                                                borderRadius: '3px'
+                                                                borderRadius: '2px'
                                                             }} />
                                                             <div>
-                                                                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>Avg Hours/Day</div>
-                                                                <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#f59e0b' }}>
+                                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Avg Hours/Day</div>
+                                                                <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
                                                                     {summary.presentDays > 0
                                                                         ? (parseFloat(summary.totalHours) / summary.presentDays).toFixed(1)
                                                                         : '0'}h
@@ -926,9 +999,13 @@ const AttendanceLogsPage = () => {
                                                 {/* Legend */}
                                                 <div style={{
                                                     display: 'flex',
-                                                    gap: '20px',
-                                                    marginTop: '16px',
-                                                    flexWrap: 'wrap'
+                                                    gap: '16px',
+                                                    marginTop: '8px',
+                                                    flexWrap: 'wrap',
+                                                    padding: '12px 16px',
+                                                    backgroundColor: '#f8fafc',
+                                                    borderRadius: '8px',
+                                                    border: '1px solid #f1f5f9'
                                                 }}>
                                                     {[
                                                         { status: 'present', label: 'Present' },
@@ -937,15 +1014,15 @@ const AttendanceLogsPage = () => {
                                                         { status: 'absent', label: 'Absent' },
                                                         { status: 'weekend', label: 'Weekend' }
                                                     ].map(({ status, label }) => (
-                                                        <div key={status} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                                        <div key={status} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                             <div style={{
-                                                                width: '16px',
-                                                                height: '16px',
-                                                                borderRadius: '4px',
+                                                                width: '12px',
+                                                                height: '12px',
+                                                                borderRadius: '3px',
                                                                 background: getStatusColor(status).bg,
-                                                                borderLeft: `3px solid ${getStatusColor(status).border}`
+                                                                borderLeft: `2px solid ${getStatusColor(status).border}`
                                                             }} />
-                                                            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{label}</span>
+                                                            <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500 }}>{label}</span>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -989,11 +1066,12 @@ const AttendanceLogsPage = () => {
                                                 {/* Detailed Logs Table */}
                                                 {showDetailedLogs[emp.id] && (
                                                     <div style={{
-                                                        marginTop: '20px',
-                                                        padding: '20px',
+                                                        marginTop: '24px',
+                                                        padding: '24px',
                                                         backgroundColor: '#fff',
-                                                        borderRadius: '12px',
-                                                        border: '1px solid #e2e8f0',
+                                                        borderRadius: '8px',
+                                                        border: '1px solid #f1f5f9',
+                                                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
                                                         animation: 'fadeIn 0.3s ease'
                                                     }}>
                                                         <h4 style={{
@@ -1005,7 +1083,9 @@ const AttendanceLogsPage = () => {
                                                             alignItems: 'center',
                                                             gap: '8px'
                                                         }}>
-                                                            <Clock size={18} style={{ color: '#7c3aed' }} />
+                                                            <div style={{ width: '32px', height: '32px', borderRadius: '6px', backgroundColor: '#faf5ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                <Clock size={16} style={{ color: '#7c3aed' }} />
+                                                            </div>
                                                             Attendance History - {monthNames[selectedMonth]} {selectedYear}
                                                         </h4>
                                                         <div style={{ overflowX: 'auto' }}>
@@ -1130,26 +1210,27 @@ const AttendanceLogsPage = () => {
                                         key={emp.id}
                                         onClick={() => viewEmployeeDetails(emp)}
                                         style={{
-                                            padding: '24px 20px',
-                                            borderRadius: '16px',
-                                            border: '1px solid #e2e8f0',
+                                            padding: '24px',
+                                            borderRadius: '8px',
+                                            border: '1px solid #f1f5f9',
                                             cursor: 'pointer',
                                             transition: 'all 0.2s',
                                             backgroundColor: '#fff',
-                                            textAlign: 'center'
+                                            textAlign: 'center',
+                                            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.02)'
                                         }}
                                         onMouseEnter={(e) => {
-                                            e.currentTarget.style.borderColor = '#22c55e';
-                                            e.currentTarget.style.boxShadow = '0 8px 24px rgba(34,197,94,0.15)';
+                                            e.currentTarget.style.borderColor = '#7c3aed';
+                                            e.currentTarget.style.boxShadow = '0 8px 24px rgba(124, 58, 237, 0.08)';
                                             e.currentTarget.style.transform = 'translateY(-2px)';
                                         }}
                                         onMouseLeave={(e) => {
-                                            e.currentTarget.style.borderColor = '#e2e8f0';
-                                            e.currentTarget.style.boxShadow = 'none';
+                                            e.currentTarget.style.borderColor = '#f1f5f9';
+                                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.02)';
                                             e.currentTarget.style.transform = 'translateY(0)';
                                         }}
                                     >
-                                        {/* Avatar with Green Ring Border */}
+                                        {/* Avatar Section */}
                                         <div style={{
                                             display: 'flex',
                                             justifyContent: 'center',
@@ -1160,7 +1241,7 @@ const AttendanceLogsPage = () => {
                                                 height: '80px',
                                                 borderRadius: '50%',
                                                 padding: '4px',
-                                                background: `conic-gradient(${ringColor} ${attendancePercent}%, #e2e8f0 ${attendancePercent}%)`,
+                                                background: `conic-gradient(${ringColor} ${attendancePercent}%, #f1f5f9 ${attendancePercent}%)`,
                                                 display: 'flex',
                                                 alignItems: 'center',
                                                 justifyContent: 'center'
@@ -1169,139 +1250,50 @@ const AttendanceLogsPage = () => {
                                                     width: '68px',
                                                     height: '68px',
                                                     borderRadius: '50%',
-                                                    backgroundColor: '#f8fafc',
+                                                    backgroundColor: '#fff',
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'center',
                                                     fontSize: '1.4rem',
                                                     fontWeight: 700,
-                                                    color: '#4f46e5',
+                                                    color: ringColor,
                                                     backgroundImage: emp.avatar_url ? `url(${emp.avatar_url})` : 'none',
                                                     backgroundSize: 'cover',
-                                                    backgroundPosition: 'center'
+                                                    backgroundPosition: 'center',
+                                                    border: '1px solid #f1f5f9'
                                                 }}>
                                                     {!emp.avatar_url && getEmployeeInitials(emp)}
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {/* Employee Name */}
-                                        <div style={{
-                                            fontWeight: 700,
-                                            fontSize: '1rem',
-                                            color: '#0f172a',
-                                            marginBottom: '4px'
-                                        }}>
-                                            {emp.full_name || emp.email}
+                                        {/* Employee Info */}
+                                        <div style={{ marginBottom: '16px' }}>
+                                            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#0f172a', marginBottom: '4px' }}>
+                                                {emp.full_name || emp.email}
+                                            </div>
+                                            <div style={{ fontSize: '0.8rem', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.025em', fontWeight: '500' }}>
+                                                {(emp.role || 'Employee').replace(/_/g, ' ')}
+                                            </div>
                                         </div>
 
-                                        {/* Role */}
+                                        {/* Stats Grid */}
                                         <div style={{
-                                            fontSize: '0.8rem',
-                                            color: '#64748b',
-                                            marginBottom: '4px',
-                                            textTransform: 'capitalize'
-                                        }}>
-                                            {(emp.role || 'Employee').replace(/_/g, ' ')}
-                                        </div>
-
-                                        {/* Department/Email */}
-                                        <div style={{
-                                            fontSize: '0.75rem',
-                                            color: '#94a3b8',
-                                            marginBottom: '16px'
-                                        }}>
-                                            {emp.email?.split('@')[0] || '-'}
-                                        </div>
-
-                                        {/* Attendance & Punctuality Stats */}
-                                        <div style={{
-                                            display: 'flex',
-                                            justifyContent: 'space-around',
-                                            alignItems: 'center',
-                                            paddingTop: '12px',
+                                            display: 'grid',
+                                            gridTemplateColumns: '1fr 1fr',
+                                            gap: '12px',
+                                            paddingTop: '16px',
                                             borderTop: '1px solid #f1f5f9'
                                         }}>
-                                            {/* Attendance */}
                                             <div style={{ textAlign: 'center' }}>
-                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: '8px' }}>Attendance</div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <div style={{
-                                                        fontSize: '1.1rem',
-                                                        fontWeight: 700,
-                                                        color: '#0f172a'
-                                                    }}>
-                                                        {emp.attendanceRate}%
-                                                    </div>
-                                                    <div style={{
-                                                        width: '32px',
-                                                        height: '32px',
-                                                        borderRadius: '50%',
-                                                        background: `conic-gradient(#22c55e ${attendancePercent}%, #e2e8f0 ${attendancePercent}%)`,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center'
-                                                    }}>
-                                                        <div style={{
-                                                            width: '24px',
-                                                            height: '24px',
-                                                            borderRadius: '50%',
-                                                            backgroundColor: '#fff',
-                                                            fontSize: '0.6rem',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            color: '#22c55e',
-                                                            fontWeight: 600
-                                                        }}>
-                                                            ✓
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '4px' }}>
-                                                    {emp.presentDays} Days
-                                                </div>
+                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Present</div>
+                                                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{emp.attendanceRate}%</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#64748b' }}>{emp.presentDays} Days</div>
                                             </div>
-
-                                            {/* Punctuality */}
                                             <div style={{ textAlign: 'center' }}>
-                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: '8px' }}>Hours</div>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <div style={{
-                                                        fontSize: '1.1rem',
-                                                        fontWeight: 700,
-                                                        color: '#0f172a'
-                                                    }}>
-                                                        {emp.totalHours}h
-                                                    </div>
-                                                    <div style={{
-                                                        width: '32px',
-                                                        height: '32px',
-                                                        borderRadius: '50%',
-                                                        background: `conic-gradient(#4f46e5 ${Math.min(100, (parseFloat(emp.totalHours) / (emp.presentDays * 9)) * 100)}%, #e2e8f0 ${Math.min(100, (parseFloat(emp.totalHours) / (emp.presentDays * 9)) * 100)}%)`,
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center'
-                                                    }}>
-                                                        <div style={{
-                                                            width: '24px',
-                                                            height: '24px',
-                                                            borderRadius: '50%',
-                                                            backgroundColor: '#fff',
-                                                            fontSize: '0.6rem',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            color: '#4f46e5',
-                                                            fontWeight: 600
-                                                        }}>
-                                                            ⏱
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '4px' }}>
-                                                    Avg {emp.presentDays > 0 ? (parseFloat(emp.totalHours) / emp.presentDays).toFixed(1) : '0'}h/day
-                                                </div>
+                                                <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', marginBottom: '4px' }}>Hours</div>
+                                                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#0f172a' }}>{emp.totalHours}h</div>
+                                                <div style={{ fontSize: '0.65rem', color: '#64748b' }}>Avg {(parseFloat(emp.totalHours) / Math.max(1, emp.presentDays)).toFixed(1)}h</div>
                                             </div>
                                         </div>
                                     </div>

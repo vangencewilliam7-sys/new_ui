@@ -337,7 +337,7 @@ const Sidebar = ({
             {/* ════════════ New DM Modal ════════════ */}
             {showNewDMModal && (
                 <div className="modal-overlay" onClick={() => { setShowNewDMModal(false); setUserSearchQuery(''); setErrorMessage(null); }}>
-                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ minWidth: '400px' }}>
+                    <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ minWidth: '400px', borderRadius: '6px' }}>
                         <div className="modal-header">
                             <h3>Start a new conversation</h3>
                             <button onClick={() => { setShowNewDMModal(false); setUserSearchQuery(''); setErrorMessage(null); }}>
@@ -463,7 +463,7 @@ const Sidebar = ({
             {/* ════════════ Team Chat Modal ════════════ */}
             {showTeamModal && (
                 <div className="modal-overlay" onClick={() => { setShowTeamModal(false); setTeamName(''); setSelectedTeamMembers([]); setErrorMessage(null); }}>
-                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px', width: '90%', maxHeight: '80vh', background: 'white', borderRadius: '12px', padding: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
+                    <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px', width: '90%', maxHeight: '80vh', background: 'white', borderRadius: '6px', padding: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.2)' }}>
                         <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
                             <h2 style={{ margin: 0, fontSize: '1.25rem' }}>Create Team Chat</h2>
                             <button onClick={() => { setShowTeamModal(false); setTeamName(''); setSelectedTeamMembers([]); }} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
@@ -492,7 +492,7 @@ const Sidebar = ({
                                     border: selectedTeamMembers.length > 0 && !teamName.trim()
                                         ? '2px solid #fbbf24'
                                         : '1px solid #d1d5db',
-                                    borderRadius: '8px',
+                                    borderRadius: '6px',
                                     fontSize: '14px',
                                     outline: 'none',
                                     transition: 'all 0.3s ease',
@@ -509,7 +509,7 @@ const Sidebar = ({
                                     padding: '10px 14px',
                                     background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
                                     border: '1px solid #fbbf24',
-                                    borderRadius: '8px',
+                                    borderRadius: '6px',
                                     display: 'flex',
                                     alignItems: 'center',
                                     gap: '10px',
@@ -612,7 +612,7 @@ const Sidebar = ({
                                 background: loading || !teamName.trim() || selectedTeamMembers.length === 0 ? '#d1d5db' : 'var(--accent, #6366f1)',
                                 color: 'white',
                                 border: 'none',
-                                borderRadius: '8px',
+                                borderRadius: '6px',
                                 cursor: loading || !teamName.trim() || selectedTeamMembers.length === 0 ? 'not-allowed' : 'pointer',
                                 fontWeight: '600',
                                 fontSize: '15px'
